@@ -1,0 +1,76 @@
+Purpose
+This Activity will help you with upcoming design assignments (see Preliminary Design - (Individual) and Design Document (Team)). It can also help with the prototyping phase of the term (see Progress Report #1 and Progress Report #2).
+
+Note: Check out the Exploration: Separation of Concerns for some notes on design choices and philosophy, and Exploration: Choosing Your Technologies for details on how best to approach choosing your technology stack.
+
+Instructions
+Review the available Design and Development Activities. Choose an activity from the list to complete this assignment. Details and submission types will vary.
+
+Note:  Make sure to follow the instructions for your activity exactly. See Rubric below.
+
+Note:  Feel free to propose an activity to the Instructor, especially if you're in a research project.
+
+Finally, be sure to credit sources and don't include copyrighted material or images. All academic standards apply.
+
+Grading
+See grading rubric below.
+
+Rubric
+Design and Development Rubric
+Design and Development Rubric
+Criteria	Ratings	Pts
+This criterion is linked to a Learning OutcomeContent
+15 to >12.0 pts
+Excellent
+Instructions for the chosen Activity have clearly been followed. Writing establishes a clear overall theme that pertains to the goals of your chosen Activity. The paper is informative and understandable, and the content is likely to stimulate interest and discussion. Claims are supported by detail sentences and/or citations of credible sources. Images, charts, screengrabs, and other supporting visuals have been supplied IF required by the chosen activity, and are clear and understandable.
+12 to >10.0 pts
+Good
+ONE OF THESE ISSUES: Instructions for the chosen Activity have not been followed; Writing does not establish a clear overall theme that pertains to the goals of the chosen Activity; The paper is not particularly informative or is not understandable, or the content is unremarkable; Claims are not supported by detail sentences or citations of credible sources; Relevant images, charts, screengrabs, or other supporting visuals have NOT been supplied IF required by the chosen activity.
+10 to >7.5 pts
+Satisfactory
+TWO OR MORE OF THESE ISSUES: Instructions for the chosen Activity have not been followed; Writing does not establish a clear overall theme that pertains to the goals of the chosen Activity; The paper is not particularly informative or is not understandable, or the content is unremarkable; Claims are not supported by detail sentences or citations of credible sources; Relevant images, charts, screengrabs, or other supporting visuals have NOT been supplied IF required by the chosen activity.
+7.5 to >0 pts
+Needs Improvement
+THREE OR MORE OF THESE ISSUES: Instructions for the chosen Activity have not been followed; Writing does not establish a clear overall theme that pertains to the goals of the chosen Activity; The paper is not particularly informative or is not understandable, or the content is unremarkable; Claims are not supported by detail sentences or citations of credible sources; Relevant images, charts, screengrabs, or other supporting visuals have NOT been supplied IF required by the chosen activity.
+15 pts
+This criterion is linked to a Learning OutcomeStyle
+5 to >4.0 pts
+Excellent
+THE CHOSEN ACTIVITY IS IN THE TITLE. This is a mostly informal paper, however it should be well-organized for clarity and readability. There are clear headings, sub-headings, and may include listing bullets or tables. All images or graphics have captions. Word count and all other activity recommendations have been followed.
+4 to >3.0 pts
+Good
+ONE OF THESE ISSUES: The chosen activity is NOT in the title; The writing is NOT well-organized for clarity and readability; There are NO clear headings, sub-headings, lists or tables or other attempts to organize the material; Images or graphics DO NOT have captions; Word count and all other activity recommendations HAVE NOT been followed.
+3 to >2.0 pts
+Satisfactory
+TWO OR MORE OF THESE ISSUES: The chosen activity is NOT in the title; The writing is NOT well-organized for clarity and readability; There are NO clear headings, sub-headings, lists or tables or other attempts to organize the material; Images or graphics DO NOT have captions; Word count and all other activity recommendations HAVE NOT been followed.
+2 to >0 pts
+No Marks
+THREE OR MORE OF THESE ISSUES: The chosen activity is NOT in the title; The writing is NOT well-organized for clarity and readability; There are NO clear headings, sub-headings, lists or tables or other attempts to organize the material; Images or graphics DO NOT have captions; Word count and all other activity recommendations HAVE NOT been followed.
+5 pts
+Total Points: 20
+
+
+
+Proof of Concept
+Goal: Demonstrate that a critical idea, technology, or approach in your project is technically feasible before committing significant effort.
+
+Steps
+Define the Scope & Assumptions
+Identify the one or two riskiest assumptions you need to validate (e.g., “Can we integrate API X with Y?”, “Will this algorithm run fast enough on mobile?”).
+State why these assumptions matter to project success.
+Prototype the Core Feature
+Build a minimal but working version that tests only the critical functionality (not the full system).
+Document setup steps so your teammates could replicate it quickly.
+Keep it focused—avoid polishing UI or adding features outside the test scope.
+Run Feasibility Tests
+Show evidence that the concept works (e.g., sample data processed correctly, API call succeeds, basic interaction works).
+If it fails, explain what you learned and whether there’s a workaround or alternative approach.
+Evaluate & Reflect
+Summarize results: Did it validate or invalidate your assumption?
+Note challenges encountered (technical, performance, integration).
+Identify next steps: adopt, modify, or abandon this approach.
+What to submit:
+
+Brief report (~200-300 words): feasibility, challenges, next steps.
+Screenshots (or short screen-recording) of the prototype in action.
+Optional: short setup instructions so others can try it.

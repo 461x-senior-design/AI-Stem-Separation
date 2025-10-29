@@ -1,0 +1,632 @@
+<?xml version="1.0" encoding="ascii"?>
+<w:document xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:sl="http://schemas.openxmlformats.org/schemaLibrary/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:lc="http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" xmlns:w16="http://schemas.microsoft.com/office/word/2018/wordml" xmlns:w16cex="http://schemas.microsoft.com/office/word/2018/wordml/cex" xmlns:w16cid="http://schemas.microsoft.com/office/word/2016/wordml/cid" xmlns="http://schemas.microsoft.com/office/tasks/2019/documenttasks" xmlns:cr="http://schemas.microsoft.com/office/comments/2020/reactions">
+  <w:body>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000001">
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_hinnjgrjojhy" w:id="0"/>
+      <w:bookmarkEnd w:id="0"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Architecture Description</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000002">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">In this document, I describe the high-level architecture of our AI Stem Separator, a tool designed to separate vocal and instrumental tracks from mixed audio files. This architecture enables users to extract individual components from songs through a command-line interface, leveraging deep learning models to achieve high-quality audio separation. Understanding this architecture is crucial for maintaining, extending, and optimizing the system as we move from MVP to production.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000003">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000004">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_7xmpgyf7ifxz" w:id="1"/>
+      <w:bookmarkEnd w:id="1"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Architecture Diagram</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000005">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">The diagram below illustrates the five-layer pipeline architecture of our system. Audio flows from left to right, beginning with user input and ending with separated audio files. Each layer transforms the data in a specific way: the User Interface Layer validates commands, the Preprocessing Layer converts audio to spectrograms, the Inference Layer applies the U-Net neural network to generate separation masks, the Post-processing Layer reconstructs audio waveforms, and the Output Layer saves the final files.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000006">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000007">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr/>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="5855758" cy="2257425"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="2" name="image1.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image1.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId6"/>
+                    <a:srcRect b="0" l="0" r="57142" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="5855758" cy="2257425"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000008">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr/>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="5882781" cy="1514816"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="1" name="image1.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image1.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId6"/>
+                    <a:srcRect b="0" l="35844" r="0" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="5882781" cy="1514816"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000009">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000A">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_8nkzto4du6h1" w:id="2"/>
+      <w:bookmarkEnd w:id="2"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Components</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000B">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">The following sections detail each architectural layer, describing how audio data is transformed as it moves through the pipeline.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000C">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_gh4cub23tq17" w:id="3"/>
+      <w:bookmarkEnd w:id="3"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">User Interface Layer</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000D">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">The system begins with the User Interface Layer, where user commands are parsed and validated. This layer is responsible for accepting command-line arguments, validating input parameters, and providing clear error messages when users provide invalid inputs. As processing occurs, this layer displays progress information to keep users informed. Once validation is complete, the audio file path is passed to the Preprocessing Layer for loading and transformation.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000E">
+      <w:pPr>
+        <w:pStyle w:val="Heading4"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_9fyupt8s1wfq" w:id="4"/>
+      <w:bookmarkEnd w:id="4"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Primary Technologies</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000F">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="720" w:hanging="360"/>
+        <w:rPr>
+          <w:u w:val="none"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Python libraries for argument parsing</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000010">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000011">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_ql0l7g8ezivu" w:id="5"/>
+      <w:bookmarkEnd w:id="5"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Preprocessing Layer</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000012">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Once the User Interface Layer validates the input, the Preprocessing Layer takes over to prepare the audio for neural network processing. This layer loads the audio file from disk into memory as a numerical array using the Librosa Python library. The audio is then converted into a spectrogram representation using Short-Time Fourier Transform (STFT) preprocessing. This spectrogram is normalized to a standard range, ensuring the U-Net can process it efficiently. The resulting spectrogram tensor is then passed forward to the Inference Layer.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000013">
+      <w:pPr>
+        <w:pStyle w:val="Heading4"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_2ck018d1u5sh" w:id="6"/>
+      <w:bookmarkEnd w:id="6"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Primary Technologies</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000014">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Librosa</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000015">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="720" w:hanging="360"/>
+        <w:rPr>
+          <w:u w:val="none"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">NumPy</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000016">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_mlr43938h4tc" w:id="7"/>
+      <w:bookmarkEnd w:id="7"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Inference Layer</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000017">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">At the heart of our system lies the Inference Layer, where the U-Net neural network resides. This layer loads the pre-trained model and performs the actual separation task. The U-Net takes the normalized spectrogram as input and generates probabilistic masks that distinguish between vocal and instrumental content. These masks represent the likelihood that each frequency component belongs to either vocals or instruments. Once generated, these masks are forwarded to the Post-processing Layer for audio reconstruction.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000018">
+      <w:pPr>
+        <w:pStyle w:val="Heading4"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_jnj0ulz0q9hs" w:id="8"/>
+      <w:bookmarkEnd w:id="8"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Primary Technologies</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000019">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">PyTorch</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001A">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="720" w:hanging="360"/>
+        <w:rPr>
+          <w:u w:val="none"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">U-Net</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001B">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_x4g2t2150hy5" w:id="9"/>
+      <w:bookmarkEnd w:id="9"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Post-processing Layer</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001C">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">With the separation masks in hand, the Post-processing Layer reconstructs the separated audio waveforms. This layer applies the masks to the original spectrogram, creating two distinct spectrograms: one for vocals and one for instruments. Each masked spectrogram is then converted back to a time-domain waveform using inverse STFT. Finally, the audio is denormalized to restore standard amplitude levels. The result is two clean waveforms ready for export, which are passed to the Output Layer.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001D">
+      <w:pPr>
+        <w:pStyle w:val="Heading4"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_xsfg8gjgpt3m" w:id="10"/>
+      <w:bookmarkEnd w:id="10"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Primary Technologies</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001E">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Librosa</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001F">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="720" w:hanging="360"/>
+        <w:rPr>
+          <w:u w:val="none"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">NumPy</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000020">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_s73elc318cz" w:id="11"/>
+      <w:bookmarkEnd w:id="11"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Output Layer</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000021">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">The final stage of our pipeline is the Output Layer, which handles file creation and user notification. This layer saves the separated vocal and instrumental waveforms as audio files with appropriate metadata to a user-specified directory. Once the files are written to disk, user notifications are displayed in the terminal to confirm successful completion. This closes the processing loop and returns control to the user.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000022">
+      <w:pPr>
+        <w:pStyle w:val="Heading4"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_dll7ecdrr91p" w:id="12"/>
+      <w:bookmarkEnd w:id="12"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Primary Technologies</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000023">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Python libraries for file creation</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000024">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_ddp5hxyz7hbs" w:id="13"/>
+      <w:bookmarkEnd w:id="13"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Security and Perfromance Optimization</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000025">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Throughout the pipeline, security measures are integrated to protect against common vulnerabilities. The User Interface Layer implements robust input validation to prevent malicious file format exploits and path traversal attacks. To maintain security as dependencies evolve, we recommend implementing regular pip-audit runs during development to detect and address vulnerable packages before they can be exploited.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000026">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_9z886njqjrqt" w:id="14"/>
+      <w:bookmarkEnd w:id="14"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Scalability</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000027">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Our current MVP is architected as a single-user, local-execution tool optimized for desktop use. This design prioritizes simplicity and direct user control, making it ideal for individual musicians, producers, and audio engineers. For future iterations, particularly if we pursue stretch goals involving web deployment, we would need to consider containerization technologies like Docker, implement RESTful APIs for remote access, and potentially introduce batch processing capabilities for handling multiple files. Such enhancements would transform the tool from a personal utility into a scalable service.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000028">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000029">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_ac2gxx7klt42" w:id="15"/>
+      <w:bookmarkEnd w:id="15"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Conclusion</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002A">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">This layered architecture provides a clean separation of concerns, with each layer handling a distinct aspect of the audio separation pipeline. The design enables straightforward testing, maintenance and future enhancement. By leveraging proven Python libraries alongside the powerful U-Net architecture, we&#8217;ve created a robust foundation for high-quality stem separation that can grow with our project&#8217;s ambitions.</w:t>
+      </w:r>
+    </w:p>
+    <w:sectPr>
+      <w:headerReference r:id="rId7" w:type="default"/>
+      <w:headerReference r:id="rId8" w:type="first"/>
+      <w:footerReference r:id="rId9" w:type="first"/>
+      <w:pgSz w:h="15840" w:w="12240" w:orient="portrait"/>
+      <w:pgMar w:bottom="1440" w:top="1440" w:left="1440" w:right="1440" w:header="720" w:footer="720"/>
+      <w:pgNumType w:start="1"/>
+      <w:titlePg w:val="1"/>
+    </w:sectPr>
+  </w:body>
+</w:document>

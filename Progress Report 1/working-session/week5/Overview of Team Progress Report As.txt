@@ -1,0 +1,68 @@
+Overview of Team Progress Report Assignments
+
+
+Introduction
+TL;DR - In this team/individual assignment, you will document your individual and team progress since the previous Progress Report (or from the start of your project) by creating a set of slides and a working project version. A designated team member will then create a screencast video, using the slides and running project, and submit this video for the assignment.
+
+IMPORTANT: Please contact the Instructor if your agreements (NDA/IP) are preventative, or your project requires special resources or hardware, or if you are unable to host your project, or if, for any other reason, you are unable to turn in all the deliverables (see below). IF APPROVED, you may instead refer to the Alternative Deliverables ("Alternative Deliverables for the Te.txt")  for the Team Progress Report assignments for instructions.
+
+Things to keep in mind:
+
+This is a team/individual assignment, however points will be assigned individually. See Grading Criteria below.
+Please contact the Instructor if your agreements (NDA/IP) are preventative, and you are not able to share your code repo or discuss your project in-depth. We will provide alternatives.
+The video should be approximately 2-5 minutes to discuss the slides, plus another 2-5 minutes to demo the project. If you record a team meeting (alternate method), the video can be a few minutes longer.
+In order to successfully demo each team member's contributions, all code must be committed/pushed, built, and tested. This will take extra planning!
+It would be a very good idea to hold a team meeting to discuss how the team will satisfy these Progress Reports, and to make sure that the whole team understands exactly what needs to be done. A dry run could be helpful, with team members turning in their slides along with  notes, committing/pushing their code, and creating a final build and test several days before the assignment due date.
+Note:  IF your team are trying out different technologies and/or prototypes, then at this point we do not require a unified source repo or single build for the team. In this case it may be easier to have several demonstration videos, or the recorded online meeting approach (see Alternative way to present below).
+These assignments require team coordination. Do not leave until the last minute!
+
+General Instructions
+One of you will be designated "Scrum Master" for the Progress Report. The Scrum Master will record most of the screencast video according to the instructions below. Note:  The Scrum Master *should* be a different team member each time!
+Alternative way to present:  The team may instead elect to record an online meeting where each team member shows and narrates their own slides. The running project must be shown as well, preferably by one team member who does the build.
+The Scrum Master will need to make a copy of the template slides file and share a link with the team so that everyone can edit:   CS 46X Team Progress Report TemplateLinks to an external site.
+
+"Copy of CS 46X Team Progress Report Template .pptx"
+If you can't edit the slides, it's likely that you didn't make a copy.
+The template is only accessible from your OSU Google account. If you get an "Access denied" error, open the link in a Private/Incognito window and sign in with your OSU Google account.
+For Teams that are NOT under NDA/IP agreements:
+If you have not done so already, share your GitHub repo with the Instructor(s) and your Grading GTA. See the Assigned Graders page for your Grader and their GitHub usernames.
+Please also share your Team Progress Report Slide deck, your Kanban boards, Box or Drive folders, etc.
+You will use this slide deck for ALL of your Progress Reports.
+You will edit only the Progress Report #1 and Progress Report #2 section of the slides for 461.
+Do not worry about or edit any other sections you are not using.
+Refer to the slide template for details on what information to include.
+The Scrum Master will complete the slides, then create a narrated screencast using the prepared slides and the running project (or projects):
+Don't just read the slides. Give us more information. Draw our attention to the most important things that each team member worked on, and why they were important. You can also discuss the team's struggles, what might have been done differently, etc.
+The screencast must also include a narrated walkthrough of your working code or other results. This should be roughly half of your presentation!
+At the end of the slide presentation, the Scrum Master will continue the screencast to show us your results. This part of the presentation must show, directly or indirectly, the completed tasks for each team member.
+We especially want to see your running project. You could also show us things like your task board (if your team has one), your code, research and results, designs, schema, class diagrams or classes, build scripts, or basically anything that the team put effort into from the previous Standup Report (or from the start of your project). Show us and talk about why what we are seeing is important.
+Alternate way to present:  It is also ok to switch back and forth between the application and slideshow to show things in context. In this case, the live demo is interleaved with the slide presentation. This may be helpful if the team have elected to create several prototypes for the assignment.
+Making the Videos
+IMPORTANT:  This is the best way to submit your Kaltura video so that we can see it:  Embed your Kaltura Video in a Canvas Assignment
+
+If you're new to recording videos, we recommend you consider OSU MediaSpace for both recording and hosting. Log in there with your ONID credentials, then click on the Add New button in the upper right corner. You'll see Media Upload, where you can upload a pre-recorded video, Webcam Recording, which will use your webcam to record a video for submission, and Recording Tools, which uses the Kaltura tools to record what's happening on your screen, adding narration from your microphone to the video.
+
+These work very well!
+
+Hosting the Videos
+
+You may host the videos using any online site you choose, including:
+
+OSU MediaSpace (Recommended)
+YouTube (Links to an external site.)
+Vimeo (Links to an external site.)
+You must embed any of these in the Text Entry Canvas Assignment.
+
+If you're unfamiliar with hosting videos online, we recommend you use the OSU MediaSpace site.
+
+What to Turn In
+The designated Scrum Master will upload the url of your screencast video.
+
+Grading
+Note:  See Assignment Rubric. This is partially a team assignment, mostly an individual assignment. Points will be awarded individually.
+
+Each team member must send the designated Scrum Master info for the slides, and commit/push their code, at least 2-3 days before the assignment due date to allow time for the presentation to be made. Please include speaker notes on slides (or google doc), so that your Scrum Master can present your effort.
+
+If you don't do these things, or have accomplished little to no work as demonstrated by the slides/project, then you may receive a poor grade on the assignment.
+
+Note:  No one is being judged by how far along the project is at any given stage: we're instead subjectively analyzing whether or not each team member is putting in effort, making progress, being a good teammate, and learning and staying engaged.

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="ascii"?>
+<b:Sources xmlns:b="http://schemas.openxmlformats.org/officeDocument/2006/bibliography" StyleName="MLA" SelectedStyle="/MLASeventhEditionOfficeOnline.xsl" Version="7">
+  <b:Source>
+    <b:Tag>source1</b:Tag>
+    <b:SourceType>DocumentFromInternetSite</b:SourceType>
+    <b:Day>24</b:Day>
+    <b:DayAccessed>25</b:DayAccessed>
+    <b:Month>3</b:Month>
+    <b:MonthAccessed>10</b:MonthAccessed>
+    <b:Title>Deep Learning with PyTorch: A 60 Minute Blitz</b:Title>
+    <b:URL>https://docs.pytorch.org/tutorials/beginner/deep_learning_60min_blitz.html</b:URL>
+    <b:InternetSiteTitle>https://docs.pytorch.org/</b:InternetSiteTitle>
+    <b:Year>2017</b:Year>
+    <b:YearAccessed>2025</b:YearAccessed>
+    <b:Gdcea>{&quot;AccessedType&quot;:&quot;Website&quot;}</b:Gdcea>
+    <b:Author>
+      <b:Author>
+        <b:NameList>
+          <b:Person>
+            <b:First>Soumith</b:First>
+            <b:Last>Chintala</b:Last>
+          </b:Person>
+        </b:NameList>
+      </b:Author>
+    </b:Author>
+  </b:Source>
+</b:Sources>

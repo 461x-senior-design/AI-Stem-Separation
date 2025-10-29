@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #ffffff;
+  font-family: Arial, sans-serif;
+  display: flex;
+}
+.sidebar {
+  width: 200pt; background: #14b8a6;
+  padding: 25pt 20pt; color: #ffffff;
+}
+.main { flex: 1; padding: 30pt 35pt 50pt 35pt; }
+h1 {
+  color: #ffffff; font-size: 28pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+.lab-num {
+  color: #ccfbf1; font-size: 56pt; font-weight: bold;
+  margin: 0 0 8pt 0;
+}
+h2 {
+  color: #115e59; font-size: 21pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+ul {
+  color: #1f2937; font-size: 15pt;
+  margin: 0; padding-left: 22pt; line-height: 1.5;
+}
+.highlight-box {
+  background: #f0fdfa; padding: 12pt;
+  border-left: 5pt solid #14b8a6; margin: 12pt 0;
+}
+p {
+  color: #374151; font-size: 14pt;
+  margin: 6pt 0; line-height: 1.4;
+}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <p class="lab-num">02</p>
+  <h1>NumPy Arrays</h1>
+  <p style="font-size: 15pt; margin-top: 20pt; color: #ccfbf1;">
+    <b>Team:</b> Cameron, cervanj2, Ryan, Yovannoa
+  </p>
+</div>
+<div class="main">
+  <h2>NumPy Powers 765,000 Measurements</h2>
+  <ul>
+    <li>NumPy is 10-100x faster than Python loops</li>
+    <li>18-slice multi-scale analysis</li>
+    <li>Array slicing: magnitude[:, start:end]</li>
+    <li>Seamless integration with librosa and PyTorch</li>
+  </ul>
+
+  <div class="highlight-box">
+    <p><b>Array Operations:</b></p>
+    <p>audio = audio * 0.5  # Entire array processed at once</p>
+    <p>slice_data = magnitude[:, start:end]  # Extract time slice</p>
+  </div>
+
+  <p><b>Why it matters:</b> Powers all 765,000 measurements in the POC. Foundation for PyTorch conversion.</p>
+</div>
+</body>
+</html>

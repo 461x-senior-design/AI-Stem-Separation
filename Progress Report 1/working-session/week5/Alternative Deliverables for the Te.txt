@@ -1,0 +1,18 @@
+Alternative Deliverables for the Team Progress Report assignments
+IMPORTANT: Make sure to contact your Instructor(s) to be approved for these deliverables.
+
+This page describes Alternative Deliverables for the Team Progress assignments:  For teams under NDA/IP, or for whom, for whatever reason, are unable to complete the standard Team Progress assignment.
+
+Please Note: Every legal agreement is unique, of course, so yours may be different and you may want to seek legal advice. In essence however, most NDA or IP agreements will prohibit sharing details of your project and/or the code with anyone outside the organization. We encourage you to contact your Project Mentor (PM) for clarification about what can and cannot be shared. Sometimes the PM will allow the TA or Instructors to view your work regardless of any legal agreement. You will want to keep in mind that as OSU employees, your TAs and Instructors are not able to sign anything.
+
+Instructions
+If sharing is prohibited by your NDA/IP, you can focus on the technologies you are all using:
+
+You can still use the same slide template and instructions from the v0.0.x assignment.
+Make sure to describe your completed features/stories in terms of the technologies used, not in terms of the feature/story. 
+Rather than share your code or other project-related tools, you can share links to the tutorials, websites, and blogs that helped you use these technologies.
+When it comes time to show off your project, you can instead show running code that you used to prototype with or to work through tutorials. In other words, running code that displays effort put in, without showing all the details of the application under NDA/IP.
+Just do your best to navigate this tricky situation while still showing us what your efforts are and what you have produced. We will take note and make allowances. Please error on the side of caution, and do not share anything that you are not allowed to share!
+
+Grading Criteria
+The grading criteria is the same as for the regular v0.0.x assignments. We will make allowances for teams that are not able to share details, code, or other links for their projects.

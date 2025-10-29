@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="ascii"?>
+<w:document xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:sl="http://schemas.openxmlformats.org/schemaLibrary/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:lc="http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" xmlns:w16="http://schemas.microsoft.com/office/word/2018/wordml" xmlns:w16cex="http://schemas.microsoft.com/office/word/2018/wordml/cex" xmlns:w16cid="http://schemas.microsoft.com/office/word/2016/wordml/cid" xmlns="http://schemas.microsoft.com/office/tasks/2019/documenttasks" xmlns:cr="http://schemas.microsoft.com/office/comments/2020/reactions">
+  <w:body>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000001">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">The book </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:i w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">A Philosophy of Software Design</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> by John Ousterhout focuses on one of the biggest challenges in software engineering, managing complexity. Ousterhout argues that complexity is the root cause of most software problems and that it usually comes down to poor problem decomposition. The book&#8217;s main goal is to define what complexity really means and to show how developers can reduce it throughout a project&#8217;s lifetime.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000002">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">According to Ousterhout, complexity is anything that makes code hard to understand, modify, or extend. It usually shows up in three ways: change amplification (where one small change requires edits all over the code), high cognitive load (where developers have to keep too much in their heads at once), and unknown unknowns (when parts of the system behave in unexpected ways). Complexity builds up over time as dependencies and hidden details pile up, so he suggests developers take a &#8220;zero-tolerance&#8221; approach, meaning, don&#8217;t let small messes slide, because they grow quickly.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000003">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">To manage this, the book encourages what he calls strategic programming instead of a purely tactical mindset. In other words, it&#8217;s worth investing 10&#8211;20% of development time improving design now, because that investment pays off later when the codebase is cleaner and easier to work with.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000004">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">One of the biggest takeaways from the book is the importance of deep modules. A deep module hides a lot of complexity behind a simple interface, which keeps the rest of the system easier to understand. The deeper the module, the less other parts of the system need to know about its inner workings. This ties closely to information hiding and modularity, two design principles that prevent complexity from spreading. Ousterhout also said that general-purpose modules are often simpler and more reusable than those designed for a single narrow use.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000005">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">The book also talks about on practical design habits, like writing clear and consistent code, picking precise names, and reducing the number of special cases that make systems harder to maintain. Ousterhout suggests that developers &#8220;design it twice,&#8221; meaning it&#8217;s worth exploring multiple solutions before picking one to implement. He also emphasizes writing interface comments early in the process, before writing the code itself, to help evaluate whether an abstraction is simple and well-designed.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000006">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Overall, </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:i w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">A Philosophy of Software Design</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> promotes a mindset shift: treat good design as an investment, build deep modules with clean interfaces, and fight complexity at every step instead of accepting it as unavoidable.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000007">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000008">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:sectPr>
+      <w:pgSz w:h="15840" w:w="12240" w:orient="portrait"/>
+      <w:pgMar w:bottom="1440" w:top="1440" w:left="1440" w:right="1440" w:header="720" w:footer="720"/>
+      <w:pgNumType w:start="1"/>
+    </w:sectPr>
+  </w:body>
+</w:document>

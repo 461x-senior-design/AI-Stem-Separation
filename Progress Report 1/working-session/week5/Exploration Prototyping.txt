@@ -1,0 +1,59 @@
+Exploration: Prototyping
+
+Introduction
+Why is it a good idea to prototype parts of your project?
+
+Prototyping can help you answer questions about your project:
+
+Should you have chosen a different technology?
+Is your UI/UX as good as it could be?
+What is the learning curve for your product deployment?
+Has something been missed in the requirements?
+How long is this really going to take?
+Will xyz library or component integrate as easily as we think it will?
+Will abc cross-platform development system handle our requirements?
+And so on..
+Prototypes can help answer many of these types of questions. Prototyping can also be used for development.
+
+Lecture
+Prototyping (5:08)
+
+
+Different Kinds of Prototyping
+There are several methods of Prototyping, which can be classified by whether the code will be reused or not:
+
+Throwaway code
+Throwaway Prototyping
+Reusable code
+Rapid Application Development (RAD)
+UI/UX Prototyping
+Throwaway Prototyping
+With throwaway code, features or demos can be very quickly created, especially if libraries exist to ease development. Throwaway prototypes are standalone works, and normally created to answer a question about the project.
+
+Not surprisingly, throwaway prototypes are not intended for reuse. The emphasis should be on getting the prototype working, and not on coding standards or architecture concerns. The lifespan of such a prototype is usually quite short; Perhaps only a few days. Even so, it is a safe bet that many important software projects have been born from this type of experimentation.
+
+RAD Development
+On the other end of the spectrum is Rapid Application Development (RAD). RAD is a method of software development that relies on prototyping and iterative development. Function modules are built up from prototypes and integrated as needed.
+
+Since the code will be reused, more care and time must be taken. The code should conform to project standards and be designed to easily be integrated with the rest of the system. Within these constraints however, features are developed rapidly, tested, improved, and accepted.
+
+For RAD to work, teams must be experienced, the problem space must be very well understood, and requirements must be rock-solid. For example, a consulting firm that tackles many similar projects, has experienced developers on staff, and employs a good process for gathering requirements may use RAD development techniques.
+
+UI/UX Prototyping
+One of the most common uses of prototyping is in UI/UX development. UI/UX prototypes aim to validate the core functionality of the product for user interaction. One good way to do that is build a UI, put it in front of users, and see how they interact with it. In the web-dev world, it is common to prototype UI using static web pages, get user feedback, then evolve the pages into functional web apps.
+
+Many web-based or standalone app tools exist that help you instantly create visual prototypes. These wireframes, as they are known, allow you to place images and clickable hotspots to navigate between screens. Used cleverly, these wireframing tools let you very quickly prototype your user experience.
+
+Finally, UI/UX designers and developers often employ a process known as Design Thinking. The flow is illustrated below. Note that the prototypes involved in this process often proceed from low-fidelity static images or sites all the way to a high-fidelity fully interactive site. This can be used for any UI project, of course.
+
+UI/UX Design Thinking:
+Prototyping – The team creates an initial prototype to the design specification in the requirements. The prototype may be interactive or non-interactive.
+Feedback – The prototype is shared with other team members, stakeholders, and focus groups that reflect the end-users. The design and usability are evaluated and feedback is received.
+Improvement – The feedback is used to create a new iteration of the prototype. The process continues until the prototype is accepted as complete.
+Resources
+Rapid Prototyping Practices for Software Engineering TeamsLinks to an external site.
+Four Common Types of Software PrototypesLinks to an external site.
+Software Prototyping Links to an external site.
+Rapid prototyping isn’t helpful. Or is it?Links to an external site.
+SDLC - RAD ModelLinks to an external site.
+Software Engineering | Prototyping ModelLinks to an external site.

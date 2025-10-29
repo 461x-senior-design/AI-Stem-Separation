@@ -1,0 +1,64 @@
+Purpose
+Provide visibility of progress for the team, project partner, and for the Instructor / TA’s. Ensure all team members are doing their part, and aren’t held back by any issues or blockers.
+
+This first version should not do much beyond showing that you have your tech stack working and source repo functioning. Hello World is fine from a functionality standpoint (or the equivalent for your project). Your project work should also demonstrate each team member's ability to collaborate together (pushing & pulling changes), and integrate/build/test/debug.
+
+IF your team have not settled on an architecture, approach, or set of technologies, take this opportunity to test out different approaches. Cross-platform mobile app? Try a small prototype with Flutter/Dart or React Native. Making a game? Try Unity, Unreal, or Godot. Feel free to experiment with different ideas, patterns, algorithms.. If you go this route, instead of one repo there may be several. In this scenario we do not require a unified source repo until later in the term.
+
+IMPORTANT:  No matter what you and your team are doing at this beginning stage of your project, we want to see all of it coming from good communication, visibility, and full cooperation. Teamwork is KEY and we HAVE to see this in these Progress Reports!
+
+Instructions
+This assignment is described in detail on the Overview of Team Progress Report Assignments page. You must refer to this page to ensure that you are correctly meeting the assignment requirements.
+
+Grading Criteria
+Note:  This is both a team and individual assignment, however it will be graded individually.
+
+See Grading Rubric below.
+
+Rubric
+Progress Report #1
+Progress Report #1
+Criteria	Ratings	Pts
+This criterion is linked to a Learning OutcomeTeam Presentation
+10 to >8.0 pts
+Excellent
+Clear, engaging, and professional presentation of the project. The video is within 2-5 minutes to discuss the slides, and 2-5 minutes to demo the project. The video is well-structured and easy to understand. Clear visual evidence of work is presented in the form of running software, code, tests, scripts, database schema, UI mocks, exploits and hacks, Unity scenes, research results, designs, etc.
+8 to >6.0 pts
+Good
+ONE OF THESE ISSUES: Problems with audio or video. Parts of the video are difficult to understand or follow. The video is not within 2-5 minutes to discuss the slides or is not within 2-5 minutes to demo the project. The video is not well-structured or there is no connection between the demo and slides. Clear visual evidence of work is not presented.
+6 to >3.0 pts
+Fair
+TWO OF THESE ISSUES: Problems with audio or video. Parts of the video are difficult to understand or follow. The video is not within 2-5 minutes to discuss the slides or is not within 2-5 minutes to demo the project. The video is not well-structured or there is no connection between the demo and slides. Clear visual evidence of work is not presented.
+3 to >0 pts
+Needs Improvement
+THREE OR MORE OF THESE ISSUES: Problems with audio or video. Parts of the video are difficult to understand or follow. The video is not within 2-5 minutes to discuss the slides or is not within 2-5 minutes to demo the project. The video is not well-structured or there is no connection between the demo and slides. Clear visual evidence of work is not presented.
+10 pts
+This criterion is linked to a Learning OutcomeIndividual Contribution and Progress
+20 to >16.0 pts
+Excellent
+We can easily see and understand from the slides what you have been working on and completed. Relevant links to your issues and/or pull-requests are included. Your contributions are reflected in the built, integrated, and running project, or a reasonable explanation provided. The sum total of your effort for this Progress Report is clearly equal to, or more than the 10 hours per week project work requirement.
+16 to >12.0 pts
+Good
+ONE OF THESE ISSUES: We cannot easily see and understand from the slides what you have been working on and completed. Relevant links to your issues and/or pull-requests are not included. Your contributions may not be reflected in the built, integrated, and running project, or a reasonable explanation is not provided. The sum total of your effort for this Progress Report is clearly less than the 10 hours per week project work requirement.
+12 to >8.0 pts
+Fair
+TWO OR MORE OF THESE ISSUES: We cannot easily see and understand from the slides what you have been working on and completed. Relevant links to your issues and/or pull-requests are not included. Your contributions may not be reflected in the built, integrated, and running project, or a reasonable explanation is not provided. The sum total of your effort for this Progress Report is clearly less than the 10 hours per week project work requirement.
+8 to >0 pts
+Needs Improvement
+THREE OR MORE OF THESE ISSUES: We cannot easily see and understand from the slides what you have been working on and completed. Relevant links to your issues and/or pull-requests are not included. Your contributions may not be reflected in the built, integrated, and running project, or a reasonable explanation is not provided. The sum total of your effort for this Progress Report is clearly less than the 10 hours per week project work requirement.
+20 pts
+This criterion is linked to a Learning OutcomeIndividual Teamwork and Participation
+10 to >8.0 pts
+Excellent
+You have put in the effort to be a good teammate, and there are no complaints at all about communication, participation in team meetings, regularly committing or sharing your work, and helping with assignments. You have put in some extra note-worthy effort to make sure this team has a good dynamic, and the project is a success.
+8 to >6.0 pts
+Good
+ONE OF THESE ISSUES: There are complaints about communication OR participation in team meetings OR regularly committing or sharing your work OR helping with assignments. You have not put in any extra effort to make sure the team dynamic or the project is a success.
+6 to >3.0 pts
+Fair
+TWO OF THESE ISSUES: There are complaints about communication OR participation in team meetings OR regularly committing or sharing your work OR helping with assignments. You have not put in any extra effort to make sure the team dynamic or the project is a success.
+3 to >0 pts
+Needs Improvement
+THREE OR MORE OF THESE ISSUES: There are complaints about communication OR participation in team meetings OR regularly committing or sharing your work OR helping with assignments. You have not put in any extra effort to make sure the team dynamic or the project is a success.
+10 pts
+Total Points: 40

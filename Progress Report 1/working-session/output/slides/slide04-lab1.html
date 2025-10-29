@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #ffffff;
+  font-family: Arial, sans-serif;
+  display: flex;
+}
+.sidebar {
+  width: 200pt; background: #2563eb;
+  padding: 25pt 20pt; color: #ffffff;
+}
+.main { flex: 1; padding: 30pt 35pt 50pt 35pt; }
+h1 {
+  color: #ffffff; font-size: 28pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+.lab-num {
+  color: #dbeafe; font-size: 56pt; font-weight: bold;
+  margin: 0 0 8pt 0;
+}
+h2 {
+  color: #1e40af; font-size: 21pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+ul {
+  color: #1f2937; font-size: 15pt;
+  margin: 0; padding-left: 22pt; line-height: 1.5;
+}
+.code-box {
+  background: #f3f4f6; padding: 12pt;
+  border-radius: 6pt; margin: 12pt 0;
+  font-family: 'Courier New', monospace; font-size: 12pt;
+}
+p {
+  color: #374151; font-size: 14pt;
+  margin: 6pt 0; line-height: 1.4;
+}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <p class="lab-num">01</p>
+  <h1>Data Integration</h1>
+  <p style="font-size: 15pt; margin-top: 20pt; color: #bfdbfe;">
+    <b>Team:</b> Cameron's POC, Yovannoa, cervanj2
+  </p>
+</div>
+<div class="main">
+  <h2>Audio is Just Numbers</h2>
+  <ul>
+    <li>Sample rate = 22,050 samples/second</li>
+    <li>30 seconds = 661,500 measurements</li>
+    <li>Each sample is a float (-1.0 to 1.0)</li>
+  </ul>
+
+  <div class="code-box">
+    <p>import librosa</p>
+    <p>audio, sr = librosa.load('song.wav', sr=22050)</p>
+    <p>print(f"Shape: {audio.shape}")</p>
+    <p># Output: (661500,)</p>
+  </div>
+
+  <p><b>Why it matters:</b> First step of the POC. Foundation of cervanj2's preprocessing layer.</p>
+</div>
+</body>
+</html>

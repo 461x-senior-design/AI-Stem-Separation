@@ -1,0 +1,1291 @@
+<?xml version="1.0" encoding="ascii"?>
+<w:document xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:sl="http://schemas.openxmlformats.org/schemaLibrary/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:lc="http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" xmlns:w16="http://schemas.microsoft.com/office/word/2018/wordml" xmlns:w16cex="http://schemas.microsoft.com/office/word/2018/wordml/cex" xmlns:w16cid="http://schemas.microsoft.com/office/word/2016/wordml/cid" xmlns="http://schemas.microsoft.com/office/tasks/2019/documenttasks" xmlns:cr="http://schemas.microsoft.com/office/comments/2020/reactions">
+  <w:body>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000001">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Ryan O&#8217;Rourke</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000002">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">24 October 2025</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000003">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">CS461 - (CS_461_400_F2025)</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000004">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Prof. Bill Pfeil</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000005">
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+        <w:jc w:val="center"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_lg56qfj2hdq8" w:id="0"/>
+      <w:bookmarkEnd w:id="0"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Design and Development - Complete a Tutorial</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000006">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_5orzwa2d0wxs" w:id="1"/>
+      <w:bookmarkEnd w:id="1"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Introduction</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000007">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">For this Design and Development Activity, I completed the official PyTorch tutorial </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:i w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">&#8220;Learn the Basics&#8221;</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> [1]. The tutorial provides foundational experience in defining tensors, applying transformations, building models, and training them on GPU hardware.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000008">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">This directly supports the </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">AI Stem Separation</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> project described in our team&#8217;s </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:i w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Requirements Document</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> [2], which involves designing a convolutional encoder-decoder model capable of isolating vocal and instrumental stems from mixed audio.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000009">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Because our system depends on custom deep-learning architectures trained on spectrogram data, this tutorial allowed me to strengthen my understanding of PyTorch&#8217;s data pipeline, autograd system, and optimization workflow before applying those principles to real-world audio processing.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000A">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:keepNext w:val="0"/>
+        <w:keepLines w:val="0"/>
+        <w:spacing w:before="280" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_p7yj722y2xj" w:id="2"/>
+      <w:bookmarkEnd w:id="2"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Environment and Core Concepts</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000B">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">After creating a virtual environment and verifying GPU support, PyTorch confirmed access to my NVIDIA GeForce RTX 2070 Super Max-Q GPU. The initial tutorial steps introduced tensor creation, indexing, and arithmetic operations that mirror how spectrogram slices will later be represented in our audio dataset.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000C">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">The DataLoader example used the Fashion-MNIST dataset to demonstrate how image batches are prepared and fed to the network for training. These steps ensured I could later adapt identical mechanisms for batch-loading audio samples.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000D">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_cd1psi9yj90w" w:id="3"/>
+      <w:bookmarkEnd w:id="3"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Environment and GPU Verification</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:sz w:val="24"/>
+          <w:szCs w:val="24"/>
+        </w:rPr>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="5943600" cy="952500"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="1" name="image5.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image5.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId6"/>
+                    <a:srcRect b="0" l="0" r="0" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="5943600" cy="952500"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000E">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Figure 1.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> PyTorch environment verification showing CUDA device detection.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000F">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_511j1kagraws" w:id="4"/>
+      <w:bookmarkEnd w:id="4"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Tensor Creation</w:t>
+        <w:br w:type="textWrapping"/>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr/>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="3911503" cy="7370592"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="7" name="image6.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image6.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId7"/>
+                    <a:srcRect b="0" l="0" r="0" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="3911503" cy="7370592"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000010">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Figure 2.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Tensor creation, shape inspection, and arithmetic operations.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000011">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_frvl2gg18rp7" w:id="5"/>
+      <w:bookmarkEnd w:id="5"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Dataset &amp; DataLoader</w:t>
+        <w:br w:type="textWrapping"/>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr/>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="3214688" cy="5446647"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="5" name="image7.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image7.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId8"/>
+                    <a:srcRect b="0" l="0" r="0" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="3214688" cy="5446647"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000012">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Figure 3.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Fashion-MNIST dataset loading and visualization through the DataLoader.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000013">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_tnyraw8l9t7i" w:id="6"/>
+      <w:bookmarkEnd w:id="6"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Data Preparation and Autograd</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000014">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">The next part of the tutorial demonstrated data preprocessing using </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">transforms.Compose</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">. This process resized images, applied random flips, and normalized values to maintain consistency across the dataset.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000015">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Although our project will apply similar techniques to time-frequency representations of audio, the principles remain identical. The autograd section explained how PyTorch tracks gradients, computes partial derivatives, and resets accumulated values between optimization steps [1].</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000016">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Understanding gradient flow is critical for debugging loss stagnation and ensuring stable training in our U-Net-inspired stem-separation model [3].</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000017">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_zho1remisosp" w:id="7"/>
+      <w:bookmarkEnd w:id="7"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Image Transforms: Before vs After</w:t>
+        <w:br w:type="textWrapping"/>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr/>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="5700713" cy="7011111"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="2" name="image4.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image4.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId9"/>
+                    <a:srcRect b="0" l="0" r="0" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="5700713" cy="7011111"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000018">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Figure 4.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Data augmentation using resizing, random flip, and normalization transforms.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000019">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_mkj02edjvi" w:id="8"/>
+      <w:bookmarkEnd w:id="8"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Autograd and Gradients</w:t>
+        <w:br w:type="textWrapping"/>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr/>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="5943600" cy="4216400"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="3" name="image2.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image2.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId10"/>
+                    <a:srcRect b="0" l="0" r="0" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="5943600" cy="4216400"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001A">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr>
+          <w:b w:val="1"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Figure 5.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Demonstration of gradient computation and zeroing with Autograd.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001B">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:keepNext w:val="0"/>
+        <w:keepLines w:val="0"/>
+        <w:spacing w:before="280" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_kx1xf6r9qvna" w:id="9"/>
+      <w:bookmarkEnd w:id="9"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Model Definition and Training</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001C">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">The tutorial then introduced a simple feed-forward neural network consisting of sequential </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Linear</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> and </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">ReLU</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> layers [1]. This simplified architecture illustrates the same core mechanics used in our capstone&#8217;s convolutional blocks.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001D">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">During training, loss values decreased steadily while accuracy rose from approximately 41 percent after the first epoch to around 71 percent by the final epoch. These results confirmed correct forward propagation, backpropagation, and optimizer convergence.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001E">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Our project&#8217;s larger U-Net will extend these ideas with convolutional, pooling, and upsampling layers, but the essential workflow: forward pass, gradient computation, weight update, remains the same [2][3].</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001F">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_hr0hz01omzvl" w:id="10"/>
+      <w:bookmarkEnd w:id="10"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Training Progress &amp; Accuracy</w:t>
+        <w:br w:type="textWrapping"/>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr/>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="3462338" cy="3107226"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="6" name="image3.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image3.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId11"/>
+                    <a:srcRect b="0" l="0" r="0" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="3462338" cy="3107226"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000020">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Figure 6a.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Early training output showing high loss and low accuracy.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000021">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr/>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="3405188" cy="3566063"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="8" name="image1.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image1.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId12"/>
+                    <a:srcRect b="0" l="0" r="0" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="3405188" cy="3566063"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000022">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Figure 6b.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Final epoch output showing improved accuracy and reduced loss.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000023">
+      <w:pPr>
+        <w:pStyle w:val="Heading3"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_mnx1q5hk3b9n" w:id="11"/>
+      <w:bookmarkEnd w:id="11"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Model Architecture Summary</w:t>
+        <w:br w:type="textWrapping"/>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr/>
+        <w:drawing>
+          <wp:inline distB="114300" distT="114300" distL="114300" distR="114300">
+            <wp:extent cx="5943600" cy="2514600"/>
+            <wp:effectExtent b="0" l="0" r="0" t="0"/>
+            <wp:docPr id="4" name="image8.png"/>
+            <a:graphic>
+              <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                <pic:pic>
+                  <pic:nvPicPr>
+                    <pic:cNvPr id="0" name="image8.png"/>
+                    <pic:cNvPicPr preferRelativeResize="0"/>
+                  </pic:nvPicPr>
+                  <pic:blipFill>
+                    <a:blip r:embed="rId13"/>
+                    <a:srcRect b="0" l="0" r="0" t="0"/>
+                    <a:stretch>
+                      <a:fillRect/>
+                    </a:stretch>
+                  </pic:blipFill>
+                  <pic:spPr>
+                    <a:xfrm>
+                      <a:off x="0" y="0"/>
+                      <a:ext cx="5943600" cy="2514600"/>
+                    </a:xfrm>
+                    <a:prstGeom prst="rect"/>
+                    <a:ln/>
+                  </pic:spPr>
+                </pic:pic>
+              </a:graphicData>
+            </a:graphic>
+          </wp:inline>
+        </w:drawing>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000024">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:color w:val="000000"/>
+          <w:sz w:val="26"/>
+          <w:szCs w:val="26"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Figure 7.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rFonts w:ascii="Arial Unicode MS" w:cs="Arial Unicode MS" w:eastAsia="Arial Unicode MS" w:hAnsi="Arial Unicode MS"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> Final model architecture summary showing Flatten &#8594; Linear &#8594; ReLU stack.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000025">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:keepNext w:val="0"/>
+        <w:keepLines w:val="0"/>
+        <w:spacing w:before="280" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_l6r0rfvw4x25" w:id="12"/>
+      <w:bookmarkEnd w:id="12"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Insights and Application</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000026">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">This tutorial provided hands-on understanding of each stage in PyTorch model development: environment setup, tensor manipulation, gradient tracking, and model optimization. These skills map directly onto the technical tasks outlined in our AI Stem Separation Requirements Document [2], particularly Sections 4.2 (Audio Pre-Processing) and 4.3 (Model Architecture).</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000027">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">By completing the tutorial, I can now implement data loading for spectrograms, manage gradient updates efficiently, and run GPU-accelerated training sessions on Oregon State&#8217;s HPC resources [4]. The experience will also help me to troubleshoot issues in model convergence and accuracy as our capstone team transitions into the prototyping and evaluation phases.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000028">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_46ddknx6qq1n" w:id="13"/>
+      <w:bookmarkEnd w:id="13"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Pros and Cons</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000029">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr>
+          <w:b w:val="1"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Pros</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002A">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:spacing w:after="0" w:afterAutospacing="0" w:before="240" w:lineRule="auto"/>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Strengthened understanding of the full deep-learning workflow in PyTorch.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002B">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:spacing w:after="0" w:afterAutospacing="0" w:before="0" w:beforeAutospacing="0" w:lineRule="auto"/>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Demonstrated GPU acceleration and reproducible results.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002C">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:spacing w:after="240" w:before="0" w:beforeAutospacing="0" w:lineRule="auto"/>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Highly relevant to our capstone&#8217;s model-training objectives.</w:t>
+        <w:br w:type="textWrapping"/>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002D">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr>
+          <w:b w:val="1"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Cons</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002E">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:spacing w:after="0" w:afterAutospacing="0" w:before="240" w:lineRule="auto"/>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Fashion-MNIST dataset is visually simple and not directly related to audio.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002F">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:spacing w:after="0" w:afterAutospacing="0" w:before="0" w:beforeAutospacing="0" w:lineRule="auto"/>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Tutorial output is console-based rather than graphical.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000030">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:spacing w:after="240" w:before="0" w:beforeAutospacing="0" w:lineRule="auto"/>
+        <w:ind w:left="720" w:hanging="360"/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Does not cover convolutional or U-Net architectures explicitly.</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000031">
+      <w:pPr>
+        <w:pStyle w:val="Heading2"/>
+        <w:spacing w:after="240" w:before="240" w:line="276" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:bookmarkStart w:colFirst="0" w:colLast="0" w:name="_club3fohp3v7" w:id="14"/>
+      <w:bookmarkEnd w:id="14"/>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">References</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000032">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr>
+          <w:color w:val="1155cc"/>
+          <w:u w:val="single"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">[1] PyTorch Software Foundation, </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:i w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">&#8220;Learn the Basics,&#8221; PyTorch Tutorials</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">, 2025. [Online]. Available:</w:t>
+      </w:r>
+      <w:hyperlink r:id="rId14">
+        <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+          <w:rPr>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve"> </w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:hyperlink r:id="rId15">
+        <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+          <w:rPr>
+            <w:color w:val="1155cc"/>
+            <w:u w:val="single"/>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">https://docs.pytorch.org/tutorials/beginner/basics/intro.html</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000033">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">[2] AI Stem Separation Team Document, </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:i w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Project Requirements and Design Specifications</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">, Oregon State University, Oct 2025.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000034">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">[3] O. Ronneberger, P. Fischer, and T. Brox, &#8220;U-Net: Convolutional Networks for Biomedical Image Segmentation,&#8221; </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:i w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">arXiv preprint arXiv:1505.04597</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">, 2015.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000035">
+      <w:pPr>
+        <w:spacing w:after="240" w:before="240" w:lineRule="auto"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">[4] Oregon State University College of Engineering, </w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:i w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">High-Performance Computing Resources</w:t>
+      </w:r>
+      <w:r w:rsidDel="00000000" w:rsidR="00000000" w:rsidRPr="00000000">
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">, Corvallis, OR, 2025.</w:t>
+      </w:r>
+    </w:p>
+    <w:sectPr>
+      <w:pgSz w:h="15840" w:w="12240" w:orient="portrait"/>
+      <w:pgMar w:bottom="1440" w:top="1440" w:left="1440" w:right="1440" w:header="720" w:footer="720"/>
+      <w:pgNumType w:start="1"/>
+    </w:sectPr>
+  </w:body>
+</w:document>

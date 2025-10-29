@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #ffffff;
+  font-family: Arial, sans-serif;
+  display: flex;
+}
+.sidebar {
+  width: 200pt; background: #f59e0b;
+  padding: 25pt 20pt; color: #ffffff;
+}
+.main { flex: 1; padding: 26pt 35pt 72pt 35pt; }
+h1 {
+  color: #ffffff; font-size: 28pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+.lab-num {
+  color: #fef3c7; font-size: 56pt; font-weight: bold;
+  margin: 0 0 8pt 0;
+}
+h2 {
+  color: #92400e; font-size: 21pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+ul {
+  color: #1f2937; font-size: 15pt;
+  margin: 0; padding-left: 22pt; line-height: 1.5;
+}
+.gpu-box {
+  background: #fffbeb; padding: 12pt;
+  border-left: 5pt solid #f59e0b; margin: 12pt 0;
+}
+p {
+  color: #374151; font-size: 12pt;
+  margin: 6pt 0; line-height: 1.4;
+}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <p class="lab-num">04</p>
+  <h1>PyTorch GPU</h1>
+  <p style="font-size: 15pt; margin-top: 20pt; color: #fef3c7;">
+    <b>Team:</b> Ryan, Yovannoa, cervanj2
+  </p>
+</div>
+<div class="main">
+  <h2>NumPy → PyTorch Tensors</h2>
+  <ul>
+    <li>GPU acceleration: 10-100x faster than CPU</li>
+    <li>Automatic differentiation (autograd)</li>
+    <li>torch.from_numpy() converts spectrograms</li>
+    <li>4D tensor: (batch, channels, freq, time)</li>
+  </ul>
+
+  <div class="gpu-box">
+    <p><b>The Conversion:</b></p>
+    <p>tensor = torch.from_numpy(magnitude).float()</p>
+    <p>tensor = tensor.unsqueeze(0).unsqueeze(0)</p>
+    <p>tensor = tensor.to(device)  # Move to GPU</p>
+    <p>Shape: [1, 1, 1025, 646]</p>
+  </div>
+
+  <p><b>Why it matters:</b> Enables U-Net processing on GPU. cervanj2's inference layer.</p>
+</div>
+</body>
+</html>

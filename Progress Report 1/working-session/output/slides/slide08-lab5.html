@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #ffffff;
+  font-family: Arial, sans-serif;
+  display: flex;
+}
+.sidebar {
+  width: 200pt; background: #dc2626;
+  padding: 25pt 20pt; color: #ffffff;
+}
+.main { flex: 1; padding: 30pt 35pt 50pt 35pt; }
+h1 {
+  color: #ffffff; font-size: 28pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+.lab-num {
+  color: #fee2e2; font-size: 56pt; font-weight: bold;
+  margin: 0 0 8pt 0;
+}
+h2 {
+  color: #991b1b; font-size: 21pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+ul {
+  color: #1f2937; font-size: 15pt;
+  margin: 0; padding-left: 22pt; line-height: 1.5;
+}
+.unet-box {
+  background: #fef2f2; padding: 12pt;
+  border-left: 5pt solid #dc2626; margin: 12pt 0;
+}
+p {
+  color: #374151; font-size: 14pt;
+  margin: 6pt 0; line-height: 1.4;
+}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <p class="lab-num">05</p>
+  <h1>U-Net</h1>
+  <p style="font-size: 15pt; margin-top: 20pt; color: #fee2e2;">
+    <b>Team:</b> All labs integrated
+  </p>
+</div>
+<div class="main">
+  <h2>Automating the Manual Analysis</h2>
+  <ul>
+    <li>Encoder-decoder neural network architecture</li>
+    <li>Processes spectrograms as 2D images</li>
+    <li>Learns to create separation masks automatically</li>
+    <li>POC: 70-80% quality | U-Net: 85-95% potential</li>
+  </ul>
+
+  <div class="unet-box">
+    <p><b>The Complete Pipeline:</b></p>
+    <p>Input: Mixed spectrogram [1, 1, 1025, 646]</p>
+    <p>U-Net: Learns vocal vs music patterns</p>
+    <p>Output: Separated vocals & music stems</p>
+  </div>
+
+  <p><b>Why it matters:</b> Brings all 5 labs together. Automates the POC approach. Ready for weeks 6-7-8 training.</p>
+</div>
+</body>
+</html>

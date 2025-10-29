@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #ffffff;
+  font-family: Arial, sans-serif;
+  display: flex;
+}
+.content { margin: 28pt 40pt 55pt 40pt; width: 100%; }
+h1 {
+  color: #1e40af; font-size: 28pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+.pipeline {
+  background: #f8fafc; padding: 10pt;
+  border-radius: 6pt; margin: 8pt 0;
+}
+.step {
+  background: #ffffff; padding: 6pt 10pt;
+  margin: 4pt 0; border-left: 4pt solid #2563eb;
+  box-shadow: 0 1pt 2pt rgba(0,0,0,0.1);
+}
+p {
+  color: #1f2937; font-size: 13pt;
+  margin: 2pt 0; line-height: 1.25;
+}
+.arrow {
+  color: #2563eb; font-size: 14pt;
+  text-align: center; margin: 1pt 0;
+}
+</style>
+</head>
+<body>
+<div class="content">
+  <h1>The Complete Pipeline: Labs 1-5</h1>
+
+  <div class="pipeline">
+    <div class="step">
+      <p><b>Audio File</b> (.wav/.mp3)</p>
+    </div>
+    <p class="arrow">↓ Lab 1: librosa.load()</p>
+
+    <div class="step">
+      <p><b>NumPy Array</b> (waveform) - 661,500 samples</p>
+    </div>
+    <p class="arrow">↓ Lab 2: NumPy operations</p>
+
+    <div class="step">
+      <p><b>Spectrogram</b> (1,025 × 646) - 662,150 measurements</p>
+    </div>
+    <p class="arrow">↓ Lab 3: librosa.stft()</p>
+
+    <div class="step">
+      <p><b>PyTorch Tensor on GPU</b></p>
+    </div>
+    <p class="arrow">↓ Lab 4: torch.from_numpy()</p>
+
+    <div class="step">
+      <p><b>Separated Vocals & Music</b></p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

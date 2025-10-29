@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+html { background: #ffffff; }
+body {
+  width: 720pt; height: 405pt; margin: 0; padding: 0;
+  background: #ffffff;
+  font-family: Arial, sans-serif;
+  display: flex;
+}
+.sidebar {
+  width: 200pt; background: #8b5cf6;
+  padding: 25pt 20pt; color: #ffffff;
+}
+.main { flex: 1; padding: 30pt 35pt 50pt 35pt; }
+h1 {
+  color: #ffffff; font-size: 28pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+.lab-num {
+  color: #ede9fe; font-size: 56pt; font-weight: bold;
+  margin: 0 0 8pt 0;
+}
+h2 {
+  color: #6b21a8; font-size: 21pt; font-weight: bold;
+  margin: 0 0 12pt 0;
+}
+ul {
+  color: #1f2937; font-size: 15pt;
+  margin: 0; padding-left: 22pt; line-height: 1.5;
+}
+.transform-box {
+  background: #faf5ff; padding: 12pt;
+  border-left: 5pt solid #8b5cf6; margin: 12pt 0;
+}
+p {
+  color: #374151; font-size: 14pt;
+  margin: 6pt 0; line-height: 1.4;
+}
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <p class="lab-num">03</p>
+  <h1>librosa STFT</h1>
+  <p style="font-size: 15pt; margin-top: 20pt; color: #ede9fe;">
+    <b>Team:</b> Cameron's POC, cervanj2 architecture
+  </p>
+</div>
+<div class="main">
+  <h2>Audio → Spectrograms</h2>
+  <ul>
+    <li>STFT = Short-Time Fourier Transform</li>
+    <li>1D waveform → 2D spectrogram (frequency × time)</li>
+    <li>Reversible with ISTFT (perfect reconstruction)</li>
+    <li>U-Net processes spectrograms like images</li>
+  </ul>
+
+  <div class="transform-box">
+    <p><b>The Transformation:</b></p>
+    <p>Waveform: (661,500,) → Spectrogram: (1,025 × 646)</p>
+    <p>1,025 frequency bins × 646 time frames = 662,150 measurements</p>
+  </div>
+
+  <p><b>Why it matters:</b> Core of the POC. Enables neural networks to "see" audio. STFT in preprocessing, ISTFT in post-processing.</p>
+</div>
+</body>
+</html>
