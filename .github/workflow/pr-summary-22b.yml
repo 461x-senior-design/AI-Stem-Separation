@@ -26,9 +26,9 @@ jobs:
         id: pr-data
         run: |
           gh pr checkout ${{ github.event.pull_request.number }} --repo ${{ github.repository }}
-          DIFF=$(git diff HEAD~1...HEAD | head -c 5000 | sed 's/^/    /')
-          FILES=$(git diff --name-only HEAD~1...HEAD | paste -sd ',' -)
-          COMMITS=$(git log --oneline HEAD~1...HEAD | head -3 | sed 's/^/    /')
+          DIFF=$(git diff ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | head -c 5000 | sed 's/^/    /')
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | paste -sd ',' -)
+          COMMITS=$(git log --oneline ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | head -3 | sed 's/^/    /')
           echo "diff<<EOF" >> $GITHUB_OUTPUT
           echo "$DIFF" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
