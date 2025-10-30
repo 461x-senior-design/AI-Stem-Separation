@@ -18,10 +18,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup GitHub CLI
-        run: |
-          gh auth login --with-token <<< '${{ secrets.GITHUB_TOKEN }}'
-
       - name: Get PR details (diff + files)
         id: pr-data
         run: |
