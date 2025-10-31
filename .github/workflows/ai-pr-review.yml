@@ -43,11 +43,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install anthropic requests
+          pip install openai requests
 
-      - name: Run AI Review with Claude
+      - name: Run AI Review with Grok
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO_NAME: ${{ github.repository }}

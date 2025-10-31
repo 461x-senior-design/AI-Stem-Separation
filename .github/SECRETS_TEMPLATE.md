@@ -11,9 +11,33 @@ To enable AI-powered PR reviews, you need to add API keys as GitHub repository s
 
 ---
 
-## Option 1: Claude (Anthropic) - RECOMMENDED ✅
+## Option 1: Grok (xAI) - FREE & RECOMMENDED ✅ 💚
 
-**Current default configuration**
+**Current default configuration - 100% FREE!**
+
+### Secret Name
+```
+XAI_API_KEY
+```
+
+### Get Your FREE API Key
+1. Visit: https://console.x.ai/
+2. Sign up (no credit card required!)
+3. Navigate to API keys section
+4. Create a new API key
+5. Copy the key
+
+### Pricing
+- **100% FREE** with generous free tier! 🎉
+- No credit card required
+- Perfect for open source projects
+- Typical PR review: $0.00 (FREE!)
+
+---
+
+## Option 2: Claude (Anthropic)
+
+**Requires workflow modification - PAID**
 
 ### Secret Name
 ```
@@ -27,15 +51,21 @@ ANTHROPIC_API_KEY
 4. Create a new API key
 5. Copy the key
 
+### Additional Setup Required
+1. Edit `.github/workflows/ai-pr-review.yml`
+2. Change install dependencies to: `pip install anthropic requests`
+3. Update environment variable to use `ANTHROPIC_API_KEY`
+4. Update the Python script to use Anthropic client
+
 ### Pricing
 - Pay-as-you-go: ~$3 per million input tokens
 - Typical PR review: $0.01 - $0.10
 
 ---
 
-## Option 2: OpenAI GPT
+## Option 3: OpenAI GPT
 
-**Requires workflow modification**
+**Requires workflow modification - PAID**
 
 ### Secret Name
 ```
