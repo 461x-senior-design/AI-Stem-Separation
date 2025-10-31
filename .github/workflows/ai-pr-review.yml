@@ -1,0 +1,66 @@
+name: AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    name: AI Code Review
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff
+        id: pr_diff
+        run: |
+          # Get the base and head SHA
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          
+          # Get the diff
+          git diff $BASE_SHA..$HEAD_SHA > pr_diff.txt
+          
+          # Create a summary of changed files
+          git diff --name-status $BASE_SHA..$HEAD_SHA > changed_files.txt
+          
+          echo "Diff saved to pr_diff.txt"
+          echo "Changed files:"
+          cat changed_files.txt
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install anthropic requests
+
+      - name: Run AI Review with Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          python .github/workflows/ai_reviewer.py
+
+      - name: Upload review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-review-results
+          path: |
+            pr_diff.txt
+            changed_files.txt
+            review_output.txt
+          retention-days: 7
