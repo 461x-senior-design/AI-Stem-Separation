@@ -37,12 +37,24 @@ jobs:
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           echo "OLLAMA_MAX_LOADED_MODELS=1" >> $GITHUB_ENV
-          ollama serve &  
+          ollama serve &
+          OLLAMA_PID=$!
+          echo "OLLAMA_PID=$OLLAMA_PID" >> $GITHUB_ENV
           sleep 10
+          # Verify Ollama is running
+          if ! pgrep -x ollama > /dev/null; then
+            echo "Error: Ollama failed to start"
+            exit 1
+          fi
 
       - name: Pull GPT-OSS:22b (quantized)
         run: |
-          ollama pull gpt-oss:22b-q4_0
+          echo "Pulling GPT-OSS:22b model (this may take a few minutes)..."
+          if ! ollama pull gpt-oss:22b-q4_0; then
+            echo "Error: Failed to pull GPT-OSS model"
+            exit 1
+          fi
+          echo "Model pulled successfully:"
           ollama list | grep gpt-oss
 
       - name: Build prompt for GPT-OSS:22b
@@ -55,25 +67,25 @@ jobs:
           FILES: ${{ steps.pr-data.outputs.files }}
           COMMITS: ${{ steps.pr-data.outputs.commits }}
         run: |
-          cat > /tmp/prompt.txt <<'EOF'
+          cat > /tmp/prompt.txt <<EOF
           You are an expert PR analysis assistant powered by GPT-OSS:22b. Output **EXACTLY** this format:
 
           **PR submitted by:** @${AUTHOR}
 
-          **Summary of changes:**  
+          **Summary of changes:**
           [2-3 sentence overview. Key files: ${FILES}]
 
-          **Suspected purpose:**  
+          **Suspected purpose:**
           [Infer intent from code, commits, description]
 
-          **Technical analysis:**  
+          **Technical analysis:**
           [Code quality, patterns, tests, architecture]
 
-          **Impact on repository:**  
+          **Impact on repository:**
           [Benefits: bugs, perf, security, maintainability]
 
           Title: ${TITLE}
-          Description: 
+          Description:
           ${BODY}
           Commits:
           ${COMMITS}
@@ -85,17 +97,35 @@ jobs:
       - name: Generate summary with GPT-OSS:22b
         id: summary
         run: |
-          echo "Running GPT-OSS:22b..."
-          ollama run gpt-oss:22b-q4_0 < ${{ steps.prompt.outputs.file }} > /tmp/summary.md 2>&1 || true
+          echo "Running GPT-OSS:22b inference (timeout: 5 minutes)..."
+          # Run with timeout to prevent hanging
+          timeout 300 ollama run gpt-oss:22b-q4_0 < ${{ steps.prompt.outputs.file }} > /tmp/summary_raw.md 2>&1 || {
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 124 ]; then
+              echo "Warning: Model inference timed out after 5 minutes"
+            else
+              echo "Warning: Model inference failed with exit code $EXIT_CODE"
+            fi
+          }
+
+          # Clean up Ollama prompt markers and format output
+          if [ -f /tmp/summary_raw.md ] && [ -s /tmp/summary_raw.md ]; then
+            sed -e '/^>>> /d' -e '/^<<< /d' -e '/^pulling manifest/d' -e '/^verifying sha256/d' /tmp/summary_raw.md > /tmp/summary.md
+          fi
+
+          # Fallback if summary is empty or missing
           if [ ! -s /tmp/summary.md ]; then
-            cat > /tmp/summary.md <<'EOF'
+            cat > /tmp/summary.md <<EOF
           **PR submitted by:** @${{ github.event.pull_request.user.login }}
-          **Summary of changes:**  
-          Analysis failed. Please review manually.
+
+          **Summary of changes:**
+          Analysis failed or timed out. Please review manually.
+
+          **Files changed:** ${{ steps.pr-data.outputs.files }}
           EOF
           fi
-          sed -i '/^>>> /d' /tmp/summary.md
-          sed -i '/^<<< /d' /tmp/summary.md
+
+          echo "=== Generated Summary ==="
           cat /tmp/summary.md
           echo "content<<EOF" >> $GITHUB_OUTPUT
           cat /tmp/summary.md >> $GITHUB_OUTPUT
@@ -109,3 +139,13 @@ jobs:
           gh pr comment ${{ github.event.pull_request.number }} \
             --body-file /tmp/summary.md \
             --repo ${{ github.repository }}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Clean up temporary files
+          rm -f /tmp/prompt.txt /tmp/summary.md /tmp/summary_raw.md
+          # Stop Ollama if it's still running
+          if [ -n "$OLLAMA_PID" ] && kill -0 $OLLAMA_PID 2>/dev/null; then
+            kill $OLLAMA_PID
+          fi
