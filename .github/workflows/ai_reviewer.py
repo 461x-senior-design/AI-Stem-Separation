@@ -10,6 +10,9 @@ import json
 from anthropic import Anthropic
 import requests
 
+# Configuration constants
+REVIEW_PREVIEW_LENGTH = 500  # Number of characters to show in console preview
+
 def read_file(filepath):
     """Read file contents."""
     try:
@@ -129,7 +132,7 @@ def main():
     
     print("\nAI Review Summary:")
     print("=" * 80)
-    print(review[:500] + "..." if len(review) > 500 else review)
+    print(review[:REVIEW_PREVIEW_LENGTH] + "..." if len(review) > REVIEW_PREVIEW_LENGTH else review)
     print("=" * 80)
     
     # Post review as PR comment

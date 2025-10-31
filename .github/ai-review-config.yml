@@ -24,7 +24,9 @@ VERBOSITY: "medium"
 # Maximum tokens for AI response
 MAX_TOKENS: 4096
 
-# File patterns to exclude from review (regex)
+# File patterns to exclude from review
+# These use simple glob patterns (*, ?, []) for matching
+# Examples: "*.md" matches all markdown files, "docs/**" matches all files in docs directory
 EXCLUDE_PATTERNS:
   - "*.md"  # Markdown files
   - "*.txt"  # Text files
