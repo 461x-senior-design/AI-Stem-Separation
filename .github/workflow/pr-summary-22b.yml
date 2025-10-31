@@ -1,0 +1,111 @@
+name: Free PR Summary with GPT-OSS:22b (No API)
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR details (diff + files)
+        id: pr-data
+        run: |
+          gh pr checkout ${{ github.event.pull_request.number }} --repo ${{ github.repository }}
+          DIFF=$(git diff ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | head -c 5000 | sed 's/^/    /')
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | paste -sd ',' -)
+          COMMITS=$(git log --oneline ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | head -3 | sed 's/^/    /')
+          echo "diff<<EOF" >> $GITHUB_OUTPUT
+          echo "$DIFF" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          echo "OLLAMA_MAX_LOADED_MODELS=1" >> $GITHUB_ENV
+          ollama serve &  
+          sleep 10
+
+      - name: Pull GPT-OSS:22b (quantized)
+        run: |
+          ollama pull gpt-oss:22b-q4_0
+          ollama list | grep gpt-oss
+
+      - name: Build prompt for GPT-OSS:22b
+        id: prompt
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          DIFF: ${{ steps.pr-data.outputs.diff }}
+          FILES: ${{ steps.pr-data.outputs.files }}
+          COMMITS: ${{ steps.pr-data.outputs.commits }}
+        run: |
+          cat > /tmp/prompt.txt <<'EOF'
+          You are an expert PR analysis assistant powered by GPT-OSS:22b. Output **EXACTLY** this format:
+
+          **PR submitted by:** @${AUTHOR}
+
+          **Summary of changes:**  
+          [2-3 sentence overview. Key files: ${FILES}]
+
+          **Suspected purpose:**  
+          [Infer intent from code, commits, description]
+
+          **Technical analysis:**  
+          [Code quality, patterns, tests, architecture]
+
+          **Impact on repository:**  
+          [Benefits: bugs, perf, security, maintainability]
+
+          Title: ${TITLE}
+          Description: 
+          ${BODY}
+          Commits:
+          ${COMMITS}
+          Diff:
+          ${DIFF}
+          EOF
+          echo "file=/tmp/prompt.txt" >> $GITHUB_OUTPUT
+
+      - name: Generate summary with GPT-OSS:22b
+        id: summary
+        run: |
+          echo "Running GPT-OSS:22b..."
+          ollama run gpt-oss:22b-q4_0 < ${{ steps.prompt.outputs.file }} > /tmp/summary.md 2>&1 || true
+          if [ ! -s /tmp/summary.md ]; then
+            cat > /tmp/summary.md <<'EOF'
+          **PR submitted by:** @${{ github.event.pull_request.user.login }}
+          **Summary of changes:**  
+          Analysis failed. Please review manually.
+          EOF
+          fi
+          sed -i '/^>>> /d' /tmp/summary.md
+          sed -i '/^<<< /d' /tmp/summary.md
+          cat /tmp/summary.md
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/summary.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Comment on PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file /tmp/summary.md \
+            --repo ${{ github.repository }}
