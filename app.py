@@ -49,11 +49,17 @@ MODEL = UNet(
     num_pool_layers=CFG.model.num_pool_layers
 ).to(DEVICE)
 
-# point this at your best checkpoint in the Space
-ckpt_file = hf_hub_download(
-    repo_id="theadityamittal/music-separator-unet",
-    filename="checkpoints/unet_best.pt"
-)
+# Load checkpoint - try local first, fallback to HuggingFace
+ckpt_path = Path("checkpoints/unet_best.pt")
+if ckpt_path.exists():
+    print(f"Loading local checkpoint: {ckpt_path}")
+    ckpt_file = str(ckpt_path)
+else:
+    print("Local checkpoint not found, downloading from HuggingFace...")
+    ckpt_file = hf_hub_download(
+        repo_id="theadityamittal/music-separator-unet",
+        filename="checkpoints/unet_best.pt"
+    )
 MODEL.load_state_dict(torch.load(ckpt_file, map_location=DEVICE))
 MODEL.eval()
 
