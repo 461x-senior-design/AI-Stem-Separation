@@ -1,0 +1,7 @@
+# Vocal Separation Sanity Check Requirements
+
+numpy>=1.24.0
+librosa>=0.10.0
+soundfile>=0.12.0
+scipy>=1.10.0
+matplotlib>=3.7.0
