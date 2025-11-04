@@ -15,8 +15,8 @@ A PyTorch U-Net model that separates music into **drums**, **bass**, **other**, 
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
-cd music-separator-space
+git clone https://github.com/brookcs3/tenu.git
+cd tenu
 
 # Install with uv (recommended)
 uv sync
