@@ -1,0 +1,77 @@
+PROTO-UNET DEMOS - CREATION SUMMARY
+====================================
+
+Created: 4 educational demos exploring U-Net architecture components
+
+FILES CREATED:
+--------------
+1. demo1_skip_connections.py      (343 lines) - Skip connections exploration
+2. demo2_encoder_hierarchy.py     (396 lines) - Encoder architecture
+3. demo3_decoder_reconstruction.py (458 lines) - Decoder upsampling strategies
+4. demo4_batchnorm_stability.py   (484 lines) - BatchNorm stabilization
+5. requirements.txt               (5 lines)   - Python dependencies
+6. README.md                      (314 lines) - Complete documentation
+
+DIRECTORY STRUCTURE:
+-------------------
+proto-unet-demos/
+├── demo1_skip_connections.py
+├── demo2_encoder_hierarchy.py
+├── demo3_decoder_reconstruction.py
+├── demo4_batchnorm_stability.py
+├── requirements.txt
+├── README.md
+├── figures/     (visualizations output)
+└── output/      (audio output)
+
+WHAT EACH DEMO DOES:
+--------------------
+
+Demo 1: Skip Connections
+- Compares reconstruction WITH vs WITHOUT skip connections
+- Shows information preservation vs. loss
+- Output: 2 audio files + comparison visualization
+
+Demo 2: Encoder Hierarchy
+- Builds 4-level encoder pyramid
+- Extracts multiple feature types (edges, blur, etc.)
+- Shows receptive field growth
+- Output: 3 visualization figures
+
+Demo 3: Decoder Reconstruction
+- Tests 4 upsampling strategies:
+  * Nearest neighbor
+  * Bilinear interpolation
+  * Transposed convolution
+  * Sub-pixel convolution
+- Computes quality metrics (PSNR, SSIM)
+- Output: 4 audio files + 2 visualization figures
+
+Demo 4: BatchNorm Stabilization
+- Simulates training WITH vs WITHOUT BatchNorm
+- Shows gradient flow improvement
+- Analyzes activation distributions
+- Output: 3 visualization figures
+
+USAGE:
+------
+1. Install dependencies:
+   pip install -r requirements.txt
+
+2. Run individual demos:
+   python demo1_skip_connections.py
+   python demo2_encoder_hierarchy.py
+   python demo3_decoder_reconstruction.py
+   python demo4_batchnorm_stability.py
+
+3. Check outputs:
+   - Audio files in: output/
+   - Visualizations in: figures/
+
+REQUIREMENTS:
+-------------
+- Acapella vocal file from librosa-demo 2
+- Python 3.8+
+- numpy, librosa, soundfile, matplotlib, scipy
+
+See README.md for complete documentation.

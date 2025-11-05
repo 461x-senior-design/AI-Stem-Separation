@@ -77,6 +77,25 @@ These demos isolate **individual U-Net architectural components** so you can und
 
 ---
 
+### 🔹 proto-unet-demos/ (Focused U-Net Architecture Demos)
+
+**Advanced U-Net component demonstrations** with more architectural focus. These demos use simplified proto-U-Net implementations to isolate specific architectural features.
+
+**Organized by component:**
+- **SkipConnection/** - `demo1_skip_connections.py` - WITH vs WITHOUT skip connections comparison
+- **Encoder/** - `demo2_encoder_hierarchy.py` - Multi-scale feature extraction pyramid
+- **Decoder/** - `demo3_decoder_reconstruction.py` - 4 upsampling strategies comparison
+- **BatchNorm/** - `demo4_batchnorm_stability.py` - Training stabilization demonstration
+
+**See:** `proto-unet-demos/README.md` for complete documentation
+
+**Try this:**
+- Run these demos to understand U-Net architectural components in isolation
+- Compare different upsampling strategies (nearest, bilinear, transposed conv, sub-pixel)
+- See how BatchNorm affects training stability and gradient flow
+
+---
+
 ### 🔹 2-Chaining-Demos/ (Combined Concepts)
 
 These demos **combine multiple components** to simulate full U-Net processing pipelines.
@@ -121,10 +140,11 @@ Use `chain_best_to_skip.py` but replace the "original mixture" detail in the ski
 In `freq_time_resolution_demo.py`, the upsampled audio is blurry.
 - Can you design a smarter upsampling method (e.g., using Conv2D features) to restore detail?
 
-### 4. **Invent a New Component**
-Create a demo that simulates BatchNorm audibly:
-- Normalize the energy of each frequency band over time
-- Hear the effect on vocal isolation
+### 4. **Explore BatchNorm** ✅
+See `proto-unet-demos/BatchNorm/demo4_batchnorm_stability.py`:
+- Demonstrates how BatchNorm stabilizes training
+- Shows gradient flow improvements
+- Analyzes activation distributions across layers
 
 ### 5. **Four-Stem Prep**
 Right now, all demos use a vocal target.
@@ -140,15 +160,22 @@ Right now, all demos use a vocal target.
 cd ..
 python best.py --slices 8
 
-# 2. Explore individual components
+# 2. Explore individual audio processing components
 cd "Librosa Demos/1-Component-Demos/Encoder-Decoder"
 python freq_time_resolution_demo.py
 
 cd "../SkipConnection"
 python skip_connection_impact_demo.py
 
-# 3. Try chaining demos
-cd "../../2-Chaining-Demos"
+# 3. Explore U-Net architectural components
+cd "../proto-unet-demos"
+python SkipConnection/demo1_skip_connections.py
+python Encoder/demo2_encoder_hierarchy.py
+python Decoder/demo3_decoder_reconstruction.py
+python BatchNorm/demo4_batchnorm_stability.py
+
+# 4. Try chaining demos
+cd "../2-Chaining-Demos"
 python chain_resolution_then_skip.py
 python chain_best_to_skip.py
 ```
