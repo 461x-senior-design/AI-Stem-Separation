@@ -21,10 +21,18 @@ This is the **optimized Conv2D spectral fingerprinting approach** that achieves 
 - Usage: `python sanity_check_progressive_CURRENT_WORKING.py --slices 8`
 
 **`best.py`**
-- Advanced version with greedy algorithm to find optimal slice ordering
-- Tests both original progressive order AND greedy-optimized order
+- **The recommended script** - advanced version with greedy algorithm to find optimal slice ordering
+- Automatically tests both original progressive order AND greedy-optimized order
 - **Critical finding**: 8 slices in original order gives the BEST results (loss=1.181991)
+- Outputs detailed comparison plots and audio files showing progressive improvement
 - Usage: `python best.py --slices 8`
+- **What it does:**
+  1. Runs greedy algorithm to find optimal slice ordering
+  2. Tests progressive separation (1 to N slices) in original order
+  3. Tests the greedy-discovered optimal ordering
+  4. Generates comparison plots: loss progression, final loss comparison, spectrograms
+  5. Identifies and saves the overall best result
+- **Output directory:** `output_progressive_Nslices/` with subdirectories for each test
 
 ### Audio Data
 
