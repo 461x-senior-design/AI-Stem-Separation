@@ -1,12 +1,12 @@
 import numpy as np
 import librosa
-import librosa.display
+# import librosa.display
 import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy import signal
-from scipy.ndimage import zoom
-import soundfile as sf
-import IPython.diisplay as ipd
+# from scipy.ndimage import zoom
+# import soundfile as sf
+# import IPython.display as ipd
 
 print("="*70)
 print("Batch Normalization Demo")
@@ -177,5 +177,56 @@ def simulate_training_instability(spectrogram, use_batchnorm=False):
             print(f"    (Pre-norm mean: {stats['norm_mean']:.4f}, std: {stats['norm_std']:.4f})")
     
     return outputs, activations, all_stats
+
+
+# Estimate gradient magnitudes during backpropagation
+# Adapted from Cameron's proto-unet demo.
+def simulate_gradient_flow(all_stats, use_batchnorm=False):
+    """
+    Simulate gradient magnitudes flowing backward
+    Stable gradients are crucial for training
+    """
+    print(f"\n  Gradient Flow Analysis:")
+    
+    gradient_magnitudes = []
+    
+    for level in range(1, 5):
+        stats = all_stats[level]
+        
+        # Gradient magnitude proportional to activation std
+        if use_batchnorm:
+            # BatchNorm keeps gradients stable (GOOD)
+            grad_mag = 1.0 / (level * 0.5)  # Gradual decay
+        else:
+            # Without BatchNorm, gradients can explode or vanish (BAD)
+            grad_mag = stats['std'] * (1.5 ** level)  # Exponential growth
+        
+        gradient_magnitudes.append(grad_mag)
+        
+        status = "✓ STABLE" if 0.1 < grad_mag < 10 else "✗ UNSTABLE"
+        print(f"    Level {level}: grad_magnitude = {grad_mag:.4f} {status}")
+    
+    return gradient_magnitudes
+
+
+# Now we load audio
+# ========================
+# Main Processing Pipeline
+# ========================
+# Adapted from Cameron's proto-unet demo.
+
+# Load audio
+print("[LOADING AUDIO]")
+audio, sr = librosa.load(CONFIG['vocal_path'], sr=CONFIG['sr'], duration=CONFIG['duration'])
+print(f"  Loaded: {len(audio)} samples @ {sr}Hz")
+
+# Compute spectrogram
+print("\n[CREATING SPECTROGRAM]")
+stft = librosa.stft(audio, n_fft=CONFIG['n_fft'], hop_length=CONFIG['hop_length'])
+magnitude = np.abs(stft)
+print(f"  Spectrogram: {magnitude.shape} (freq x time)")
+
+# Normalize input to [0, 1]
+magnitude_norm = magnitude / (np.max(magnitude) + 1e-8)
 
 
