@@ -229,4 +229,217 @@ print(f"  Spectrogram: {magnitude.shape} (freq x time)")
 # Normalize input to [0, 1]
 magnitude_norm = magnitude / (np.max(magnitude) + 1e-8)
 
+# ============================================
+# Comparison: WITH vs WITHOUT BatchNorm
+# ============================================
+
+print("\n" + "="*70)
+print("SIMULATING TRAINING DYNAMICS")
+print("="*70)
+
+# Path 1: WITHOUT BatchNorm
+outputs_no_bn, acts_no_bn, stats_no_bn = simulate_training_instability(magnitude_norm, use_batchnorm=False)
+grads_no_bn = simulate_gradient_flow(stats_no_bn, use_batchnorm=False)
+
+# Path 2: WITH BatchNorm
+outputs_with_bn, acts_with_bn, stats_with_bn = simulate_training_instability(magnitude_norm, use_batchnorm=True)
+grads_with_bn = simulate_gradient_flow(stats_with_bn, use_batchnorm=True)
+
+
+# ============================================
+# VISUALIZATION
+# ============================================
+
+print("\n" + "="*70)
+print("CREATING VISUALIZATIONS")
+print("="*70)
+
+# Figure 1: Activation distributions at each level
+fig, axes = plt.subplots(4, 2, figsize=(14, 12))
+fig.suptitle('Activation Distributions Across Encoder Levels', fontsize=14, fontweight='bold')
+
+for level in range(1, 5):
+    # WITHOUT BatchNorm
+    ax_left = axes[level - 1, 0]
+    act_data = acts_no_bn[level].flatten()
+    ax_left.hist(act_data, bins=50, alpha=0.7, color='red', edgecolor='black')
+    ax_left.set_title(f'Level {level} WITHOUT BatchNorm')
+    ax_left.set_xlabel('Activation Value')
+    ax_left.set_ylabel('Frequency')
+    ax_left.axvline(x=np.mean(act_data), color='blue', linestyle='--', label=f'Mean: {np.mean(act_data):.3f}')
+    ax_left.axvline(x=np.std(act_data), color='green', linestyle='--', label=f'Std: {np.std(act_data):.3f}')
+    ax_left.legend(fontsize=8)
+    ax_left.grid(True, alpha=0.3)
+
+    # WITH BatchNorm
+    ax_right = axes[level - 1, 1]
+    act_data_bn = acts_with_bn[level].flatten()
+    ax_right.hist(act_data_bn, bins=50, alpha=0.7, color='green', edgecolor='black')
+    ax_right.set_title(f'Level {level} WITH BatchNorm')
+    ax_right.set_xlabel('Activation Value')
+    ax_right.set_ylabel('Frequency')
+    ax_right.axvline(x=np.mean(act_data_bn), color='blue', linestyle='--', label=f'Mean: {np.mean(act_data_bn):.3f}')
+    ax_right.axvline(x=np.std(act_data_bn), color='red', linestyle='--', label=f'Std: {np.std(act_data_bn):.3f}')
+    ax_right.legend(fontsize=8)
+    ax_right.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig(f"{CONFIG['figures_dir']}/demo4_activation_distributions.png", dpi=150, bbox_inches='tight')
+plt.close()
+print(f"\n  ✓ {CONFIG['figures_dir']}/demo4_activation_distributions.png")
+
+# Figure 2: Activation statistics across levels
+fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+fig.suptitle('Activation Statistics Across Layers', fontsize=14, fontweight='bold')
+
+levels = [1, 2, 3, 4]
+
+# Mean activations
+means_no_bn = [stats_no_bn[l]['mean'] for l in levels]
+means_with_bn = [stats_with_bn[l]['mean'] for l in levels]
+axes[0, 0].plot(levels, means_no_bn, 'o-', linewidth=2, markersize=8, label='Without BatchNorm', color='red')
+axes[0, 0].plot(levels, means_with_bn, 's-', linewidth=2, markersize=8, label='With BatchNorm', color='green')
+axes[0, 0].set_title('Mean Activation')
+axes[0, 0].set_xlabel('Encoder Level')
+axes[0, 0].set_ylabel('Mean')
+axes[0, 0].legend()
+axes[0, 0].grid(True, alpha=0.3)
+
+# Std deviation
+stds_no_bn = [stats_no_bn[l]['std'] for l in levels]
+stds_with_bn = [stats_with_bn[l]['std'] for l in levels]
+axes[0, 1].plot(levels, stds_no_bn, 'o-', linewidth=2, markersize=8, label='Without BatchNorm', color='red')
+axes[0, 1].plot(levels, stds_with_bn, 's-', linewidth=2, markersize=8, label='With BatchNorm', color='green')
+axes[0, 1].set_title('Standard Deviation')
+axes[0, 1].set_xlabel('Encoder Level')
+axes[0, 1].set_ylabel('Std')
+axes[0, 1].legend()
+axes[0, 1].grid(True, alpha=0.3)
+
+# Max activation (indicator of explosion)
+maxs_no_bn = [stats_no_bn[l]['max'] for l in levels]
+maxs_with_bn = [stats_with_bn[l]['max'] for l in levels]
+axes[1, 0].plot(levels, maxs_no_bn, 'o-', linewidth=2, markersize=8, label='Without BatchNorm', color='red')
+axes[1, 0].plot(levels, maxs_with_bn, 's-', linewidth=2, markersize=8, label='With BatchNorm', color='green')
+axes[1, 0].set_title('Max Activation (explosion indicator)')
+axes[1, 0].set_xlabel('Encoder Level')
+axes[1, 0].set_ylabel('Max')
+axes[1, 0].legend()
+axes[1, 0].grid(True, alpha=0.3)
+
+# Gradient flow
+axes[1, 1].plot(levels, grads_no_bn, 'o-', linewidth=2, markersize=8, label='Without BatchNorm', color='red')
+axes[1, 1].plot(levels, grads_with_bn, 's-', linewidth=2, markersize=8, label='With BatchNorm', color='green')
+axes[1, 1].axhline(y=0.1, color='orange', linestyle='--', alpha=0.5, label='Vanishing threshold')
+axes[1, 1].axhline(y=10, color='purple', linestyle='--', alpha=0.5, label='Exploding threshold')
+axes[1, 1].set_title('Gradient Magnitude (backward pass)')
+axes[1, 1].set_xlabel('Encoder Level')
+axes[1, 1].set_ylabel('Gradient Magnitude')
+axes[1, 1].set_yscale('log')
+axes[1, 1].legend(fontsize=8)
+axes[1, 1].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.savefig(f"{CONFIG['figures_dir']}/demo4_statistics_comparison.png", dpi=150, bbox_inches='tight')
+plt.close()
+print(f"  ✓ {CONFIG['figures_dir']}/demo4_statistics_comparison.png")
+
+# Figure 3: Heatmap comparison
+fig, axes = plt.subplots(4, 2, figsize=(14, 12))
+fig.suptitle('Feature Maps: With vs Without BatchNorm', fontsize=14, fontweight='bold')
+
+for level in range(1, 5):
+    # WITHOUT BatchNorm
+    ax_left = axes[level - 1, 0]
+    data_no_bn = acts_no_bn[level]
+    im1 = ax_left.imshow(np.log10(np.abs(data_no_bn) + 1e-8), aspect='auto', origin='lower',
+                         cmap='viridis', interpolation='nearest')
+    ax_left.set_title(f'Level {level} WITHOUT BatchNorm')
+    ax_left.set_ylabel('Frequency')
+    plt.colorbar(im1, ax=ax_left, label='Log Magnitude')
+
+    # WITH BatchNorm
+    ax_right = axes[level - 1, 1]
+    data_with_bn = acts_with_bn[level]
+    im2 = ax_right.imshow(np.log10(np.abs(data_with_bn) + 1e-8), aspect='auto', origin='lower',
+                          cmap='viridis', interpolation='nearest')
+    ax_right.set_title(f'Level {level} WITH BatchNorm')
+    ax_right.set_ylabel('Frequency')
+    plt.colorbar(im2, ax=ax_right, label='Log Magnitude')
+
+    if level == 4:
+        ax_left.set_xlabel('Time')
+        ax_right.set_xlabel('Time')
+
+plt.tight_layout()
+plt.savefig(f"{CONFIG['figures_dir']}/demo4_feature_maps.png", dpi=150, bbox_inches='tight')
+plt.close()
+print(f"  ✓ {CONFIG['figures_dir']}/demo4_feature_maps.png")
+
+# ============================================
+# QUANTITATIVE COMPARISON
+# ============================================
+
+print("\n" + "="*70)
+print("QUANTITATIVE ANALYSIS")
+print("="*70)
+
+print("\nActivation Stability (std across levels):")
+std_variance_no_bn = np.var([stats_no_bn[l]['std'] for l in levels])
+std_variance_with_bn = np.var([stats_with_bn[l]['std'] for l in levels])
+print(f"  WITHOUT BatchNorm: variance = {std_variance_no_bn:.6f} (unstable)")
+print(f"  WITH BatchNorm:    variance = {std_variance_with_bn:.6f} (stable)")
+print(f"  Improvement: {(1 - std_variance_with_bn / std_variance_no_bn) * 100:.1f}% more stable")
+
+print("\nGradient Flow Health:")
+grad_variance_no_bn = np.var(grads_no_bn)
+grad_variance_with_bn = np.var(grads_with_bn)
+print(f"  WITHOUT BatchNorm: variance = {grad_variance_no_bn:.6f} (erratic)")
+print(f"  WITH BatchNorm:    variance = {grad_variance_with_bn:.6f} (smooth)")
+print(f"  Improvement: {(1 - grad_variance_with_bn / grad_variance_no_bn) * 100:.1f}% smoother")
+
+print("\nDead Neurons (ReLU zeros):")
+avg_zeros_no_bn = np.mean([stats_no_bn[l]['zeros'] for l in levels])
+avg_zeros_with_bn = np.mean([stats_with_bn[l]['zeros'] for l in levels])
+print(f"  WITHOUT BatchNorm: {avg_zeros_no_bn:.1f}% dead")
+print(f"  WITH BatchNorm:    {avg_zeros_with_bn:.1f}% dead")
+
+# ============================================
+# INSIGHTS
+# ============================================
+
+print("\n" + "="*70)
+print("KEY INSIGHTS")
+print("="*70)
+
+print("\n1. INTERNAL COVARIATE SHIFT:")
+print("   - WITHOUT BatchNorm: Input distributions shift dramatically per layer")
+print("   - WITH BatchNorm: Distributions stay consistent (mean~0, std~1)")
+
+print("\n2. GRADIENT FLOW:")
+print("   - WITHOUT BatchNorm: Gradients can explode or vanish")
+print("   - WITH BatchNorm: Gradients flow smoothly backward")
+
+print("\n3. TRAINING STABILITY:")
+print("   - WITHOUT BatchNorm: Sensitive to weight initialization and learning rate")
+print("   - WITH BatchNorm: More robust, can train with higher learning rates")
+
+print("\n4. ACTIVATION DYNAMICS:")
+print("   - WITHOUT BatchNorm: Activations grow/shrink unpredictably")
+print("   - WITH BatchNorm: Activations stay in healthy range")
+
+print("\n5. WHY IT MATTERS FOR U-NET:")
+print("   - Deep encoder-decoder needs stable activations")
+print("   - Skip connections benefit from normalized features")
+print("   - Enables faster convergence during training")
+
+print("\n" + "="*70)
+print("✓ DEMO 4 COMPLETE")
+print("="*70)
+print("\nKey Insight: BatchNorm stabilizes training!")
+print("Without it, deep networks struggle with gradient flow and activation explosions.")
+print("\nView visualizations:")
+print("  - demo4_activation_distributions.png (histograms per layer)")
+print("  - demo4_statistics_comparison.png (quantitative metrics)")
+print("  - demo4_feature_maps.png (spatial patterns)")
 
