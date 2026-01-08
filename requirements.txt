@@ -1,4 +1,6 @@
+torch
 librosa
-matplotlib
 soundfile
 numpy
+matplotlib
+pillow

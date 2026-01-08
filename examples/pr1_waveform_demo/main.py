@@ -5,6 +5,13 @@ from pathlib import Path
 from audio_utils import load_audio, plot_waveform, show_spectrogram
 
 
+def show_image(path, title=None):
+    try:
+        with Image.open(path) as img:
+            img.show(title=title or path)
+    except Exception as e:
+        print(f"Could not display {path}: {e}")
+
 def main():
     parser = argparse.ArgumentParser(
         description="Visualize audio waveform and spectrogram."
@@ -33,6 +40,11 @@ def main():
         default=0.0,
         help="Starting point (seconds) for waveform preview. Default: 0.0",
     )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Open output images automatically using Pillow",
+    )
     args = parser.parse_args()
 
     infile = Path(args.input_file)
@@ -43,11 +55,16 @@ def main():
     plot_waveform(audio, sr, duration_s=args.duration, start_s=args.start)
     show_spectrogram(audio, sr)
 
-    try:
-        subprocess.run(["feh", "--title", "Waveform", "figures/waveform.png"], check=True)
-        subprocess.run(["feh", "--title", "Spectrogram", "figures/spectrogram.png"], check=True)
-    except FileNotFoundError:
-        print("NOTE: program requires 'feh' to display images")
+    if args.show:
+        try:
+            from PIL import Image
+            for img_path in ["figures/waveform.png", "figures/spectrogram.png"]:
+                with Image.open(img_path) as img:
+                    img.show()
+        except Exception as e:
+            print(f"Could not display images automatically: {e}")
+    else:
+        print("Images saved to figures/. Use --show to open automatically.")
 
 
 if __name__ == "__main__":
