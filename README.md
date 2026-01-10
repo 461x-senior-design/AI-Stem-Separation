@@ -134,12 +134,17 @@ However, it represents a different approach and could serve as **Starting Point 
 
 - **No train.py** - The plan was to modify the `Pytorch-UNet/train.py` script to work as the U-Net 2 trainer. This work was not completed.
 
+### What's Good
+
+- **Interactive Gradio web interface** (`app.py`) - A working demo UI for stem separation. This could be valuable to integrate.
+
 ### Team Decision Needed
 
-We have two options moving forward:
+We have options moving forward:
 
 1. **Continue with U-Net 1** - Our Q1 culminated work
 2. **Explore U-Net 2** - Requires cleanup and validation, but may have different design decisions worth considering
+3. **Merge the best of both?** - U-Net 1's clean architecture + U-Net 2's Gradio interface
 
 This is a team discussion - review both implementations and decide how we want to approach Q2.
 
