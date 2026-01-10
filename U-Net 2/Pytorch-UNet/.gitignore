@@ -1,0 +1,10 @@
+*.pyc
+__pycache__/
+*.pth
+*.jpg
+venv/
+.idea/
+wandb/
+
+
+# NOTE: rtg/ directories ARE tracked in git so team has ready-to-go files
