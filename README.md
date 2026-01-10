@@ -73,7 +73,6 @@ All generated code was:
 ### Requirements
 
 - Python 3.9+
-- CUDA GPU recommended (MPS/CPU supported but slower)
 
 ### Install
 
