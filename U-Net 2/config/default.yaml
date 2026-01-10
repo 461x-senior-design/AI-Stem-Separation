@@ -1,0 +1,50 @@
+# config/default.yaml
+
+device: "mps"
+
+data:
+  raw_path: data/raw
+  splits: ["train", "test"]
+  processed_path: data/processed
+  sample_rate: 16000
+  n_fft: 1024
+  hop_length: 512
+  n_mels: 80
+  segment_length: 256
+
+  # for DataLoader
+  batch_size: 16
+  num_workers: 4
+
+  # list of all sources (including mixture)
+  sources: ["mixture", "drums", "bass", "other", "vocals"]
+
+model:
+  checkpoint_dir: models/checkpoints
+
+  # for UNet
+  chans: 32
+  num_pool_layers: 4
+
+training:
+  # for training loop
+  epochs: 50
+  lr: 1e-4
+  max_steps: null
+  log_interval: 50    # how many batches between progress logs
+
+augment:
+  # defaults for your SpectrogramTransforms
+  time_mask_param: 30
+  freq_mask_param: 15
+  time_warp_param: 40
+  stripe_time_width: 1
+  stripe_freq_width: 1
+  stripe_time_count: 2
+  stripe_freq_count: 2
+  noise_std: 0.01
+
+experiment:
+  # MLflow experiment metadata
+  name: default_experiment
+  run_name: run1

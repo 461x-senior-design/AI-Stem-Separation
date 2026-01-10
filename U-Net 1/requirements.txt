@@ -1,0 +1,24 @@
+# Core dependencies for U-Net Audio Source Separation
+# Quarter 1: Architecture and Validation
+
+# Deep Learning
+torch>=2.0.0
+
+# Audio Processing (optional for Q1, required for Q2)
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# Numerical Computing
+numpy>=1.24.0
+
+# Testing
+pytest>=7.0.0
+
+# Visualization (optional)
+matplotlib>=3.7.0
+
+# Progress Bars (optional)
+tqdm>=4.65.0
+
+# Note: For GPU support, install PyTorch with CUDA:
+# pip install torch --index-url https://download.pytorch.org/whl/cu118
