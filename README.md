@@ -9,13 +9,13 @@
 ```
 AI-Stem-Separation/
 ├── Quarter 1/      # Q1 learning materials, demos, and experiments
-├── U-Net 1/        # Primary implementation (recommended starting point)
+├── U-Net 1/        # Our culminated work from Q1
 └── U-Net 2/        # Abandoned alternative implementation
 ```
 
 ---
 
-## U-Net 1 (Recommended)
+## U-Net 1 (Our Culminated Work from Q1)
 
 Located in `/U-Net 1/`
 
@@ -139,7 +139,7 @@ However, it represents a different approach and could serve as **Starting Point 
 
 We have two options moving forward:
 
-1. **Continue with U-Net 1** - Clean, verified, ready for training
+1. **Continue with U-Net 1** - Our Q1 culminated work
 2. **Explore U-Net 2** - Requires cleanup and validation, but may have different design decisions worth considering
 
 This is a team discussion - review both implementations and decide how we want to approach Q2.
