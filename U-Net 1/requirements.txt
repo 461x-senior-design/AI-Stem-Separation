@@ -4,6 +4,9 @@
 # Deep Learning
 torch>=2.0.0
 
+# Experiment Tracking
+wandb>=0.16.0
+
 # Audio Processing (optional for Q1, required for Q2)
 librosa>=0.10.0
 soundfile>=0.12.0
