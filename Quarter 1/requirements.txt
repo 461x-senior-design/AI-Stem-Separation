@@ -1,6 +1,0 @@
-torch
-librosa
-soundfile
-numpy
-matplotlib
-pillow
