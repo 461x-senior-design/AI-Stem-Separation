@@ -1,0 +1,16 @@
+# Ruff configuration
+line-length = 100
+
+[lint]
+# Select rules (E = pycodestyle errors, F = pyflakes, I = isort)
+select = ["E", "F", "I"]
+
+# Ignore specific rules if needed
+ignore = []
+
+[format]
+# Use double quotes for strings
+quote-style = "double"
+
+# Use spaces for indentation
+indent-style = "space"
