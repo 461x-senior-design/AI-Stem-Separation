@@ -3,7 +3,7 @@ SUPPORTED_FORMATS = ["wav"]  # Only WAV confirmed for Sprint 1
 OPTIONAL_FORMATS = ["flac", "mp3"]  # Stretch goals
 
 # Sample rate validation
-TARGET_SAMPLE_RATE = 44100 # MUSDB18-HQ dataset standard
+TARGET_SAMPLE_RATE = 44100  # MUSDB18-HQ dataset standard
 MIN_SAMPLE_RATE = 8000
 MAX_SAMPLE_RATE = 192000
 
