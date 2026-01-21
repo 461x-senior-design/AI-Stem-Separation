@@ -10,11 +10,11 @@ STEMS = ["drums-", "vocals-", "bass-", "other-"]
 
 
 @click.command()
-@click.option("--input-file", "-i", help="Name of input audio file.")
+@click.option("--input-file", "-i", required=True, help="Name of input audio file.")
 @click.option("--output-dir", "-o", default=DIR, help="Name of output directory.")
-def separate(input_file, output_dir):
+def separate(input_file: str, output_dir: str) -> None:
     console = Console()
-    display_input = input_file or "<unknown>"
+    display_input = input_file
     console.print(f"\n[bold red]Song Name:[/bold red] [cyan]{display_input}[/cyan]")
     console.print("\n[bold red]Expected Output:[/bold red]")
     tree = Tree(f"[bold green]{output_dir}[/bold green][bold]/[/bold]")
