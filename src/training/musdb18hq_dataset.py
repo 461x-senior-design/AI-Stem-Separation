@@ -1,12 +1,11 @@
-import os
+import random
 from dataclasses import dataclass
 from pathlib import Path
-import random
+
 import soundfile as sf
 import torch
 
-from src.training.stft import stft_mag_phase_mono, freq_minmax_normalize
-
+from src.training.stft import freq_minmax_normalize, stft_mag_phase_mono
 
 STEMS_4 = ["drums", "bass", "vocals", "other"]
 
@@ -117,7 +116,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         info = sf.info(str(wav_path))
         if info.samplerate != self.stft_cfg.sample_rate:
             raise ValueError(
-                f"Sample rate mismatch for {wav_path}: got {info.samplerate}, expected {self.stft_cfg.sample_rate}"
+                f"Sample rate mismatch for {wav_path}: got {info.samplerate}, "
+                f"expected {self.stft_cfg.sample_rate}"
             )
 
         audio, sr = sf.read(
@@ -129,7 +129,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         )
         if sr != self.stft_cfg.sample_rate:
             raise ValueError(
-                f"Sample rate mismatch for {wav_path}: got {sr}, expected {self.stft_cfg.sample_rate}"
+                f"Sample rate mismatch for {wav_path}: got {sr}, "
+                "expected {self.stft_cfg.sample_rate}"
             )
 
         mono = audio.mean(axis=1)
@@ -151,7 +152,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         total_frames = info.frames
         if total_frames < self.segment_samples:
             raise ValueError(
-                f"Track too short for crop: {mix_path} has {total_frames} frames, need {self.segment_samples}"
+                f"Track too short for crop: {mix_path} has {total_frames} frames, "
+                "need {self.segment_samples}"
             )
 
         if self.deterministic:
@@ -169,7 +171,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         )
         if mix_mag.shape[1] != self.crop_cfg.time_frames:
             raise RuntimeError(
-                f"Unexpected time frames: got {mix_mag.shape[1]}, expected {self.crop_cfg.time_frames}"
+                f"Unexpected time frames: got {mix_mag.shape[1]}, "
+                "expected {self.crop_cfg.time_frames}"
             )
 
         mix_norm, _f_min, _f_max = freq_minmax_normalize(mix_mag)

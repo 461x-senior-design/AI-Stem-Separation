@@ -8,10 +8,8 @@ import numpy as np
 import soundfile as sf
 import torch
 
-
-from src.inference import load_pth_model, config_from_checkpoint
+from src.inference import config_from_checkpoint, load_pth_model
 from src.training.stft import freq_minmax_normalize
-
 
 STEMS = ["drums", "bass", "vocals", "other"]
 
@@ -284,7 +282,10 @@ def main() -> None:
 
             print(
                 f"epoch={epoch:03d} "
-                f"sisdr=[{row['mean_sisdr_drums']:.2f},{row['mean_sisdr_bass']:.2f},{row['mean_sisdr_vocals']:.2f},{row['mean_sisdr_other']:.2f}] "
+                f"sisdr=[{row['mean_sisdr_drums']:.2f},"
+                f"{row['mean_sisdr_bass']:.2f},"
+                f"{row['mean_sisdr_vocals']:.2f},"
+                f"{row['mean_sisdr_other']:.2f}] "
                 f"recon_snr={row['mean_recon_snr_db']:.2f} "
                 f"corr={row['mean_interstem_corr']:.6f} "
                 f"seconds_used={row['seconds_used']:.0f}"

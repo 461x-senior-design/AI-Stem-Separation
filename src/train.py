@@ -1,13 +1,13 @@
 import argparse
-from pathlib import Path
 import time
+from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
 
 from src.models.unet_2d import UNet2D
-from src.training.musdb18hq_dataset import Musdb18HQDataset, StftConfig, CropConfig, STEMS_4
-from src.training.checkpointing import save_checkpoint, load_checkpoint, export_torchscript
+from src.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
+from src.training.musdb18hq_dataset import STEMS_4, CropConfig, Musdb18HQDataset, StftConfig
 
 
 def parse_args():
@@ -134,7 +134,8 @@ def main():
             ckpt_path, model, optimizer, map_location=device
         )
         print(
-            f"Resumed from {ckpt_path}: epoch={start_epoch}, step={global_step}, extra_keys={list(extra.keys())}"
+            f"Resumed from {ckpt_path}: epoch={start_epoch}, step={global_step}, "
+            f"extra_keys={list(extra.keys())}"
         )
 
     config = {
@@ -167,7 +168,8 @@ def main():
 
             optimizer.zero_grad(set_to_none=True)
 
-            # Model predicts per-stem ratio masks in [0,1] (targets: stem_mag / (mix_mag + eps), clamped).
+            # Model predicts per-stem ratio masks in [0,1]
+            # (targets: stem_mag / (mix_mag + eps), clamped).
             pred_norm = model(mix_norm)  # [B, S, F, T]
             loss = l1_loss(pred_norm, targets_norm)
 
