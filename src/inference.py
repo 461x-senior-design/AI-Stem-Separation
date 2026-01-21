@@ -47,7 +47,9 @@ class InferenceConfig:
         self.ola_denom_floor = ola_denom_floor
 
 
-def load_torchscript_model(checkpoint_path: Union[str, Path], device: str = "cpu") -> torch.jit.ScriptModule:
+def load_torchscript_model(
+    checkpoint_path: Union[str, Path], device: str = "cpu"
+) -> torch.jit.ScriptModule:
     """Load a TorchScript model (.pt)."""
     path = Path(checkpoint_path).expanduser().resolve()
     if not path.exists():
@@ -163,9 +165,9 @@ def _istft_overlap_add_no_check(
     if F != expected_F:
         raise ValueError(f"X first dimension must be {expected_F} for n_fft={n_fft}, got {F}")
 
-    frames = torch.fft.irfft(X, n=n_fft, dim=0)          # (n_fft, T)
-    frames = frames[:win_length, :]                      # (win_length, T)
-    frames = frames * window.unsqueeze(1)                # (win_length, T)
+    frames = torch.fft.irfft(X, n=n_fft, dim=0)  # (n_fft, T)
+    frames = frames[:win_length, :]  # (win_length, T)
+    frames = frames * window.unsqueeze(1)  # (win_length, T)
 
     out_len = win_length + hop_length * (T - 1)
     y = torch.zeros(out_len, device=frames.device, dtype=frames.dtype)
@@ -270,7 +272,7 @@ def separate_waveform_4stems(
     stems: Dict[str, torch.Tensor] = {}
 
     mix_phase = torch.angle(stft)  # (C, F, T)
-    mix_mag = torch.abs(stft)      # (C, F, T)
+    mix_mag = torch.abs(stft)  # (C, F, T)
 
     for i, name in enumerate(names):
         outs = []

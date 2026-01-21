@@ -170,7 +170,7 @@ def main() -> None:
 
     tracks = list_tracks(data_root / "test")[:n_eval_tracks]
     if not tracks:
-        raise RuntimeError(f"No valid test tracks found in: {data_root/'test'}")
+        raise RuntimeError(f"No valid test tracks found in: {data_root / 'test'}")
 
     ckpts = sorted(ckpt_dir.glob("*.pth"), key=lambda p: epoch_from_name(p))
     if not ckpts:
@@ -181,13 +181,24 @@ def main() -> None:
 
     with per_track_csv.open("w", newline="") as f_pt:
         w_pt = csv.writer(f_pt)
-        w_pt.writerow([
-            "epoch", "ckpt", "track",
-            "sisdr_drums", "sisdr_bass", "sisdr_vocals", "sisdr_other",
-            "recon_snr_db", "mean_interstem_corr",
-            "pred_rms_drums", "pred_rms_bass", "pred_rms_vocals", "pred_rms_other",
-            "seconds_used",
-        ])
+        w_pt.writerow(
+            [
+                "epoch",
+                "ckpt",
+                "track",
+                "sisdr_drums",
+                "sisdr_bass",
+                "sisdr_vocals",
+                "sisdr_other",
+                "recon_snr_db",
+                "mean_interstem_corr",
+                "pred_rms_drums",
+                "pred_rms_bass",
+                "pred_rms_vocals",
+                "pred_rms_other",
+                "seconds_used",
+            ]
+        )
 
         summary_rows: List[dict] = []
 
@@ -207,7 +218,9 @@ def main() -> None:
             for td in tracks:
                 mix, sr = read_slice(td / "mixture.wav", max_samples)
                 if sr != cfg.sample_rate:
-                    raise RuntimeError(f"SR mismatch in {td.name}: file={sr}, expected={cfg.sample_rate}")
+                    raise RuntimeError(
+                        f"SR mismatch in {td.name}: file={sr}, expected={cfg.sample_rate}"
+                    )
 
                 gt: Dict[str, np.ndarray] = {}
                 for s in STEMS:
@@ -220,24 +233,30 @@ def main() -> None:
                 for s in STEMS:
                     sisdr_all[s].append(si_sdr(pred_np[s], gt[s]))
 
-                stems_sum = pred_np["drums"] + pred_np["bass"] + pred_np["vocals"] + pred_np["other"]
+                stems_sum = (
+                    pred_np["drums"] + pred_np["bass"] + pred_np["vocals"] + pred_np["other"]
+                )
                 recon_snrs.append(recon_snr_db(mix, stems_sum))
                 corrs.append(mean_interstem_corr(pred_np))
 
-                w_pt.writerow([
-                    epoch, str(ckpt_path), td.name,
-                    float(sisdr_all["drums"][-1]),
-                    float(sisdr_all["bass"][-1]),
-                    float(sisdr_all["vocals"][-1]),
-                    float(sisdr_all["other"][-1]),
-                    float(recon_snrs[-1]),
-                    float(corrs[-1]),
-                    rms(pred_np["drums"]),
-                    rms(pred_np["bass"]),
-                    rms(pred_np["vocals"]),
-                    rms(pred_np["other"]),
-                    seconds_used if seconds_used > 0 else float(mix.shape[0]) / float(sr),
-                ])
+                w_pt.writerow(
+                    [
+                        epoch,
+                        str(ckpt_path),
+                        td.name,
+                        float(sisdr_all["drums"][-1]),
+                        float(sisdr_all["bass"][-1]),
+                        float(sisdr_all["vocals"][-1]),
+                        float(sisdr_all["other"][-1]),
+                        float(recon_snrs[-1]),
+                        float(corrs[-1]),
+                        rms(pred_np["drums"]),
+                        rms(pred_np["bass"]),
+                        rms(pred_np["vocals"]),
+                        rms(pred_np["other"]),
+                        seconds_used if seconds_used > 0 else float(mix.shape[0]) / float(sr),
+                    ]
+                )
 
                 if device.startswith("cuda"):
                     torch.cuda.empty_cache()
@@ -245,10 +264,18 @@ def main() -> None:
             row = {
                 "epoch": epoch,
                 "ckpt": str(ckpt_path),
-                "mean_sisdr_drums": float(np.mean(sisdr_all["drums"])) if sisdr_all["drums"] else float("nan"),
-                "mean_sisdr_bass": float(np.mean(sisdr_all["bass"])) if sisdr_all["bass"] else float("nan"),
-                "mean_sisdr_vocals": float(np.mean(sisdr_all["vocals"])) if sisdr_all["vocals"] else float("nan"),
-                "mean_sisdr_other": float(np.mean(sisdr_all["other"])) if sisdr_all["other"] else float("nan"),
+                "mean_sisdr_drums": float(np.mean(sisdr_all["drums"]))
+                if sisdr_all["drums"]
+                else float("nan"),
+                "mean_sisdr_bass": float(np.mean(sisdr_all["bass"]))
+                if sisdr_all["bass"]
+                else float("nan"),
+                "mean_sisdr_vocals": float(np.mean(sisdr_all["vocals"]))
+                if sisdr_all["vocals"]
+                else float("nan"),
+                "mean_sisdr_other": float(np.mean(sisdr_all["other"]))
+                if sisdr_all["other"]
+                else float("nan"),
                 "mean_recon_snr_db": float(np.mean(recon_snrs)) if recon_snrs else float("nan"),
                 "mean_interstem_corr": float(np.mean(corrs)) if corrs else float("nan"),
                 "seconds_used": seconds_used,
@@ -269,19 +296,33 @@ def main() -> None:
 
     with summary_csv.open("w", newline="") as f_sum:
         w = csv.writer(f_sum)
-        w.writerow([
-            "epoch", "ckpt",
-            "mean_sisdr_drums", "mean_sisdr_bass", "mean_sisdr_vocals", "mean_sisdr_other",
-            "mean_recon_snr_db", "mean_interstem_corr",
-            "seconds_used",
-        ])
+        w.writerow(
+            [
+                "epoch",
+                "ckpt",
+                "mean_sisdr_drums",
+                "mean_sisdr_bass",
+                "mean_sisdr_vocals",
+                "mean_sisdr_other",
+                "mean_recon_snr_db",
+                "mean_interstem_corr",
+                "seconds_used",
+            ]
+        )
         for r in summary_rows:
-            w.writerow([
-                r["epoch"], r["ckpt"],
-                r["mean_sisdr_drums"], r["mean_sisdr_bass"], r["mean_sisdr_vocals"], r["mean_sisdr_other"],
-                r["mean_recon_snr_db"], r["mean_interstem_corr"],
-                r["seconds_used"],
-            ])
+            w.writerow(
+                [
+                    r["epoch"],
+                    r["ckpt"],
+                    r["mean_sisdr_drums"],
+                    r["mean_sisdr_bass"],
+                    r["mean_sisdr_vocals"],
+                    r["mean_sisdr_other"],
+                    r["mean_recon_snr_db"],
+                    r["mean_interstem_corr"],
+                    r["seconds_used"],
+                ]
+            )
 
     print("WROTE:", str(per_track_csv))
     print("WROTE:", str(summary_csv))

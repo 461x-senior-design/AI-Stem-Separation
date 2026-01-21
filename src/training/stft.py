@@ -28,7 +28,9 @@ def stft_mag_phase_mono(
     if win_length > n_fft:
         raise ValueError("win_length must be <= n_fft.")
 
-    window = torch.hann_window(win_length, periodic=True, dtype=torch.float32, device=wav_mono.device)
+    window = torch.hann_window(
+        win_length, periodic=True, dtype=torch.float32, device=wav_mono.device
+    )
 
     spec = torch.stft(
         wav_mono,

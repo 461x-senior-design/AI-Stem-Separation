@@ -25,14 +25,24 @@ def parse_args():
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--num-workers", type=int, default=2)
 
-    p.add_argument("--time-frames", type=int, default=256, help="Fixed STFT time frames T (e.g., 256 or 512).")
-    p.add_argument("--max-tracks", type=int, default=0, help="If >0, limit number of tracks per split.")
+    p.add_argument(
+        "--time-frames", type=int, default=256, help="Fixed STFT time frames T (e.g., 256 or 512)."
+    )
+    p.add_argument(
+        "--max-tracks", type=int, default=0, help="If >0, limit number of tracks per split."
+    )
 
     p.add_argument("--checkpoint-dir", type=str, default="checkpoints")
-    p.add_argument("--resume", type=str, default="", help="Path to a .pth checkpoint to resume from.")
+    p.add_argument(
+        "--resume", type=str, default="", help="Path to a .pth checkpoint to resume from."
+    )
     p.add_argument("--save-every-epochs", type=int, default=1)
 
-    p.add_argument("--export-ts", action="store_true", help="Export TorchScript .pt after each checkpoint save.")
+    p.add_argument(
+        "--export-ts",
+        action="store_true",
+        help="Export TorchScript .pt after each checkpoint save.",
+    )
     p.add_argument("--device", type=str, default="", help="cpu, cuda, or leave empty for auto.")
 
     return p.parse_args()
@@ -120,8 +130,12 @@ def main():
 
     if args.resume.strip():
         ckpt_path = args.resume.strip()
-        start_epoch, global_step, extra = load_checkpoint(ckpt_path, model, optimizer, map_location=device)
-        print(f"Resumed from {ckpt_path}: epoch={start_epoch}, step={global_step}, extra_keys={list(extra.keys())}")
+        start_epoch, global_step, extra = load_checkpoint(
+            ckpt_path, model, optimizer, map_location=device
+        )
+        print(
+            f"Resumed from {ckpt_path}: epoch={start_epoch}, step={global_step}, extra_keys={list(extra.keys())}"
+        )
 
     config = {
         "data_root": args.data_root,
@@ -183,20 +197,22 @@ def main():
         dt = time.time() - t0
 
         print(
-            f"Epoch {epoch+1}/{args.epochs} | "
+            f"Epoch {epoch + 1}/{args.epochs} | "
             f"train_loss={train_loss:.6f} val_loss={val_loss:.6f} | "
             f"time={dt:.1f}s"
         )
 
         do_save = ((epoch + 1) % args.save_every_epochs) == 0
         if do_save:
-            ckpt_path = ckpt_dir / f"unet_phase1_epoch{epoch+1:03d}.pth"
+            ckpt_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pth"
             extra = {"config": config}
-            save_checkpoint(str(ckpt_path), model, optimizer, epoch=epoch + 1, step=global_step, extra=extra)
+            save_checkpoint(
+                str(ckpt_path), model, optimizer, epoch=epoch + 1, step=global_step, extra=extra
+            )
             print(f"Saved checkpoint: {ckpt_path}")
 
             if args.export_ts:
-                ts_path = ckpt_dir / f"unet_phase1_epoch{epoch+1:03d}.pt"
+                ts_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt"
                 export_torchscript(str(ts_path), model)
                 print(f"Exported TorchScript: {ts_path}")
 

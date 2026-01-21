@@ -12,6 +12,7 @@ def read_wav(path: str) -> Tuple[np.ndarray, int]:
 
     try:
         import soundfile as sf  # type: ignore
+
         x, sr = sf.read(path, always_2d=True)
         return x.astype(np.float64), int(sr)
     except Exception:
@@ -61,9 +62,19 @@ def snr_db(sig: np.ndarray, noise: np.ndarray, eps: float = 1e-9) -> float:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Cross SI-SDR matrix: predicted stems vs GT stems (MUSDB).")
-    parser.add_argument("--track-dir", required=True, help="MUSDB track dir containing drums.wav/bass.wav/vocals.wav/other.wav")
-    parser.add_argument("--out-dir", required=True, help="Inference output dir containing drums.wav/bass.wav/vocals.wav/other.wav")
+    parser = argparse.ArgumentParser(
+        description="Cross SI-SDR matrix: predicted stems vs GT stems (MUSDB)."
+    )
+    parser.add_argument(
+        "--track-dir",
+        required=True,
+        help="MUSDB track dir containing drums.wav/bass.wav/vocals.wav/other.wav",
+    )
+    parser.add_argument(
+        "--out-dir",
+        required=True,
+        help="Inference output dir containing drums.wav/bass.wav/vocals.wav/other.wav",
+    )
     args = parser.parse_args()
 
     track_dir = os.path.abspath(os.path.expanduser(args.track_dir))

@@ -55,4 +55,3 @@ def export_torchscript(
     model_cpu = model.to("cpu").eval()
     scripted = torch.jit.script(model_cpu)
     scripted.save(str(p))
-

@@ -135,7 +135,9 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         mono = audio.mean(axis=1)
         mono_t = torch.from_numpy(mono).to(torch.float32)
         if mono_t.numel() != num_frames:
-            raise RuntimeError(f"Short read for {wav_path}: expected {num_frames}, got {mono_t.numel()}")
+            raise RuntimeError(
+                f"Short read for {wav_path}: expected {num_frames}, got {mono_t.numel()}"
+            )
         return mono_t
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -166,7 +168,9 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             win_length=self.stft_cfg.win_length,
         )
         if mix_mag.shape[1] != self.crop_cfg.time_frames:
-            raise RuntimeError(f"Unexpected time frames: got {mix_mag.shape[1]}, expected {self.crop_cfg.time_frames}")
+            raise RuntimeError(
+                f"Unexpected time frames: got {mix_mag.shape[1]}, expected {self.crop_cfg.time_frames}"
+            )
 
         mix_norm, _f_min, _f_max = freq_minmax_normalize(mix_mag)
 
@@ -188,6 +192,6 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             stem_mask = torch.clamp(stem_mask, 0.0, 1.0)
             target_masks.append(stem_mask)
 
-        mix_norm = mix_norm.unsqueeze(0)                # [1, F, T]
-        targets_norm = torch.stack(target_masks, dim=0) # [S, F, T]
+        mix_norm = mix_norm.unsqueeze(0)  # [1, F, T]
+        targets_norm = torch.stack(target_masks, dim=0)  # [S, F, T]
         return mix_norm, targets_norm
