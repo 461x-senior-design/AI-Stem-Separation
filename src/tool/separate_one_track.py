@@ -55,14 +55,18 @@ def resolve_checkpoint() -> Path:
         validate_file(default_ckpt, "checkpoint (.pth)")
         return default_ckpt
 
-    raise RuntimeError("Set CKPT to a .pth checkpoint path, i.e. runs/best_ckpt/unet_phase1_best.pth")
+    raise RuntimeError(
+        "Set CKPT to a .pth checkpoint path, i.e. runs/best_ckpt/unet_phase1_best.pth"
+    )
 
 
 def resolve_track_dir() -> Path:
     """Resolve the MUSDB track directory from TRACK_DIR."""
     track_dir = get_env_path("TRACK_DIR")
     if track_dir is None:
-        raise RuntimeError("Set TRACK_DIR to a MUSDB track directory (contains mixture.wav and stem wavs).")
+        raise RuntimeError(
+            "Set TRACK_DIR to a MUSDB track directory (contains mixture.wav and stem wavs)."
+        )
     validate_dir(track_dir, "TRACK_DIR (MUSDB track directory)")
     return track_dir
 
@@ -118,7 +122,9 @@ def main() -> None:
     model.eval()
 
     if sr != cfg.sample_rate:
-        raise RuntimeError(f"Sample-rate mismatch: mixture is {sr}, checkpoint expects {cfg.sample_rate}")
+        raise RuntimeError(
+            f"Sample-rate mismatch: mixture is {sr}, checkpoint expects {cfg.sample_rate}"
+        )
 
     waveform = torch.from_numpy(mix).to(dtype=torch.float32).t().contiguous()  # (C,N)
 
@@ -157,7 +163,7 @@ def main() -> None:
         rms = float(np.sqrt(np.mean(x * x)))
         peak = float(np.max(np.abs(x)))
         print(f"{name:6s} rms={rms:.6f} peak={peak:.6f}")
-    
+
     # edge spike check
     edge = int(cfg.win_length)
     if mix.shape[0] > 2 * edge:
@@ -189,4 +195,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

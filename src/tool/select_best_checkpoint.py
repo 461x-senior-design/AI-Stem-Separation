@@ -291,7 +291,7 @@ def print_top(scores: List[RowScore], top_k: int) -> None:
             f"{i},{r.epoch},{r.score:.6f},"
             f"{'' if r.recon_snr is None else f'{r.recon_snr:.6f}'},"
             f"{'' if r.corr is None else f'{r.corr:.6f}'},"
-            f"\"{r.sisdr_values}\","
+            f'"{r.sisdr_values}",'
             f"{'' if r.ckpt_path is None else str(r.ckpt_path)}"
         )
 
