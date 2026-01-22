@@ -1,10 +1,11 @@
 # audio.py
 # Perorm time-domain audio operations
 
-import numpy as np
-import librosa
 from pathlib import Path
 from typing import Union
+
+import librosa
+import numpy as np
 
 from .constants import TARGET_SAMPLE_RATE
 
@@ -39,3 +40,25 @@ def load_audio(
     waveform, loaded_sr = librosa.load(path, sr=sr, mono=mono)
 
     return waveform, sr
+
+
+def ensure_stereo(waveform: np.ndarray) -> np.ndarray:
+    """
+    Ensure waveform is is stereo (2 channels).
+
+    Args:
+        waveform: Shape (N,) for mono or (2, N) for stereo
+
+    Returns:
+        Stereo waveform with shape (2, N)
+        If input is mono, duplicates to both channels.
+    """
+    if waveform.ndim == 1:
+        # Mono: duplicate to both channels
+        return np.stack([waveform, waveform])
+
+    if waveform.ndim == 2 and waveform.shape[0] == 2:
+        # Already stereo
+        return waveform
+
+    raise ValueError(f"Unexpected waveform shape {waveform.shape}")
