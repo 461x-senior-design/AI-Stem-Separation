@@ -21,3 +21,6 @@ dependencies = [
 
 [project.scripts]
 separate = "tool.cli:separate"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
