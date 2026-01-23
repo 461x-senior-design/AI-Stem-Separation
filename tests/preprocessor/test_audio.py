@@ -1,6 +1,6 @@
 # Test script - run from project root
-import numpy as np
 from pathlib import Path
+
 from src.preprocessing.audio import load_audio
 
 # Test with a real audio file (replace with your path)
