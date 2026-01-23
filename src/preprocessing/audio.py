@@ -62,3 +62,45 @@ def ensure_stereo(waveform: np.ndarray) -> np.ndarray:
         return waveform
 
     raise ValueError(f"Unexpected waveform shape {waveform.shape}")
+
+
+def normalize_waveform(waveform: np.ndarray, method: str = "peak") -> tuple[np.ndarray, dict]:
+    """
+    Normalize waveform amplitude.
+
+    For stereo: uses SAME scale factor for both chennels to preserve stereo balance.
+
+    Args:
+        waveform: Input waveform [2, N] stereo or [N] mono
+        method: "peak" (scale max to 1.0), "rms", or "none"
+
+    Returns:
+        Tuple of (normalized_waveform, params)
+        params contains everything needed to reverse normalization
+    """
+    # Because numpy arrays are mutable, we must make a copy.
+    # Otherwise, and modifications to normalized would affect waveform
+    normalized = waveform.copy()
+
+    if method == "none":
+        return normalized, {"method": "none", "scale_factor": 1.0}
+
+    if method == "peak":
+        peak = np.abs(waveform).max()
+
+        if peak == 0.0:
+            return normalized, {"method": "peak", "scale_factor": 1.0}
+
+        normalized = waveform / peak
+        return normalized, {"method": "peak", "scale_factor": peak}
+
+    if method == "rms":
+        rms = np.sqrt(np.mean(waveform**2))
+
+        if rms == 0.0:
+            return normalized, {"method": "rms", "scale_factor": 1.0}
+
+        normalized = waveform / rms
+        return normalized, {"method": "rms", "scale_factor": rms}
+
+    raise ValueError(f"Unkown normalization method: {method}")
