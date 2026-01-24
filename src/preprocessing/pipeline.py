@@ -3,6 +3,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 import torch
@@ -57,7 +58,7 @@ class Preprocessor:
         self.waveform_norm = waveform_norm
         self.spectrogram_norm = spectrogram_norm
 
-    def process(self, audio_path: str | Path) -> tuple[torch.Tensor, PreprocessingMetadata]:
+    def process(self, audio_path: Union[str, Path]) -> tuple[torch.Tensor, PreprocessingMetadata]:
         """
         Run full preprocessing pipeline.
 
