@@ -54,3 +54,4 @@ examples/local/
 
 # Claude Code
 .claude/
+/local/
