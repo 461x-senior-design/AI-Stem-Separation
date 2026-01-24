@@ -35,10 +35,10 @@ def test_preprocessor_tensor_shape(test_audio_path):
 
     # Assert
     assert tensor.ndim == 4
-    assert tensor.shape[0] == 1      # batch
-    assert tensor.shape[1] == 2      # stereo channels
-    assert tensor.shape[2] == 2049   # frequency bins (n_fft // 2 + 1)
-    assert tensor.shape[3] > 0       # time frames
+    assert tensor.shape[0] == 1  # batch
+    assert tensor.shape[1] == 2  # stereo channels
+    assert tensor.shape[2] == 2049  # frequency bins (n_fft // 2 + 1)
+    assert tensor.shape[3] > 0  # time frames
 
 
 def test_preprocessor_tensor_dtype(test_audio_path):
