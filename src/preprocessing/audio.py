@@ -32,9 +32,6 @@ def load_audio(
     """
     path = Path(path)
 
-    if not path.exists():
-        raise FileNotFoundError(f"Audio file not found: {path}")
-
     # librosa.load returns (waveform, sample_rate)
     # mono=False keeps stereo as (2, N), mono=True averages to (N,)
     waveform, loaded_sr = librosa.load(path, sr=sr, mono=mono)

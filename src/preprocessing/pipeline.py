@@ -10,6 +10,7 @@ import torch
 from .audio import ensure_stereo, load_audio, normalize_waveform
 from .constants import HOP_LENGTH, N_FFT, TARGET_SAMPLE_RATE
 from .spectral import compute_stft, normalize_spectrogram, split_magnitude_phase
+from .utility.audio_file_validator import AudioFileValidator, AudioValidationException
 
 
 @dataclass
@@ -68,6 +69,12 @@ class Preprocessor:
             tensor: [1, 1, F T] normalized magnitude
         """
         audio_path = Path(audio_path)
+
+        # Use Haedon's validation system
+        validator = AudioFileValidator(str(audio_path))
+        is_valid, message = validator.validate()
+        if not is_valid:
+            raise AudioValidationException(message)
 
         # Load audio
         waveform, sr = load_audio(audio_path, sr=self.sample_rate)
