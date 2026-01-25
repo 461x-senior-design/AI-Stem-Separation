@@ -19,8 +19,13 @@ dependencies = [
   "rich>=13.0.0",
 ]
 
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0.0",
+]
+
 [project.scripts]
-separate = "tool.cli:separate"
+separate = "src.tool.cli:separate"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
