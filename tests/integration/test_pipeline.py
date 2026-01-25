@@ -47,11 +47,11 @@ def calculate_snr(original: np.ndarray, reconstructed: np.ndarray) -> float:
     original = original[..., :min_len]
     reconstructed = reconstructed[..., :min_len]
 
-    signal_power = np.sum(original ** 2)
+    signal_power = np.sum(original**2)
     noise_power = np.sum((original - reconstructed) ** 2)
 
     if noise_power == 0:
-        return float('inf')
+        return float("inf")
 
     return 10 * np.log10(signal_power / noise_power)
 
@@ -93,7 +93,7 @@ def test_zero_mask_produces_silence(pipeline_output, tmp_path):
     result = post.process(zero_mask, metadata, tensor, tmp_path, "test")
 
     # Should be near-silent
-    energy = np.mean(result.vocals_waveform ** 2)
+    energy = np.mean(result.vocals_waveform**2)
     assert energy < 1e-10, f"Zero mask should produce silence, got energy {energy}"
 
 
@@ -142,6 +142,7 @@ def test_full_pipeline_creates_valid_files(pipeline_output, tmp_path):
 
     # Files should be readable
     from src.preprocessing.audio import load_audio
+
     vocals_loaded, sr = load_audio(result.vocals_path, sr=metadata.processed_sr)
 
     assert sr == metadata.processed_sr

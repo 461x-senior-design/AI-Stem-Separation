@@ -136,9 +136,7 @@ def test_postprocessor_no_export(preprocessed_data, tmp_path):
     mock_output = torch.ones(1, 2, F, T) * 0.5
 
     # Act
-    result = post.process(
-        mock_output, metadata, tensor, tmp_path, "test", export_files=False
-    )
+    result = post.process(mock_output, metadata, tensor, tmp_path, "test", export_files=False)
 
     # Assert
     assert result.vocals_path is None
@@ -161,7 +159,7 @@ def test_postprocessor_identity_mask_roundtrip(preprocessed_data, tmp_path):
     result = post.process(identity_mask, metadata, tensor, tmp_path, "test")
 
     # Assert - waveform should not be silent (should have energy)
-    vocals_energy = np.mean(result.vocals_waveform ** 2)
+    vocals_energy = np.mean(result.vocals_waveform**2)
     assert vocals_energy > 1e-6, "Reconstructed audio is silent"
 
 
@@ -179,5 +177,5 @@ def test_postprocessor_zero_mask_produces_silence(preprocessed_data, tmp_path):
     result = post.process(zero_mask, metadata, tensor, tmp_path, "test")
 
     # Assert - waveform should be near-silent
-    vocals_energy = np.mean(result.vocals_waveform ** 2)
+    vocals_energy = np.mean(result.vocals_waveform**2)
     assert vocals_energy < 1e-6, "Zero mask should produce silence"
