@@ -20,7 +20,8 @@ def compute_stft(
         win_length: Window length (default: n_fft)
 
     Returns:
-        Complex STFT array, shape [F, T] for mono or [2, F, T] for stereo where F = n_fft // 2 + 1 = 2049
+        Complex STFT array, shape [F, T] for mono or [2, F, T] for stereo where
+        F = n_fft // 2 + 1 = 2049
     """
     return librosa.stft(waveform, n_fft=n_fft, hop_length=hop_length, win_length=win_length)
 
