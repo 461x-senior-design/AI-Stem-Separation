@@ -8,14 +8,15 @@ These tests verify that:
 4. The full pipeline maintains audio quality (SNR)
 """
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
-from pathlib import Path
 
-from src.preprocessing.pipeline import Preprocessor
-from src.preprocessing.audio import load_audio
 from src.postprocessing.pipeline import Postprocessor
+from src.preprocessing.audio import load_audio
+from src.preprocessing.pipeline import Preprocessor
 
 
 @pytest.fixture

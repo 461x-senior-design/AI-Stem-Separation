@@ -1,7 +1,8 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 import torch
-from pathlib import Path
 
 from src.postprocessing.pipeline import Postprocessor, SeparationResult
 from src.preprocessing.pipeline import Preprocessor

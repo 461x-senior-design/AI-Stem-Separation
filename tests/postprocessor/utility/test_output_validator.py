@@ -2,12 +2,10 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from src.postprocessing.utility import constants as const
 from src.postprocessing.utility.output_validator import (
-    OutputValidationException,
     OutputValidator,
 )
-from src.postprocessing.utility import constants as const
-
 
 
 @pytest.fixture

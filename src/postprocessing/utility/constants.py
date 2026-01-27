@@ -6,8 +6,7 @@ Sprint 1 Scope: Basic validation only (NaN/Inf, shape, sample rate, file I/O)
 TODO: Advanced quality checks in future sprints (frequency analysis, perceptual metrics)
 """
 
-from src.preprocessing.constants import TARGET_CHANNELS, TARGET_SAMPLE_RATE
-
+from src.preprocessing.constants import TARGET_CHANNELS
 
 # Expected number of channels (stereo)
 EXPECTED_CHANNELS: int = TARGET_CHANNELS  # 2 (stereo)
