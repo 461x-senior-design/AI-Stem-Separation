@@ -41,7 +41,7 @@ AI-Stem-Separation/
 
 ### Prerequisites
 
-- Python 3.9 or higher
+- Python >=3.9, <3.12
 - pip (Python package manager)
 - Virtual environment tool (recommended)
 
