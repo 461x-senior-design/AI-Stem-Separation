@@ -19,27 +19,17 @@ ERROR_WAVEFORM_CONTAINS_NAN: str = "Waveform contains NaN values"
 ERROR_WAVEFORM_CONTAINS_INF: str = "Waveform contains infinite values"
 
 # Shape validation errors
-ERROR_WAVEFORM_WRONG_SHAPE: str = (
-    "Waveform has unexpected shape: {shape}, expected [2, N]"
-)
-ERROR_WAVEFORM_TOO_SHORT: str = (
-    "Waveform too short: {samples} samples (min {min_samples})"
-)
+ERROR_WAVEFORM_WRONG_SHAPE: str = "Waveform has unexpected shape: {shape}, expected [2, N]"
+ERROR_WAVEFORM_TOO_SHORT: str = "Waveform too short: {samples} samples (min {min_samples})"
 
 # Channel validation errors
-ERROR_CHANNEL_MISMATCH: str = (
-    "Channel count mismatch: got {actual}, expected {expected}"
-)
+ERROR_CHANNEL_MISMATCH: str = "Channel count mismatch: got {actual}, expected {expected}"
 
 # Sample rate validation errors
-ERROR_SAMPLE_RATE_MISMATCH: str = (
-    "Sample rate mismatch: got {actual}Hz, expected {expected}Hz"
-)
+ERROR_SAMPLE_RATE_MISMATCH: str = "Sample rate mismatch: got {actual}Hz, expected {expected}Hz"
 
 # Output quality errors
-ERROR_OUTPUT_SILENT: str = (
-    "Output is silent (RMS={rms:.2e}), separation likely failed"
-)
+ERROR_OUTPUT_SILENT: str = "Output is silent (RMS={rms:.2e}), separation likely failed"
 
 # File I/O errors
 ERROR_FILE_NOT_CREATED: str = "Output file was not created: {path}"

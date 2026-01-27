@@ -36,7 +36,6 @@ def inf_waveform():
     return waveform
 
 
-
 def test_valid_waveform_passes(valid_waveform):
     """Test that a valid waveform passes validation."""
     validator = OutputValidator(valid_waveform)
@@ -62,7 +61,6 @@ def test_inf_waveform_fails(inf_waveform):
 
     assert not is_valid
     assert "infinite" in message.lower()
-
 
 
 def test_mono_waveform_fails():
@@ -104,7 +102,6 @@ def test_minimum_length_passes():
     assert is_valid
 
 
-
 def test_silent_waveform_fails(silent_waveform):
     """Test that completely silent waveform fails."""
     validator = OutputValidator(silent_waveform)
@@ -131,7 +128,6 @@ def test_quiet_but_valid_passes():
     is_valid, _ = validator.validate()
 
     assert is_valid
-
 
 
 def test_is_valid_method(valid_waveform):

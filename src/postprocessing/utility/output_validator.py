@@ -148,17 +148,13 @@ class OutputValidator:
         if info.samplerate != expected_sr:
             return (
                 False,
-                c.ERROR_SAMPLE_RATE_MISMATCH.format(
-                    actual=info.samplerate, expected=expected_sr
-                ),
+                c.ERROR_SAMPLE_RATE_MISMATCH.format(actual=info.samplerate, expected=expected_sr),
             )
 
         if info.channels != c.EXPECTED_CHANNELS:
             return (
                 False,
-                c.ERROR_CHANNEL_MISMATCH.format(
-                    actual=info.channels, expected=c.EXPECTED_CHANNELS
-                ),
+                c.ERROR_CHANNEL_MISMATCH.format(actual=info.channels, expected=c.EXPECTED_CHANNELS),
             )
 
         logger.info(f"File validation successful: {file_path}")
