@@ -2,8 +2,7 @@
 
 4-stem audio source separation (drums, bass, vocals, other) using U-Net.
 
-[![CI Pipeline](https://github.com/YOUR_USERNAME/AI-Stem-Separation/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/AI-Stem-Separation/actions)
-
+[![CI Pipeline](https://github.com/461x-senior-design/AI-Stem-Separation/actions/workflows/ci.yml/badge.svg)](https://github.com/461x-senior-design/AI-Stem-Separation/actions)
 ---
 
 ## 🎯 Project Overview
