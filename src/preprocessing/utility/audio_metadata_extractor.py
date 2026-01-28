@@ -6,7 +6,7 @@ import librosa
 import soundfile as sf
 
 from src.logging_config import get_logger
-from src.preprocessing.utility import constants
+from src.preprocessing.utility import constants as c
 
 logger = get_logger(__name__)
 
@@ -33,11 +33,11 @@ class AudioMetadataExtractor:
         if self._metadata_cache is None:
             logger.info(f"Extracting metadata from: {self.file_path}")
             self._metadata_cache = {
-                constants.METADATA_DURATION: self.get_duration(),
-                constants.METADATA_SAMPLE_RATE: self.get_sample_rate(),
-                constants.METADATA_CHANNELS: self.get_channels(),
-                constants.METADATA_FILE_SIZE: self.get_file_size_mb(),
-                constants.METADATA_FORMAT: self.get_format(),
+                c.METADATA_DURATION: self.get_duration(),
+                c.METADATA_SAMPLE_RATE: self.get_sample_rate(),
+                c.METADATA_CHANNELS: self.get_channels(),
+                c.METADATA_FILE_SIZE: self.get_file_size_mb(),
+                c.METADATA_FORMAT: self.get_format(),
             }
             logger.debug(f"Metadata extracted: {self._metadata_cache}")
         else:
@@ -77,7 +77,7 @@ class AudioMetadataExtractor:
             File size in MB
         """
         size_bytes = os.path.getsize(self.file_path)
-        return size_bytes / constants.BYTES_TO_MB
+        return size_bytes / c.BYTES_TO_MB
 
     def get_format(self) -> str:
         """Get the file format/extension (without the dot).

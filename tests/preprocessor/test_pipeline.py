@@ -1,9 +1,9 @@
-import pytest
-import numpy as np
-import torch
 from pathlib import Path
 
-from src.preprocessing.pipeline import Preprocessor, PreprocessingMetadata
+import pytest
+import torch
+
+from src.preprocessing.pipeline import PreprocessingMetadata, Preprocessor
 
 
 @pytest.fixture

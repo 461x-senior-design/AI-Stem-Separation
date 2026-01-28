@@ -2,23 +2,23 @@
 
 4-stem audio source separation (drums, bass, vocals, other) using U-Net.
 
-[![CI Pipeline](https://github.com/YOUR_USERNAME/AI-Stem-Separation/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/AI-Stem-Separation/actions)
-
+[![CI Pipeline](https://github.com/461x-senior-design/AI-Stem-Separation/actions/workflows/ci.yml/badge.svg)](https://github.com/461x-senior-design/AI-Stem-Separation/actions)
 ---
 
-## 🎯 Project Overview
+
+## Project Overview
 
 Stemmy is a deep learning project for separating audio tracks into four stems:
-- **Drums** 🥁
-- **Bass** 🎸
-- **Vocals** 🎤
-- **Other** 🎶
+- **Drums**
+- **Bass**
+- **Vocals**
+- **Other**
 
 The model uses a U-Net architecture trained on the MUSDB18-HQ dataset.
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 AI-Stem-Separation/
@@ -37,11 +37,11 @@ AI-Stem-Separation/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
-- Python 3.9 or higher
+- Python >=3.9, <3.13
 - pip (Python package manager)
 - Virtual environment tool (recommended)
 
@@ -49,7 +49,7 @@ AI-Stem-Separation/
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/AI-Stem-Separation.git
+   git clone https://github.com/461x-senior-design/AI-Stem-Separation.git
    cd AI-Stem-Separation
    ```
 
@@ -71,7 +71,7 @@ AI-Stem-Separation/
 
 ---
 
-## 🧪 Running Tests
+## Running Tests
 
 We use `pytest` for testing:
 
@@ -85,7 +85,7 @@ pytest tests/ --cov=src --cov-report=html
 
 ---
 
-## 🔍 Code Quality
+## Code Quality
 
 This project uses [Ruff](https://docs.astral.sh/ruff/) for fast Python linting and formatting.
 
@@ -112,7 +112,7 @@ Configuration is in `ruff.toml`.
 ---
 
 
-## 🛠️ Development Workflow
+## Development Workflow
 
 ### Branch Strategy
 - `main` - Production-ready code
@@ -129,7 +129,7 @@ See `.github/workflows/ci.yml` for details.
 
 ---
 
-## 📦 Dependencies
+## Dependencies
 
 ### Core Libraries
 - **PyTorch** (≥2.0.0) - Deep learning framework
@@ -150,7 +150,7 @@ See `.github/workflows/ci.yml` for details.
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 1. Create a feature branch: `git checkout -b feature/your-feature-name`
 2. Make your changes
@@ -161,7 +161,7 @@ See `.github/workflows/ci.yml` for details.
 
 ---
 
-## 📚 Additional Resources
+## Additional Resources
 
 - [MUSDB18 Dataset](https://sigsep.github.io/datasets/musdb.html) - Official dataset documentation
 
