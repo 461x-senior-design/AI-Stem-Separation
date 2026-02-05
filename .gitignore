@@ -35,6 +35,8 @@ dist/
 figures/
 audio/
 data/
+checkpoints/
+*.pth
 
 # Audio files
 *.wav
