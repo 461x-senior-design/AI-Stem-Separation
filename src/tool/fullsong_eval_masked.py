@@ -11,12 +11,7 @@ import torch
 import wandb
 from src.inference import config_from_checkpoint, load_pth_model
 from src.training.stft import freq_minmax_normalize
-from src.wandb_config import (
-    WandbConfig,
-    finish_wandb,
-    get_wandb_config_from_env,
-    init_wandb,
-)
+from src.wandb_config import wandb_run
 
 STEMS = ["drums", "bass", "vocals", "other"]
 
@@ -163,7 +158,9 @@ def separate_by_masking(mix: np.ndarray, cfg, model, device: str) -> Dict[str, n
     return pred
 
 
-def main() -> None:
+@wandb_run(job_type="evaluation", name="song_eval")
+def evaluate() -> None:
+    """Main evaluation function wrapped with wandb decorator."""
     data_root = Path(os.environ["DATA"])
     ckpt_dir = Path(os.environ["CKPT_DIR"])
     eval_dir = Path(os.environ["EVAL_DIR"])
@@ -171,26 +168,17 @@ def main() -> None:
     n_eval_tracks = int(os.environ.get("N_EVAL_TRACKS", "30"))
     max_seconds = int(os.environ.get("MAX_SECONDS", "30"))
 
-    # Get wandb config from environment
-    wandb_project, wandb_entity, wandb_run_name, wandb_enabled = get_wandb_config_from_env()
-
     eval_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize wandb for evaluation run
-    run = None
-    if wandb_enabled:
-        wandb_cfg = WandbConfig(
-            entity=wandb_entity,
-            project=wandb_project,
-            name=wandb_run_name if wandb_run_name else "song_eval",
-            job_type="evaluation",
-            config={
+    # Log config to wandb
+    if wandb.run is not None:
+        wandb.config.update(
+            {
                 "n_eval_tracks": n_eval_tracks,
                 "max_seconds": max_seconds,
                 "device": device,
-            },
+            }
         )
-        run = init_wandb(wandb_cfg, enabled=True)
 
     tracks = list_tracks(data_root / "test")[:n_eval_tracks]
     if not tracks:
@@ -318,7 +306,7 @@ def main() -> None:
             )
 
             # Log to wandb
-            if run is not None:
+            if wandb.run is not None:
                 wandb.log(
                     {
                         "eval/mean_sisdr_drums": row["mean_sisdr_drums"],
@@ -370,8 +358,9 @@ def main() -> None:
     print("WROTE:", str(per_track_csv))
     print("WROTE:", str(summary_csv))
 
-    # Finish wandb run
-    finish_wandb(run)
+
+def main() -> None:
+    evaluate()
 
 
 if __name__ == "__main__":

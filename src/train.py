@@ -9,7 +9,7 @@ import wandb
 from src.models.unet_2d import UNet2D
 from src.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from src.training.musdb18hq_dataset import STEMS_4, CropConfig, Musdb18HQDataset, StftConfig
-from src.wandb_config import WandbConfig, finish_wandb, get_wandb_config_from_env, init_wandb
+from src.wandb_config import wandb_run
 
 
 def parse_args():
@@ -65,9 +65,9 @@ def l1_loss(pred, target):
     return torch.mean(torch.abs(pred - target))
 
 
-def main():
-    args = parse_args()
-
+@wandb_run(job_type="training", name="training")
+def train(args):
+    """Main training function wrapped with wandb decorator."""
     if args.epochs <= 0:
         raise ValueError("--epochs must be > 0")
     if args.batch_size <= 0:
@@ -155,29 +155,19 @@ def main():
         "center": False,
     }
 
-    ckpt_dir = Path(args.checkpoint_dir)
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-
-    # Get wandb config from environment
-    wandb_project, wandb_entity, wandb_run_name, wandb_enabled = get_wandb_config_from_env()
-
-    # Initialize wandb
-    run = None
-    if wandb_enabled:
-        wandb_cfg = WandbConfig(
-            entity=wandb_entity,
-            project=wandb_project,
-            name=wandb_run_name if wandb_run_name else "training",
-            job_type="training",
-            config={
-                **config,
+    # Log config to wandb
+    if wandb.run is not None:
+        wandb.config.update(config)
+        wandb.config.update(
+            {
                 "epochs": args.epochs,
                 "num_workers": args.num_workers,
                 "save_every_epochs": args.save_every_epochs,
-            },
-            resume="allow" if args.resume.strip() else None,
+            }
         )
-        run = init_wandb(wandb_cfg, enabled=True)
+
+    ckpt_dir = Path(args.checkpoint_dir)
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(start_epoch, args.epochs):
         model.train()
@@ -205,7 +195,7 @@ def main():
             global_step += 1
 
             # Log per-step loss
-            if run is not None:
+            if wandb.run is not None:
                 wandb.log({"train/loss_step": val}, step=global_step)
 
         train_loss = running / max(1, batches)
@@ -232,7 +222,7 @@ def main():
         )
 
         # Log per-epoch metrics
-        if run is not None:
+        if wandb.run is not None:
             wandb.log(
                 {
                     "train/loss": train_loss,
@@ -257,7 +247,10 @@ def main():
                 export_torchscript(str(ts_path), model)
                 print(f"Exported TorchScript: {ts_path}")
 
-    finish_wandb(run)
+
+def main():
+    args = parse_args()
+    train(args)
 
 
 if __name__ == "__main__":
