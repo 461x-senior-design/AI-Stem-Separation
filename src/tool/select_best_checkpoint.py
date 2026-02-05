@@ -125,6 +125,10 @@ def _extract_sisdr(row: Dict[str, Any]) -> List[float]:
         "bass_sisdr",
         "vocals_sisdr",
         "other_sisdr",
+        "mean_sisdr_drums",
+        "mean_sisdr_bass",
+        "mean_sisdr_vocals",
+        "mean_sisdr_other",
     ]
     vals3: List[float] = []
     any_named = False
@@ -142,7 +146,14 @@ def _extract_sisdr(row: Dict[str, Any]) -> List[float]:
 
 
 def _extract_recon_snr(row: Dict[str, Any]) -> Optional[float]:
-    for k in ("recon_snr", "recon_snr_db", "reconstruction_snr", "snr", "snr_db"):
+    for k in (
+        "recon_snr",
+        "recon_snr_db",
+        "mean_recon_snr_db",
+        "reconstruction_snr",
+        "snr",
+        "snr_db",
+    ):
         if k in row:
             v = _parse_float(row.get(k))
             if v is not None:
@@ -151,7 +162,7 @@ def _extract_recon_snr(row: Dict[str, Any]) -> Optional[float]:
 
 
 def _extract_corr(row: Dict[str, Any]) -> Optional[float]:
-    for k in ("corr", "correlation", "mix_corr", "corrcoef"):
+    for k in ("corr", "correlation", "mix_corr", "corrcoef", "mean_interstem_corr"):
         if k in row:
             v = _parse_float(row.get(k))
             if v is not None:

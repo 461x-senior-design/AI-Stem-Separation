@@ -4,11 +4,14 @@ import os
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import librosa
 import numpy as np
 import soundfile as sf
 import torch
 
 from src.inference import config_from_checkpoint, load_pth_model
+from src.postprocessing.audio import denormalize_waveform
+from src.preprocessing.audio import normalize_waveform
 from src.training.stft import freq_minmax_normalize
 
 STEMS = ["drums", "bass", "vocals", "other"]
@@ -107,10 +110,15 @@ def separate_by_masking(mix: np.ndarray, cfg, model, device: str) -> Dict[str, n
     """
     Mask in STFT domain then iSTFT each stem.
 
-    IMPORTANT: force center=True for stft/istft to avoid CUDA istft NOLA/COLA failures
-    with Hann windows when cfg.center is False.
+    NOTE:
+    - We normalize the waveform the same way as training.
+    - STFT/iSTFT center follows cfg.center so evaluation matches train/inference config.
+    - For reconstruction, we use librosa.istft on CPU to avoid torch.istft NOLA failures
+      with center=False while preserving alignment semantics.
     """
-    x = torch.from_numpy(mix).to(dtype=torch.float32, device=device).t().contiguous()  # [2,N]
+    mix_t = mix.T  # [2, N]
+    mix_norm, norm_params = normalize_waveform(mix_t, method=cfg.waveform_norm)
+    x = torch.from_numpy(mix_norm).to(dtype=torch.float32, device=device).contiguous()  # [2,N]
     x_mono = x.mean(dim=0)  # [N]
     n_orig = int(x_mono.shape[-1])
 
@@ -122,7 +130,7 @@ def separate_by_masking(mix: np.ndarray, cfg, model, device: str) -> Dict[str, n
         hop_length=cfg.hop_length,
         win_length=cfg.win_length,
         window=window,
-        center=True,
+        center=cfg.center,
         return_complex=True,
     )  # [F,T] complex
 
@@ -141,17 +149,17 @@ def separate_by_masking(mix: np.ndarray, cfg, model, device: str) -> Dict[str, n
 
     pred: Dict[str, np.ndarray] = {}
     for i, name in enumerate(STEMS):
-        y = torch.istft(
-            stems_stft[i],
-            n_fft=cfg.n_fft,
+        stem_stft_np = stems_stft[i].detach().cpu().numpy()
+        y = librosa.istft(
+            stem_stft_np,
             hop_length=cfg.hop_length,
             win_length=cfg.win_length,
-            window=window,
-            center=True,
+            center=cfg.center,
             length=n_orig,
-        )  # [N]
-        y_stereo = y.unsqueeze(1).repeat(1, 2)  # [N,2]
-        pred[name] = y_stereo.detach().cpu().numpy()
+        ).astype(np.float32)  # [N]
+        y_stereo = np.stack([y, y], axis=0)  # [2,N]
+        y_stereo = denormalize_waveform(y_stereo, norm_params)
+        pred[name] = y_stereo.T
 
     return pred
 
