@@ -210,7 +210,8 @@ def _select_scalar_score(
 
     if metric == "vocals_sisdr":
         # Default assumption: 4-stem and vocals is index 2 or 3 depending on your ordering.
-        # Your project’s stem ordering should be made explicit; for now this is not used unless requested.
+        # Your project's stem ordering should be made explicit;
+        # for now this is not used unless requested.
         return None
 
     return None
@@ -322,7 +323,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         "--ckpt-dir",
         type=str,
         default="",
-        help="Directory containing checkpoints (e.g., .../checkpoints). If provided, can auto-copy winner.",
+        help="Directory containing checkpoints. If provided, can auto-copy winner.",
     )
     p.add_argument(
         "--metric",
@@ -340,7 +341,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         "--copy-to",
         type=str,
         default="",
-        help="If set, copy the best checkpoint to this path (e.g., runs/best_ckpt/unet_phase1_best.pth).",
+        help="If set, copy the best checkpoint to this path.",
     )
     return p.parse_args(argv)
 
