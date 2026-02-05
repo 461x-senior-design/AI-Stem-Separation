@@ -5,9 +5,11 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
+import wandb
 from src.models.unet_2d import UNet2D
 from src.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from src.training.musdb18hq_dataset import STEMS_4, CropConfig, Musdb18HQDataset, StftConfig
+from src.wandb_config import WandbConfig, finish_wandb, get_wandb_config_from_env, init_wandb
 
 
 def parse_args():
@@ -156,6 +158,27 @@ def main():
     ckpt_dir = Path(args.checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
+    # Get wandb config from environment
+    wandb_project, wandb_entity, wandb_run_name, wandb_enabled = get_wandb_config_from_env()
+
+    # Initialize wandb
+    run = None
+    if wandb_enabled:
+        wandb_cfg = WandbConfig(
+            entity=wandb_entity,
+            project=wandb_project,
+            name=wandb_run_name if wandb_run_name else "training",
+            job_type="training",
+            config={
+                **config,
+                "epochs": args.epochs,
+                "num_workers": args.num_workers,
+                "save_every_epochs": args.save_every_epochs,
+            },
+            resume="allow" if args.resume.strip() else None,
+        )
+        run = init_wandb(wandb_cfg, enabled=True)
+
     for epoch in range(start_epoch, args.epochs):
         model.train()
         t0 = time.time()
@@ -181,6 +204,10 @@ def main():
             batches += 1
             global_step += 1
 
+            # Log per-step loss
+            if run is not None:
+                wandb.log({"train/loss_step": val}, step=global_step)
+
         train_loss = running / max(1, batches)
 
         model.eval()
@@ -204,6 +231,18 @@ def main():
             f"time={dt:.1f}s"
         )
 
+        # Log per-epoch metrics
+        if run is not None:
+            wandb.log(
+                {
+                    "train/loss": train_loss,
+                    "val/loss": val_loss,
+                    "epoch": epoch + 1,
+                    "time/epoch_time": dt,
+                },
+                step=global_step,
+            )
+
         do_save = ((epoch + 1) % args.save_every_epochs) == 0
         if do_save:
             ckpt_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pth"
@@ -217,6 +256,8 @@ def main():
                 ts_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt"
                 export_torchscript(str(ts_path), model)
                 print(f"Exported TorchScript: {ts_path}")
+
+    finish_wandb(run)
 
 
 if __name__ == "__main__":

@@ -8,8 +8,15 @@ import numpy as np
 import soundfile as sf
 import torch
 
+import wandb
 from src.inference import config_from_checkpoint, load_pth_model
 from src.training.stft import freq_minmax_normalize
+from src.wandb_config import (
+    WandbConfig,
+    finish_wandb,
+    get_wandb_config_from_env,
+    init_wandb,
+)
 
 STEMS = ["drums", "bass", "vocals", "other"]
 
@@ -164,7 +171,26 @@ def main() -> None:
     n_eval_tracks = int(os.environ.get("N_EVAL_TRACKS", "30"))
     max_seconds = int(os.environ.get("MAX_SECONDS", "30"))
 
+    # Get wandb config from environment
+    wandb_project, wandb_entity, wandb_run_name, wandb_enabled = get_wandb_config_from_env()
+
     eval_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize wandb for evaluation run
+    run = None
+    if wandb_enabled:
+        wandb_cfg = WandbConfig(
+            entity=wandb_entity,
+            project=wandb_project,
+            name=wandb_run_name if wandb_run_name else "song_eval",
+            job_type="evaluation",
+            config={
+                "n_eval_tracks": n_eval_tracks,
+                "max_seconds": max_seconds,
+                "device": device,
+            },
+        )
+        run = init_wandb(wandb_cfg, enabled=True)
 
     tracks = list_tracks(data_root / "test")[:n_eval_tracks]
     if not tracks:
@@ -291,6 +317,22 @@ def main() -> None:
                 f"seconds_used={row['seconds_used']:.0f}"
             )
 
+            # Log to wandb
+            if run is not None:
+                wandb.log(
+                    {
+                        "eval/mean_sisdr_drums": row["mean_sisdr_drums"],
+                        "eval/mean_sisdr_bass": row["mean_sisdr_bass"],
+                        "eval/mean_sisdr_vocals": row["mean_sisdr_vocals"],
+                        "eval/mean_sisdr_other": row["mean_sisdr_other"],
+                        "eval/mean_recon_snr_db": row["mean_recon_snr_db"],
+                        "eval/mean_interstem_corr": row["mean_interstem_corr"],
+                        "time/seconds_used": row["seconds_used"],
+                        "checkpoint/epoch": epoch,
+                    },
+                    step=epoch,
+                )
+
             del model, ckpt
             if device.startswith("cuda"):
                 torch.cuda.empty_cache()
@@ -327,6 +369,9 @@ def main() -> None:
 
     print("WROTE:", str(per_track_csv))
     print("WROTE:", str(summary_csv))
+
+    # Finish wandb run
+    finish_wandb(run)
 
 
 if __name__ == "__main__":
