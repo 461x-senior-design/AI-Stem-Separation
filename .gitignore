@@ -51,8 +51,17 @@ checkpoints/
 # Local notes
 docs/
 
-# Local examples
+# Local dev
 examples/local/
+local/
+mock_out/
+infer_out/
+
+# Local checkpoints / artifacts
+local_ckpts/
+*.pth
+*.pt
 
 # Claude Code
 .claude/
+/local/
