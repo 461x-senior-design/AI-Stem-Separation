@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import soundfile as sf
 import torch
+from alive_progress import alive_bar
 from torch.utils.tensorboard import SummaryWriter
 
 from src.inference import config_from_checkpoint, load_pth_model
@@ -157,6 +158,24 @@ def separate_by_masking(mix: np.ndarray, cfg, model, device: str) -> Dict[str, n
     return pred
 
 
+def log_audio_example(
+    writer: SummaryWriter,
+    tag: str,
+    audio: np.ndarray,
+    sample_rate: int,
+    step: int,
+) -> None:
+    # TensorBoard: log a short audio snippet for qualitative inspection.
+    if audio.ndim == 2:
+        # TensorBoard: summary.audio expects 1-D audio, so log mono.
+        audio_mono = audio.mean(axis=1)
+        audio_t = torch.from_numpy(audio_mono)
+    else:
+        audio_t = torch.from_numpy(audio.reshape(-1))
+    audio_t = torch.clamp(audio_t, -1.0, 1.0)
+    writer.add_audio(tag, audio_t, step, sample_rate=sample_rate)
+
+
 def main() -> None:
     data_root = Path(os.environ["DATA"])
     ckpt_dir = Path(os.environ["CKPT_DIR"])
@@ -180,7 +199,9 @@ def main() -> None:
     per_track_csv = eval_dir / "fullsong_eval_per_track.csv"
     summary_csv = eval_dir / "fullsong_eval_summary.csv"
 
+    # TensorBoard: initialize writer for evaluation runs.
     writer = SummaryWriter(log_dir=str(tb_dir))
+    # TensorBoard: log run context for traceability.
     writer.add_text("run/info", f"data_root={data_root} ckpt_dir={ckpt_dir}")
 
     with per_track_csv.open("w", newline="") as f_pt:
@@ -206,109 +227,149 @@ def main() -> None:
 
         summary_rows: List[dict] = []
 
-        for i, ckpt_path in enumerate(ckpts):
-            epoch = epoch_from_name(ckpt_path)
-            step = epoch if epoch > 0 else i + 1
-            model, ckpt = load_pth_model(str(ckpt_path), device=device, stems=4)
-            cfg = config_from_checkpoint(ckpt)
-            model.eval()
+        # Progress: alive_progress does not support nested bars.
+        # Use a single bar whose total equals all (checkpoints x tracks) evaluations,
+        # and update the bar text to show which checkpoint/track is currently running.
+        total_evals = len(ckpts) * len(tracks)
+        with alive_bar(total_evals, title="eval", dual_line=True) as bar:
+            for i, ckpt_path in enumerate(ckpts):
+                epoch = epoch_from_name(ckpt_path)
+                step = epoch if epoch > 0 else i + 1
+                model, ckpt = load_pth_model(str(ckpt_path), device=device, stems=4)
+                cfg = config_from_checkpoint(ckpt)
+                model.eval()
 
-            max_samples = int(cfg.sample_rate * max_seconds) if max_seconds > 0 else 0
-            seconds_used = float(max_seconds) if max_seconds > 0 else 0.0
+                max_samples = int(cfg.sample_rate * max_seconds) if max_seconds > 0 else 0
+                seconds_used = float(max_seconds) if max_seconds > 0 else 0.0
 
-            sisdr_all = {s: [] for s in STEMS}
-            recon_snrs: List[float] = []
-            corrs: List[float] = []
+                sisdr_all = {s: [] for s in STEMS}
+                recon_snrs: List[float] = []
+                corrs: List[float] = []
 
-            for td in tracks:
-                mix, sr = read_slice(td / "mixture.wav", max_samples)
-                if sr != cfg.sample_rate:
-                    raise RuntimeError(
-                        f"SR mismatch in {td.name}: file={sr}, expected={cfg.sample_rate}"
+                for t_idx, td in enumerate(tracks):
+                    # Progress: show the current checkpoint/track in the bar text.
+                    # This keeps the UI informative without nested bars.
+                    ckpt_label = f"epoch{epoch:03d}" if epoch > 0 else f"ckpt{i+1}"
+                    bar.text(f"{ckpt_label} • track {t_idx+1}/{len(tracks)} • {td.name}")
+                    mix, sr = read_slice(td / "mixture.wav", max_samples)
+                    if sr != cfg.sample_rate:
+                        raise RuntimeError(
+                            f"SR mismatch in {td.name}: file={sr}, expected={cfg.sample_rate}"
+                        )
+
+                    gt: Dict[str, np.ndarray] = {}
+                    for s in STEMS:
+                        gt[s], sr2 = read_slice(td / f"{s}.wav", max_samples)
+                        if sr2 != sr:
+                            raise RuntimeError(f"SR mismatch in {td.name}/{s}.wav")
+
+                    pred_np = separate_by_masking(mix, cfg, model, device=device)
+
+                    for s in STEMS:
+                        sisdr_all[s].append(si_sdr(pred_np[s], gt[s]))
+
+                    stems_sum = (
+                        pred_np["drums"]
+                        + pred_np["bass"]
+                        + pred_np["vocals"]
+                        + pred_np["other"]
+                    )
+                    recon_snrs.append(recon_snr_db(mix, stems_sum))
+                    corrs.append(mean_interstem_corr(pred_np))
+
+                    if t_idx == 0:
+                        # TensorBoard: log example audio for the first track only.
+                        log_audio_example(writer, "audio/mix", mix, sr, step)
+                        log_audio_example(
+                            writer, "audio/pred_drums", pred_np["drums"], sr, step
+                        )
+                        log_audio_example(
+                            writer, "audio/pred_bass", pred_np["bass"], sr, step
+                        )
+                        log_audio_example(
+                            writer, "audio/pred_vocals", pred_np["vocals"], sr, step
+                        )
+                        log_audio_example(
+                            writer, "audio/pred_other", pred_np["other"], sr, step
+                        )
+
+                    w_pt.writerow(
+                        [
+                            epoch,
+                            str(ckpt_path),
+                            td.name,
+                            float(sisdr_all["drums"][-1]),
+                            float(sisdr_all["bass"][-1]),
+                            float(sisdr_all["vocals"][-1]),
+                            float(sisdr_all["other"][-1]),
+                            float(recon_snrs[-1]),
+                            float(corrs[-1]),
+                            rms(pred_np["drums"]),
+                            rms(pred_np["bass"]),
+                            rms(pred_np["vocals"]),
+                            rms(pred_np["other"]),
+                            seconds_used
+                            if seconds_used > 0
+                            else float(mix.shape[0]) / float(sr),
+                        ]
                     )
 
-                gt: Dict[str, np.ndarray] = {}
-                for s in STEMS:
-                    gt[s], sr2 = read_slice(td / f"{s}.wav", max_samples)
-                    if sr2 != sr:
-                        raise RuntimeError(f"SR mismatch in {td.name}/{s}.wav")
+                    if device.startswith("cuda"):
+                        torch.cuda.empty_cache()
 
-                pred_np = separate_by_masking(mix, cfg, model, device=device)
+                    # Progress: advance the single bar after each track finishes.
+                    bar()
 
-                for s in STEMS:
-                    sisdr_all[s].append(si_sdr(pred_np[s], gt[s]))
+                row = {
+                    "epoch": epoch,
+                    "ckpt": str(ckpt_path),
+                    "mean_sisdr_drums": float(np.mean(sisdr_all["drums"]))
+                    if sisdr_all["drums"]
+                    else float("nan"),
+                    "mean_sisdr_bass": float(np.mean(sisdr_all["bass"]))
+                    if sisdr_all["bass"]
+                    else float("nan"),
+                    "mean_sisdr_vocals": float(np.mean(sisdr_all["vocals"]))
+                    if sisdr_all["vocals"]
+                    else float("nan"),
+                    "mean_sisdr_other": float(np.mean(sisdr_all["other"]))
+                    if sisdr_all["other"]
+                    else float("nan"),
+                    "mean_recon_snr_db": float(np.mean(recon_snrs))
+                    if recon_snrs
+                    else float("nan"),
+                    "mean_interstem_corr": float(np.mean(corrs)) if corrs else float("nan"),
+                    "seconds_used": seconds_used,
+                }
+                summary_rows.append(row)
 
-                stems_sum = (
-                    pred_np["drums"] + pred_np["bass"] + pred_np["vocals"] + pred_np["other"]
+                # TensorBoard: per-checkpoint scalar metrics.
+                writer.add_scalar("eval/mean_sisdr_drums", row["mean_sisdr_drums"], step)
+                writer.add_scalar("eval/mean_sisdr_bass", row["mean_sisdr_bass"], step)
+                writer.add_scalar("eval/mean_sisdr_vocals", row["mean_sisdr_vocals"], step)
+                writer.add_scalar("eval/mean_sisdr_other", row["mean_sisdr_other"], step)
+                writer.add_scalar(
+                    "eval/mean_recon_snr_db", row["mean_recon_snr_db"], step
                 )
-                recon_snrs.append(recon_snr_db(mix, stems_sum))
-                corrs.append(mean_interstem_corr(pred_np))
+                writer.add_scalar(
+                    "eval/mean_interstem_corr", row["mean_interstem_corr"], step
+                )
+                writer.add_scalar("eval/seconds_used", row["seconds_used"], step)
 
-                w_pt.writerow(
-                    [
-                        epoch,
-                        str(ckpt_path),
-                        td.name,
-                        float(sisdr_all["drums"][-1]),
-                        float(sisdr_all["bass"][-1]),
-                        float(sisdr_all["vocals"][-1]),
-                        float(sisdr_all["other"][-1]),
-                        float(recon_snrs[-1]),
-                        float(corrs[-1]),
-                        rms(pred_np["drums"]),
-                        rms(pred_np["bass"]),
-                        rms(pred_np["vocals"]),
-                        rms(pred_np["other"]),
-                        seconds_used if seconds_used > 0 else float(mix.shape[0]) / float(sr),
-                    ]
+                print(
+                    f"epoch={epoch:03d} "
+                    f"sisdr=[{row['mean_sisdr_drums']:.2f},"
+                    f"{row['mean_sisdr_bass']:.2f},"
+                    f"{row['mean_sisdr_vocals']:.2f},"
+                    f"{row['mean_sisdr_other']:.2f}] "
+                    f"recon_snr={row['mean_recon_snr_db']:.2f} "
+                    f"corr={row['mean_interstem_corr']:.6f} "
+                    f"seconds_used={row['seconds_used']:.0f}"
                 )
 
+                del model, ckpt
                 if device.startswith("cuda"):
                     torch.cuda.empty_cache()
-
-            row = {
-                "epoch": epoch,
-                "ckpt": str(ckpt_path),
-                "mean_sisdr_drums": float(np.mean(sisdr_all["drums"]))
-                if sisdr_all["drums"]
-                else float("nan"),
-                "mean_sisdr_bass": float(np.mean(sisdr_all["bass"]))
-                if sisdr_all["bass"]
-                else float("nan"),
-                "mean_sisdr_vocals": float(np.mean(sisdr_all["vocals"]))
-                if sisdr_all["vocals"]
-                else float("nan"),
-                "mean_sisdr_other": float(np.mean(sisdr_all["other"]))
-                if sisdr_all["other"]
-                else float("nan"),
-                "mean_recon_snr_db": float(np.mean(recon_snrs)) if recon_snrs else float("nan"),
-                "mean_interstem_corr": float(np.mean(corrs)) if corrs else float("nan"),
-                "seconds_used": seconds_used,
-            }
-            summary_rows.append(row)
-
-            writer.add_scalar("eval/mean_sisdr_drums", row["mean_sisdr_drums"], step)
-            writer.add_scalar("eval/mean_sisdr_bass", row["mean_sisdr_bass"], step)
-            writer.add_scalar("eval/mean_sisdr_vocals", row["mean_sisdr_vocals"], step)
-            writer.add_scalar("eval/mean_sisdr_other", row["mean_sisdr_other"], step)
-            writer.add_scalar("eval/mean_recon_snr_db", row["mean_recon_snr_db"], step)
-            writer.add_scalar("eval/mean_interstem_corr", row["mean_interstem_corr"], step)
-            writer.add_scalar("eval/seconds_used", row["seconds_used"], step)
-
-            print(
-                f"epoch={epoch:03d} "
-                f"sisdr=[{row['mean_sisdr_drums']:.2f},"
-                f"{row['mean_sisdr_bass']:.2f},"
-                f"{row['mean_sisdr_vocals']:.2f},"
-                f"{row['mean_sisdr_other']:.2f}] "
-                f"recon_snr={row['mean_recon_snr_db']:.2f} "
-                f"corr={row['mean_interstem_corr']:.6f} "
-                f"seconds_used={row['seconds_used']:.0f}"
-            )
-
-            del model, ckpt
-            if device.startswith("cuda"):
-                torch.cuda.empty_cache()
 
     with summary_csv.open("w", newline="") as f_sum:
         w = csv.writer(f_sum)
@@ -342,6 +403,7 @@ def main() -> None:
 
     print("WROTE:", str(per_track_csv))
     print("WROTE:", str(summary_csv))
+    # TensorBoard: flush and close.
     writer.close()
 
 

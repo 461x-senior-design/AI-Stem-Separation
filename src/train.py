@@ -131,6 +131,8 @@ def main():
 
     model = UNet2D(stems=4).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    stems = STEMS_4
+    grad_hist_names = {"enc1.conv1.weight", "out_conv.weight"}
 
     start_epoch = 0
     global_step = 0
@@ -163,7 +165,9 @@ def main():
     ckpt_dir = Path(args.checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
+    # TensorBoard: initialize writer for this run.
     writer = SummaryWriter(log_dir=args.log_dir)
+    # TensorBoard: log run configuration for traceability.
     writer.add_text("run/config", str(config))
 
     for epoch in range(start_epoch, args.epochs):
@@ -171,6 +175,12 @@ def main():
         t0 = time.time()
         running = 0.0
         batches = 0
+        example = None
+        stem_loss_train = {s: 0.0 for s in stems}
+        stem_stats_train = {
+            s: {"sum": 0.0, "sumsq": 0.0, "min": float("inf"), "max": float("-inf"), "count": 0}
+            for s in stems
+        }
 
         for mix_norm, targets_norm in train_loader:
             mix_norm = mix_norm.to(device, non_blocking=True)
@@ -190,12 +200,42 @@ def main():
             running += val
             batches += 1
             global_step += 1
+            if example is None:
+                # TensorBoard: cache a single example for spectrogram visualization.
+                example = {
+                    "mix": mix_norm[0].detach().cpu(),  # [1,F,T]
+                    "pred_vocals": pred_norm[0, 2].detach().cpu(),  # [F,T]
+                    "target_vocals": targets_norm[0, 2].detach().cpu(),  # [F,T]
+                }
+            # TensorBoard: per-stem loss accumulation (train).
+            abs_diff = torch.abs(pred_norm - targets_norm)
+            for i, stem in enumerate(stems):
+                stem_loss_train[stem] += float(abs_diff[:, i].mean().detach().cpu().item())
+            # TensorBoard: per-stem mask statistics (train).
+            for i, stem in enumerate(stems):
+                vals = pred_norm[:, i]
+                stem_stats_train[stem]["sum"] += float(vals.sum().detach().cpu().item())
+                stem_stats_train[stem]["sumsq"] += float(
+                    (vals * vals).sum().detach().cpu().item()
+                )
+                stem_stats_train[stem]["min"] = min(
+                    stem_stats_train[stem]["min"], float(vals.min().detach().cpu().item())
+                )
+                stem_stats_train[stem]["max"] = max(
+                    stem_stats_train[stem]["max"], float(vals.max().detach().cpu().item())
+                )
+                stem_stats_train[stem]["count"] += int(vals.numel())
 
         train_loss = running / max(1, batches)
 
         model.eval()
         v_running = 0.0
         v_batches = 0
+        stem_loss_val = {s: 0.0 for s in stems}
+        stem_stats_val = {
+            s: {"sum": 0.0, "sumsq": 0.0, "min": float("inf"), "max": float("-inf"), "count": 0}
+            for s in stems
+        }
         with torch.no_grad():
             for mix_norm, targets_norm in val_loader:
                 mix_norm = mix_norm.to(device, non_blocking=True)
@@ -204,14 +244,82 @@ def main():
                 v_loss = l1_loss(pred_norm, targets_norm)
                 v_running += float(v_loss.cpu().item())
                 v_batches += 1
+                # TensorBoard: per-stem loss accumulation (val).
+                v_abs_diff = torch.abs(pred_norm - targets_norm)
+                for i, stem in enumerate(stems):
+                    stem_loss_val[stem] += float(
+                        v_abs_diff[:, i].mean().detach().cpu().item()
+                    )
+                # TensorBoard: per-stem mask statistics (val).
+                for i, stem in enumerate(stems):
+                    vals = pred_norm[:, i]
+                    stem_stats_val[stem]["sum"] += float(vals.sum().detach().cpu().item())
+                    stem_stats_val[stem]["sumsq"] += float(
+                        (vals * vals).sum().detach().cpu().item()
+                    )
+                    stem_stats_val[stem]["min"] = min(
+                        stem_stats_val[stem]["min"], float(vals.min().detach().cpu().item())
+                    )
+                    stem_stats_val[stem]["max"] = max(
+                        stem_stats_val[stem]["max"], float(vals.max().detach().cpu().item())
+                    )
+                    stem_stats_val[stem]["count"] += int(vals.numel())
 
         val_loss = v_running / max(1, v_batches)
         dt = time.time() - t0
 
+        # TensorBoard: epoch-level scalars.
         writer.add_scalar("loss/train", train_loss, epoch + 1)
         writer.add_scalar("loss/val", val_loss, epoch + 1)
         writer.add_scalar("time/epoch_sec", dt, epoch + 1)
         writer.add_scalar("lr", optimizer.param_groups[0]["lr"], epoch + 1)
+        # TensorBoard: per-stem loss and mask statistics (train/val).
+        for stem in stems:
+            writer.add_scalar(
+                f"loss/train_{stem}", stem_loss_train[stem] / max(1, batches), epoch + 1
+            )
+            writer.add_scalar(
+                f"loss/val_{stem}", stem_loss_val[stem] / max(1, v_batches), epoch + 1
+            )
+            for prefix, stats in [("train", stem_stats_train[stem]), ("val", stem_stats_val[stem])]:
+                if stats["count"] > 0:
+                    mean = stats["sum"] / stats["count"]
+                    var = max((stats["sumsq"] / stats["count"]) - (mean * mean), 0.0)
+                    std = var ** 0.5
+                    writer.add_scalar(f"mask/{prefix}_{stem}_mean", mean, epoch + 1)
+                    writer.add_scalar(f"mask/{prefix}_{stem}_std", std, epoch + 1)
+                    writer.add_scalar(f"mask/{prefix}_{stem}_min", stats["min"], epoch + 1)
+                    writer.add_scalar(f"mask/{prefix}_{stem}_max", stats["max"], epoch + 1)
+        if example is not None:
+            # TensorBoard: example spectrograms (mix, target, prediction).
+            writer.add_image(
+                "spec/mix",
+                example["mix"].permute(0, 2, 1),
+                epoch + 1,
+                dataformats="CHW",
+            )
+            writer.add_image(
+                "spec/target_vocals",
+                example["target_vocals"].unsqueeze(0).transpose(1, 2),
+                epoch + 1,
+                dataformats="CHW",
+            )
+            writer.add_image(
+                "spec/pred_vocals",
+                example["pred_vocals"].unsqueeze(0).transpose(1, 2),
+                epoch + 1,
+                dataformats="CHW",
+            )
+        # TensorBoard: histogram snapshots for a few key layers.
+        for name, param in model.named_parameters():
+            if name in grad_hist_names:
+                writer.add_histogram(
+                    f"weights/{name}", param.detach().cpu(), epoch + 1
+                )
+                if param.grad is not None:
+                    writer.add_histogram(
+                        f"grads/{name}", param.grad.detach().cpu(), epoch + 1
+                    )
 
         print(
             f"Epoch {epoch + 1}/{args.epochs} | "
@@ -233,6 +341,7 @@ def main():
                 export_torchscript(str(ts_path), model)
                 print(f"Exported TorchScript: {ts_path}")
 
+    # TensorBoard: flush and close.
     writer.close()
 
 
