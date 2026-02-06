@@ -22,7 +22,10 @@ from src.postprocessing.spectral import apply_mask, combine_magnitude_phase, com
 from src.postprocessing.utility.output_validator import OutputValidationException, OutputValidator
 from src.preprocessing.audio import ensure_stereo, load_audio, normalize_waveform
 from src.preprocessing.spectral import compute_stft, split_magnitude_phase
-from src.preprocessing.utility.audio_file_validator import AudioFileValidator, AudioValidationException
+from src.preprocessing.utility.audio_file_validator import (
+    AudioFileValidator,
+    AudioValidationException,
+)
 from src.training.stft import freq_minmax_normalize
 
 

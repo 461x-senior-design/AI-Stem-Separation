@@ -6,7 +6,14 @@ from typing import List, Optional
 import soundfile as sf
 import torch
 
-from src.constants import DEFAULT_WAVEFORM_NORM, HOP_LENGTH, N_FFT, STEMS_4, TARGET_SAMPLE_RATE, WIN_LENGTH
+from src.constants import (
+    DEFAULT_WAVEFORM_NORM,
+    HOP_LENGTH,
+    N_FFT,
+    STEMS_4,
+    TARGET_SAMPLE_RATE,
+    WIN_LENGTH,
+)
 from src.preprocessing.audio import normalize_waveform
 from src.training.stft import freq_minmax_normalize, stft_mag_phase_mono
 
@@ -32,7 +39,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
     Expects MUSDB18-HQ layout:
       <root>/
         train/<Track Name>/{mixture.wav, drums.wav, bass.wav, vocals.wav, other.wav}
-        test/<Track Name>/{mixture.wav, drums.wav, bass.wav, vocals.wav, other.wav}
+        test/<Track Name>/{...}
 
     Returns per item:
       mix_norm:     [1, F, T] float32
@@ -166,9 +173,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         mix_wav = self._read_mono_segment(mix_path, start, self.segment_samples)
         mix_wav_np = mix_wav.detach().cpu().numpy()
-        mix_wav_np, mix_norm_params = normalize_waveform(
-            mix_wav_np, method=self.waveform_norm
-        )
+        mix_wav_np, mix_norm_params = normalize_waveform(mix_wav_np, method=self.waveform_norm)
         mix_scale = float(mix_norm_params.get("scale_factor", 1.0))
         mix_wav = torch.from_numpy(mix_wav_np).to(torch.float32)
 

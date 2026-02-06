@@ -19,7 +19,7 @@ from src.training.musdb18hq_dataset import STEMS_4, CropConfig, Musdb18HQDataset
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Train U-Net on MUSDB18-HQ.")
+    p = argparse.ArgumentParser(description="Train U-Net on MUSDB18-HQ (baseline).")
 
     p.add_argument(
         "--data-root",
@@ -31,7 +31,6 @@ def parse_args():
     p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--lr", type=float, default=1e-4)
-    p.add_argument("--weight-decay", type=float, default=0.0)
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument(
         "--waveform-norm",
@@ -40,10 +39,6 @@ def parse_args():
         choices=["peak", "rms", "none"],
         help="Waveform normalization method (applies to mix and stems).",
     )
-    p.add_argument("--base-channels", type=int, default=64)
-    p.add_argument("--lr-factor", type=float, default=0.5)
-    p.add_argument("--lr-patience", type=int, default=10)
-    p.add_argument("--min-lr", type=float, default=1e-6)
 
     p.add_argument(
         "--time-frames", type=int, default=256, help="Fixed STFT time frames T (256 or 512)."
@@ -92,14 +87,10 @@ def main():
         raise ValueError("--batch-size must be > 0")
     if args.lr <= 0:
         raise ValueError("--lr must be > 0")
-    if args.weight_decay < 0:
-        raise ValueError("--weight-decay must be >= 0")
     if args.num_workers < 0:
         raise ValueError("--num-workers must be >= 0")
     if args.time_frames not in [256, 512]:
         raise ValueError("--time-frames must be 256 or 512 for this baseline.")
-    if args.base_channels <= 0:
-        raise ValueError("--base-channels must be > 0")
 
     device = pick_device(args.device)
 
@@ -160,13 +151,8 @@ def main():
         drop_last=False,
     )
 
-    model = UNet2D(stems=4, base_channels=args.base_channels).to(device)
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=args.lr, weight_decay=args.weight_decay
-    )
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=args.lr_factor, patience=args.lr_patience, min_lr=args.min_lr
-    )
+    model = UNet2D(stems=4).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     start_epoch = 0
     global_step = 0
@@ -195,7 +181,6 @@ def main():
         "max_tracks": args.max_tracks,
         "center": STFT_CENTER,
         "waveform_norm": args.waveform_norm,
-        "base_channels": args.base_channels,
     }
 
     ckpt_dir = Path(args.checkpoint_dir)
@@ -245,7 +230,6 @@ def main():
                 v_batches += 1
 
         val_loss = v_running / max(1, v_batches)
-        scheduler.step(val_loss)
         dt = time.time() - t0
 
         print(

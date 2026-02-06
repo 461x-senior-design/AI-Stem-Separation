@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+STEMS_4: list[str] = ["drums", "bass", "vocals", "other"]
+
 
 @dataclass(frozen=True)
 class RowScore:
@@ -43,42 +45,33 @@ def _parse_int(value: Any) -> Optional[int]:
 
 
 def _parse_sisdr_list(value: Any) -> List[float]:
-    """
-    Accepts:
-      - "[-5.77,-17.49,-22.85,-8.01]"
-      - "[-5.77, -17.49, -22.85, -8.01]"
-      - "-5.77,-17.49,-22.85,-8.01"
-    Returns [] if not parseable.
-    """
+    """Parse SI-SDR values from a comma-separated string representation."""
     if value is None:
         return []
     s = str(value).strip()
     if s == "":
         return []
-    s = s.strip()
     if s.startswith("[") and s.endswith("]"):
         s = s[1:-1].strip()
     if s == "":
         return []
-    parts = [p.strip() for p in s.split(",") if p.strip() != ""]
+
     out: List[float] = []
-    for p in parts:
+    for part in [p.strip() for p in s.split(",") if p.strip() != ""]:
         try:
-            out.append(float(p))
+            out.append(float(part))
         except ValueError:
             return []
     return out
 
 
 def _extract_epoch(row: Dict[str, Any]) -> Optional[int]:
-    # Most common
     for k in ("epoch", "Epoch", "ckpt_epoch"):
         if k in row:
             v = _parse_int(row.get(k))
             if v is not None:
                 return v
 
-    # Fallback: parse from a ckpt filename column if present
     for k in ("ckpt", "ckpt_path", "checkpoint", "checkpoint_path"):
         if k in row:
             s = str(row.get(k) or "")
@@ -93,67 +86,47 @@ def _extract_epoch(row: Dict[str, Any]) -> Optional[int]:
 
 
 def _extract_sisdr(row: Dict[str, Any]) -> List[float]:
-    # 1) single column "sisdr"
+    # Format A: single list-like column
     for k in ("sisdr", "SI-SDR", "si_sdr"):
         if k in row:
-            vals = _parse_sisdr_list(row.get(k))
-            if vals:
-                return vals
+            values = _parse_sisdr_list(row.get(k))
+            if values:
+                return values
 
-    # 2) per-stem columns: sisdr_0..sisdr_3
-    vals2: List[float] = []
-    found_any = False
-    for i in range(0, 8):  # allow up to 8 stems; you use 4
+    # Format B: indexed columns expected for 4 stems
+    indexed_values: List[float] = []
+    found_indexed = False
+    for i in range(len(STEMS_4)):
         key = f"sisdr_{i}"
         if key in row:
-            found_any = True
-            v = _parse_float(row.get(key))
-            if v is None:
+            found_indexed = True
+            value = _parse_float(row.get(key))
+            if value is None:
                 return []
-            vals2.append(v)
-    if found_any and vals2:
-        return vals2
+            indexed_values.append(value)
+    if found_indexed and indexed_values:
+        return indexed_values
 
-    # 3) named columns (varies by implementation)
-    # Try common stem names
-    cand_keys = [
-        "sisdr_drums",
-        "sisdr_bass",
-        "sisdr_vocals",
-        "sisdr_other",
-        "drums_sisdr",
-        "bass_sisdr",
-        "vocals_sisdr",
-        "other_sisdr",
-        "mean_sisdr_drums",
-        "mean_sisdr_bass",
-        "mean_sisdr_vocals",
-        "mean_sisdr_other",
+    # Format C: named columns for MUSDB18-HQ stems
+    named_key_orders = [
+        [f"sisdr_{stem}" for stem in STEMS_4],
+        [f"{stem}_sisdr" for stem in STEMS_4],
     ]
-    vals3: List[float] = []
-    any_named = False
-    for k in cand_keys:
-        if k in row:
-            any_named = True
-            v = _parse_float(row.get(k))
-            if v is None:
-                return []
-            vals3.append(v)
-    if any_named and vals3:
-        return vals3
+    for key_order in named_key_orders:
+        if all(k in row for k in key_order):
+            values: List[float] = []
+            for k in key_order:
+                value = _parse_float(row.get(k))
+                if value is None:
+                    return []
+                values.append(value)
+            return values
 
     return []
 
 
 def _extract_recon_snr(row: Dict[str, Any]) -> Optional[float]:
-    for k in (
-        "recon_snr",
-        "recon_snr_db",
-        "mean_recon_snr_db",
-        "reconstruction_snr",
-        "snr",
-        "snr_db",
-    ):
+    for k in ("recon_snr", "recon_snr_db", "reconstruction_snr", "snr", "snr_db"):
         if k in row:
             v = _parse_float(row.get(k))
             if v is not None:
@@ -162,7 +135,7 @@ def _extract_recon_snr(row: Dict[str, Any]) -> Optional[float]:
 
 
 def _extract_corr(row: Dict[str, Any]) -> Optional[float]:
-    for k in ("corr", "correlation", "mix_corr", "corrcoef", "mean_interstem_corr"):
+    for k in ("corr", "correlation", "mix_corr", "corrcoef"):
         if k in row:
             v = _parse_float(row.get(k))
             if v is not None:
@@ -183,20 +156,24 @@ def _select_scalar_score(
     metric: str,
 ) -> Optional[float]:
     """
-    metric options:
+    Metric options:
       - mean_sisdr
-      - vocals_sisdr (index 2 by your ordering in logs: [drums, bass, other, vocals] is unknown,
-        but your printed list order appears consistent across runs. If you want a different index,
-        use --sisdr-index.)
-      - sisdr_index_N (e.g., sisdr_index_0)
+      - vocals_sisdr
+      - sisdr_index_N
       - recon_snr
       - corr
-      - weighted (mean_sisdr + 0.05*recon_snr + 2.0*corr)
+      - weighted
     """
     metric = metric.strip().lower()
 
     if metric == "mean_sisdr":
         return _mean(sisdr_values)
+
+    if metric == "vocals_sisdr":
+        vocals_index = STEMS_4.index("vocals")
+        if vocals_index < len(sisdr_values):
+            return sisdr_values[vocals_index]
+        return None
 
     if metric == "recon_snr":
         return recon_snr
@@ -219,30 +196,22 @@ def _select_scalar_score(
             return None
         return sisdr_values[idx]
 
-    if metric == "vocals_sisdr":
-        # Default assumption: 4-stem and vocals is index 2 or 3 depending on your ordering.
-        # Your project’s stem ordering should be made explicit; for now this is not used unless requested.
-        return None
-
     return None
 
 
 def _find_checkpoint_for_epoch(ckpt_dir: Path, epoch: int) -> Optional[Path]:
-    # Matches your naming: unet_phase1_epoch210.pth
     pattern = f"unet_phase1_epoch{epoch:03d}.pth"
-    p = ckpt_dir / pattern
-    if p.is_file():
-        return p
+    path = ckpt_dir / pattern
+    if path.is_file():
+        return path
 
-    # Fallback: search
-    candidates = sorted(ckpt_dir.glob(f"*epoch{epoch:03d}*.pth"))
-    for c in candidates:
-        if c.is_file():
-            return c
-    candidates = sorted(ckpt_dir.glob(f"*epoch{epoch}*.pth"))
-    for c in candidates:
-        if c.is_file():
-            return c
+    for candidate in sorted(ckpt_dir.glob(f"*epoch{epoch:03d}*.pth")):
+        if candidate.is_file():
+            return candidate
+
+    for candidate in sorted(ckpt_dir.glob(f"*epoch{epoch}*.pth")):
+        if candidate.is_file():
+            return candidate
 
     return None
 
@@ -296,13 +265,13 @@ def print_top(scores: List[RowScore], top_k: int) -> None:
     scores_sorted = sorted(scores, key=lambda r: r.score, reverse=True)
     print(f"Ranked checkpoints (top {top_k}):")
     print("rank,epoch,score,recon_snr,corr,sisdr_values,ckpt_path")
-    for i, r in enumerate(scores_sorted[:top_k], start=1):
+    for i, row in enumerate(scores_sorted[:top_k], start=1):
         print(
-            f"{i},{r.epoch},{r.score:.6f},"
-            f"{'' if r.recon_snr is None else f'{r.recon_snr:.6f}'},"
-            f"{'' if r.corr is None else f'{r.corr:.6f}'},"
-            f'"{r.sisdr_values}",'
-            f"{'' if r.ckpt_path is None else str(r.ckpt_path)}"
+            f"{i},{row.epoch},{row.score:.6f},"
+            f"{'' if row.recon_snr is None else f'{row.recon_snr:.6f}'},"
+            f"{'' if row.corr is None else f'{row.corr:.6f}'},"
+            f'"{row.sisdr_values}",'
+            f"{'' if row.ckpt_path is None else str(row.ckpt_path)}"
         )
 
 
@@ -320,40 +289,49 @@ def copy_best(best: RowScore, dest_path: Path) -> None:
 
 
 def parse_args(argv: List[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description="Select and optionally copy the best checkpoint based on an eval summary CSV."
     )
-    p.add_argument(
+    parser.add_argument(
         "--summary-csv",
         type=str,
         required=True,
-        help="Path to fullsong_eval_summary.csv produced by your eval script.",
+        help="Path to fullsong_eval_summary.csv produced by the evaluation script.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--ckpt-dir",
         type=str,
         default="",
-        help="Directory containing checkpoints (e.g., .../checkpoints). If provided, can auto-copy winner.",
+        help=(
+            "Directory containing checkpoints, for example .../checkpoints. "
+            "If provided, the script can auto-copy the winner."
+        ),
     )
-    p.add_argument(
+    parser.add_argument(
         "--metric",
         type=str,
         default="mean_sisdr",
-        help="Ranking metric: mean_sisdr | recon_snr | corr | weighted | sisdr_index_N",
+        help=(
+            "Ranking metric: mean_sisdr | vocals_sisdr | recon_snr | "
+            "corr | weighted | sisdr_index_N"
+        ),
     )
-    p.add_argument(
+    parser.add_argument(
         "--top-k",
         type=int,
         default=10,
         help="How many ranked rows to print.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--copy-to",
         type=str,
         default="",
-        help="If set, copy the best checkpoint to this path (e.g., runs/best_ckpt/unet_phase1_best.pth).",
+        help=(
+            "If set, copy the best checkpoint to this path, "
+            "for example runs/best_ckpt/unet_phase1_best.pth."
+        ),
     )
-    return p.parse_args(argv)
+    return parser.parse_args(argv)
 
 
 def main(argv: List[str]) -> int:

@@ -8,7 +8,11 @@ import soundfile as sf
 import torch
 
 from src.constants import STEMS_4
-from src.inference import InferenceConfig, config_from_checkpoint, load_pth_model, separate_audio_file
+from src.inference import (
+    config_from_checkpoint,
+    load_pth_model,
+    separate_audio_file,
+)
 
 STEM_NAMES: list[str] = STEMS_4
 
