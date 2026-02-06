@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import soundfile as sf
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from src.inference import config_from_checkpoint, load_pth_model
 from src.training.stft import freq_minmax_normalize
@@ -163,8 +164,10 @@ def main() -> None:
     device = os.environ.get("DEVICE", "cuda")
     n_eval_tracks = int(os.environ.get("N_EVAL_TRACKS", "30"))
     max_seconds = int(os.environ.get("MAX_SECONDS", "30"))
+    tb_dir = Path(os.environ.get("TB_DIR", str(eval_dir / "tb")))
 
     eval_dir.mkdir(parents=True, exist_ok=True)
+    tb_dir.mkdir(parents=True, exist_ok=True)
 
     tracks = list_tracks(data_root / "test")[:n_eval_tracks]
     if not tracks:
@@ -176,6 +179,9 @@ def main() -> None:
 
     per_track_csv = eval_dir / "fullsong_eval_per_track.csv"
     summary_csv = eval_dir / "fullsong_eval_summary.csv"
+
+    writer = SummaryWriter(log_dir=str(tb_dir))
+    writer.add_text("run/info", f"data_root={data_root} ckpt_dir={ckpt_dir}")
 
     with per_track_csv.open("w", newline="") as f_pt:
         w_pt = csv.writer(f_pt)
@@ -200,8 +206,9 @@ def main() -> None:
 
         summary_rows: List[dict] = []
 
-        for ckpt_path in ckpts:
+        for i, ckpt_path in enumerate(ckpts):
             epoch = epoch_from_name(ckpt_path)
+            step = epoch if epoch > 0 else i + 1
             model, ckpt = load_pth_model(str(ckpt_path), device=device, stems=4)
             cfg = config_from_checkpoint(ckpt)
             model.eval()
@@ -280,6 +287,14 @@ def main() -> None:
             }
             summary_rows.append(row)
 
+            writer.add_scalar("eval/mean_sisdr_drums", row["mean_sisdr_drums"], step)
+            writer.add_scalar("eval/mean_sisdr_bass", row["mean_sisdr_bass"], step)
+            writer.add_scalar("eval/mean_sisdr_vocals", row["mean_sisdr_vocals"], step)
+            writer.add_scalar("eval/mean_sisdr_other", row["mean_sisdr_other"], step)
+            writer.add_scalar("eval/mean_recon_snr_db", row["mean_recon_snr_db"], step)
+            writer.add_scalar("eval/mean_interstem_corr", row["mean_interstem_corr"], step)
+            writer.add_scalar("eval/seconds_used", row["seconds_used"], step)
+
             print(
                 f"epoch={epoch:03d} "
                 f"sisdr=[{row['mean_sisdr_drums']:.2f},"
@@ -327,6 +342,7 @@ def main() -> None:
 
     print("WROTE:", str(per_track_csv))
     print("WROTE:", str(summary_csv))
+    writer.close()
 
 
 if __name__ == "__main__":

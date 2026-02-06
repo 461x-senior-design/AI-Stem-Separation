@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 
 from src.models.unet_2d import UNet2D
 from src.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
@@ -42,6 +43,12 @@ def parse_args():
         "--export-ts",
         action="store_true",
         help="Export TorchScript .pt after each checkpoint save.",
+    )
+    p.add_argument(
+        "--log-dir",
+        type=str,
+        default="runs",
+        help="TensorBoard log directory.",
     )
     p.add_argument("--device", type=str, default="", help="cpu, cuda, or leave empty for auto.")
 
@@ -156,6 +163,9 @@ def main():
     ckpt_dir = Path(args.checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
+    writer = SummaryWriter(log_dir=args.log_dir)
+    writer.add_text("run/config", str(config))
+
     for epoch in range(start_epoch, args.epochs):
         model.train()
         t0 = time.time()
@@ -198,6 +208,11 @@ def main():
         val_loss = v_running / max(1, v_batches)
         dt = time.time() - t0
 
+        writer.add_scalar("loss/train", train_loss, epoch + 1)
+        writer.add_scalar("loss/val", val_loss, epoch + 1)
+        writer.add_scalar("time/epoch_sec", dt, epoch + 1)
+        writer.add_scalar("lr", optimizer.param_groups[0]["lr"], epoch + 1)
+
         print(
             f"Epoch {epoch + 1}/{args.epochs} | "
             f"train_loss={train_loss:.6f} val_loss={val_loss:.6f} | "
@@ -217,6 +232,8 @@ def main():
                 ts_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt"
                 export_torchscript(str(ts_path), model)
                 print(f"Exported TorchScript: {ts_path}")
+
+    writer.close()
 
 
 if __name__ == "__main__":
