@@ -1,21 +1,29 @@
 import random
 from dataclasses import dataclass
 from pathlib import Path
+from typing import List, Optional
 
 import soundfile as sf
 import torch
 
+from src.constants import (
+    DEFAULT_WAVEFORM_NORM,
+    HOP_LENGTH,
+    N_FFT,
+    STEMS_4,
+    TARGET_SAMPLE_RATE,
+    WIN_LENGTH,
+)
+from src.preprocessing.audio import normalize_waveform
 from src.training.stft import freq_minmax_normalize, stft_mag_phase_mono
-
-STEMS_4 = ["drums", "bass", "vocals", "other"]
 
 
 @dataclass(frozen=True)
 class StftConfig:
-    sample_rate: int = 44100
-    n_fft: int = 4096
-    hop_length: int = 1024
-    win_length: int = 4096
+    sample_rate: int = TARGET_SAMPLE_RATE
+    n_fft: int = N_FFT
+    hop_length: int = HOP_LENGTH
+    win_length: int = WIN_LENGTH
 
 
 @dataclass(frozen=True)
@@ -44,9 +52,10 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         split: str,
         stft_cfg: StftConfig,
         crop_cfg: CropConfig,
-        stems: list[str] | None = None,
-        max_tracks: int | None = None,
+        stems: Optional[List[str]] = None,
+        max_tracks: Optional[int] = None,
         deterministic: bool = False,
+        waveform_norm: str = DEFAULT_WAVEFORM_NORM,
         seed: int = 0,
     ) -> None:
         if split not in ["train", "test"]:
@@ -66,6 +75,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 raise ValueError(f"Unsupported stem '{s}'. Expected one of {STEMS_4}.")
 
         self.deterministic = deterministic
+        self.waveform_norm = waveform_norm
         self.rng = random.Random(seed)
 
         split_dir = self.root_dir / split
@@ -162,6 +172,10 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             start = self.rng.randint(0, total_frames - self.segment_samples)
 
         mix_wav = self._read_mono_segment(mix_path, start, self.segment_samples)
+        mix_wav_np = mix_wav.detach().cpu().numpy()
+        mix_wav_np, mix_norm_params = normalize_waveform(mix_wav_np, method=self.waveform_norm)
+        mix_scale = float(mix_norm_params.get("scale_factor", 1.0))
+        mix_wav = torch.from_numpy(mix_wav_np).to(torch.float32)
 
         mix_mag, _mix_phase = stft_mag_phase_mono(
             mix_wav,
@@ -184,6 +198,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         for stem in self.stems:
             stem_path = td / f"{stem}.wav"
             stem_wav = self._read_mono_segment(stem_path, start, self.segment_samples)
+            if mix_scale != 0.0:
+                stem_wav = stem_wav / mix_scale
             stem_mag, _ = stft_mag_phase_mono(
                 stem_wav,
                 n_fft=self.stft_cfg.n_fft,
@@ -197,4 +213,5 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         mix_norm = mix_norm.unsqueeze(0)  # [1, F, T]
         targets_norm = torch.stack(target_masks, dim=0)  # [S, F, T]
+        targets_norm = targets_norm / (targets_norm.sum(dim=0, keepdim=True) + eps)
         return mix_norm, targets_norm

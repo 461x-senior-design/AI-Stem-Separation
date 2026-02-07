@@ -1,50 +1,68 @@
-from pathlib import Path
-from typing import Dict, Tuple, Union
+"""Model inference utilities for stem separation."""
 
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable, Mapping, Sequence, Union
+
+import numpy as np
 import torch
 
+from src.constants import (
+    DEFAULT_WAVEFORM_NORM,
+    HOP_LENGTH,
+    N_FFT,
+    STEMS_4,
+    STFT_CENTER,
+    TARGET_SAMPLE_RATE,
+    WIN_LENGTH,
+)
 from src.models.unet_2d import UNet2D
+from src.postprocessing.audio import denormalize_waveform, export_audio
+from src.postprocessing.spectral import apply_mask, combine_magnitude_phase, compute_istft
+from src.postprocessing.utility.output_validator import OutputValidationException, OutputValidator
+from src.preprocessing.audio import ensure_stereo, load_audio, normalize_waveform
+from src.preprocessing.spectral import compute_stft, split_magnitude_phase
+from src.preprocessing.utility.audio_file_validator import (
+    AudioFileValidator,
+    AudioValidationException,
+)
 from src.training.stft import freq_minmax_normalize
 
 
+@dataclass(frozen=True)
 class InferenceConfig:
-    def __init__(
-        self,
-        sample_rate: int = 44100,
-        n_fft: int = 4096,
-        hop_length: int = 1024,
-        win_length: int = 4096,
-        center: bool = False,
-        eps: float = 1e-8,
-        ola_denom_floor: float = 1e-3,
-    ):
-        """Inference settings for STFT and overlap-add iSTFT."""
-        if not isinstance(sample_rate, int) or sample_rate <= 0:
-            raise ValueError("sample_rate must be a positive int")
-        if not isinstance(n_fft, int) or n_fft <= 0:
-            raise ValueError("n_fft must be a positive int")
-        if not isinstance(hop_length, int) or hop_length <= 0:
-            raise ValueError("hop_length must be a positive int")
-        if not isinstance(win_length, int) or win_length <= 0:
-            raise ValueError("win_length must be a positive int")
-        if win_length > n_fft:
-            raise ValueError("win_length must be <= n_fft")
-        if hop_length > win_length:
-            raise ValueError("hop_length must be <= win_length")
-        if not isinstance(center, bool):
-            raise ValueError("center must be a bool")
-        if not isinstance(eps, float) or eps <= 0.0:
-            raise ValueError("eps must be a positive float")
-        if not isinstance(ola_denom_floor, float) or ola_denom_floor <= 0.0:
-            raise ValueError("ola_denom_floor must be a positive float")
+    """Configuration for inference-time preprocessing and reconstruction."""
 
-        self.sample_rate = sample_rate
-        self.n_fft = n_fft
-        self.hop_length = hop_length
-        self.win_length = win_length
-        self.center = center
-        self.eps = eps
-        self.ola_denom_floor = ola_denom_floor
+    sample_rate: int = TARGET_SAMPLE_RATE
+    n_fft: int = N_FFT
+    hop_length: int = HOP_LENGTH
+    win_length: int = WIN_LENGTH
+    center: bool = STFT_CENTER
+    waveform_norm: str = DEFAULT_WAVEFORM_NORM
+    eps: float = 1e-8
+    device: str = "cpu"
+    renorm_masks: bool = True
+    validate_outputs: bool = True
+
+
+@dataclass(frozen=True)
+class InferenceArtifacts:
+    """Artifacts needed to reconstruct stems from model masks."""
+
+    mix_magnitude: np.ndarray
+    mix_phase: np.ndarray
+    waveform_norm_params: Mapping[str, float]
+    sample_rate: int
+    num_samples: int
+
+
+@dataclass(frozen=True)
+class StemOutputs:
+    """Container for separated waveforms and optional output paths."""
+
+    waveforms: Mapping[str, np.ndarray]
+    paths: Mapping[str, Path]
+    sample_rate: int
 
 
 def load_torchscript_model(
@@ -65,7 +83,7 @@ def load_pth_model(
     checkpoint_path: Union[str, Path],
     device: str = "cpu",
     stems: int = 4,
-) -> Tuple[torch.nn.Module, dict]:
+) -> tuple[torch.nn.Module, dict]:
     """Load a training checkpoint dict (.pth) containing 'model_state'."""
     if not isinstance(stems, int) or stems <= 0:
         raise ValueError("stems must be a positive int")
@@ -93,210 +111,211 @@ def load_pth_model(
     return model, ckpt
 
 
-def config_from_checkpoint(ckpt: dict) -> InferenceConfig:
-    """Extract inference config from checkpoint extra['config'] if present."""
-    if not isinstance(ckpt, dict):
-        raise ValueError("ckpt must be a dict")
+def config_from_checkpoint(ckpt: Mapping[str, object]) -> InferenceConfig:
+    """Build an inference config from a training checkpoint dict."""
+    extra = ckpt.get("extra", {}) if isinstance(ckpt, Mapping) else {}
+    config = extra.get("config", {}) if isinstance(extra, Mapping) else {}
 
-    cfg = {}
-    extra = ckpt.get("extra")
-    if isinstance(extra, dict):
-        maybe = extra.get("config")
-        if isinstance(maybe, dict):
-            cfg = maybe
+    def _get_int(key: str, default: int) -> int:
+        value = config.get(key, default)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
-    sample_rate = int(cfg.get("sample_rate", 44100))
-    n_fft = int(cfg.get("n_fft", 4096))
-    hop_length = int(cfg.get("hop_length", 1024))
-    win_length = int(cfg.get("win_length", 4096))
-    center = bool(cfg.get("center", False))
+    def _get_str(key: str, default: str) -> str:
+        value = config.get(key, default)
+        return str(value) if value is not None else default
+
+    def _get_bool(key: str, default: bool) -> bool:
+        value = config.get(key, default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+        return bool(value) if value is not None else default
 
     return InferenceConfig(
-        sample_rate=sample_rate,
-        n_fft=n_fft,
-        hop_length=hop_length,
-        win_length=win_length,
-        center=center,
-        eps=1e-8,
-        ola_denom_floor=1e-3,
+        sample_rate=_get_int("sample_rate", TARGET_SAMPLE_RATE),
+        n_fft=_get_int("n_fft", N_FFT),
+        hop_length=_get_int("hop_length", HOP_LENGTH),
+        win_length=_get_int("win_length", WIN_LENGTH),
+        center=_get_bool("center", STFT_CENTER),
+        waveform_norm=_get_str("waveform_norm", DEFAULT_WAVEFORM_NORM),
     )
 
 
-def _istft_overlap_add_no_check(
-    X: torch.Tensor,
-    n_fft: int,
-    hop_length: int,
-    win_length: int,
-    window: torch.Tensor,
-    length: int,
-    eps: float,
-    denom_floor: float,
-) -> torch.Tensor:
-    """Manual overlap-add iSTFT with a safe denominator floor."""
-    if not isinstance(X, torch.Tensor):
-        raise ValueError("X must be a torch.Tensor")
-    if X.ndim != 2:
-        raise ValueError("X must have shape (F, T)")
-    if not torch.is_complex(X):
-        raise ValueError("X must be a complex tensor")
-
-    if not isinstance(n_fft, int) or n_fft <= 0:
-        raise ValueError("n_fft must be a positive int")
-    if not isinstance(hop_length, int) or hop_length <= 0:
-        raise ValueError("hop_length must be a positive int")
-    if not isinstance(win_length, int) or win_length <= 0:
-        raise ValueError("win_length must be a positive int")
-    if win_length > n_fft:
-        raise ValueError("win_length must be <= n_fft")
-    if not isinstance(length, int) or length <= 0:
-        raise ValueError("length must be a positive int")
-    if not isinstance(eps, float) or eps <= 0.0:
-        raise ValueError("eps must be a positive float")
-    if not isinstance(denom_floor, float) or denom_floor <= 0.0:
-        raise ValueError("denom_floor must be a positive float")
-
-    if not isinstance(window, torch.Tensor):
-        raise ValueError("window must be a torch.Tensor")
-    if window.ndim != 1 or int(window.numel()) != win_length:
-        raise ValueError("window must have shape (win_length,)")
-
-    F, T = int(X.shape[0]), int(X.shape[1])
-    expected_F = n_fft // 2 + 1
-    if F != expected_F:
-        raise ValueError(f"X first dimension must be {expected_F} for n_fft={n_fft}, got {F}")
-
-    frames = torch.fft.irfft(X, n=n_fft, dim=0)  # (n_fft, T)
-    frames = frames[:win_length, :]  # (win_length, T)
-    frames = frames * window.unsqueeze(1)  # (win_length, T)
-
-    out_len = win_length + hop_length * (T - 1)
-    y = torch.zeros(out_len, device=frames.device, dtype=frames.dtype)
-    denom = torch.zeros(out_len, device=frames.device, dtype=frames.dtype)
-
-    w_sq = (window * window).to(dtype=frames.dtype)
-
-    for t in range(T):
-        start = t * hop_length
-        end = start + win_length
-        y[start:end] = y[start:end] + frames[:, t]
-        denom[start:end] = denom[start:end] + w_sq
-
-    floor = max(float(eps), float(denom_floor))
-    denom = torch.clamp(denom, min=floor)
-    y = y / denom
-
-    if out_len >= length:
-        return y[:length]
-    pad = torch.zeros(length - out_len, device=y.device, dtype=y.dtype)
-    return torch.cat([y, pad], dim=0)
+def _validate_input_audio(audio_path: Path) -> None:
+    """Run audio validation before loading audio."""
+    validator = AudioFileValidator(str(audio_path))
+    is_valid, message = validator.validate()
+    if not is_valid:
+        raise AudioValidationException(message)
 
 
-def separate_waveform_4stems(
-    waveform: torch.Tensor,
-    cfg: InferenceConfig,
-    model,
-    device: str = "cpu",
-    renorm_sum_to_one: bool = False,
-) -> Dict[str, torch.Tensor]:
-    """Separate waveform into 4 stems using ratio masks."""
-    if not isinstance(cfg, InferenceConfig):
-        raise ValueError("cfg must be an InferenceConfig")
-    if not isinstance(waveform, torch.Tensor):
-        raise ValueError("waveform must be a torch.Tensor")
-    if waveform.ndim != 2:
-        raise ValueError("waveform must have shape (channels, samples)")
-    if not callable(model):
-        raise ValueError("model must be callable")
-    if not isinstance(renorm_sum_to_one, bool):
-        raise ValueError("renorm_sum_to_one must be a bool")
+def prepare_model_input(
+    audio_path: Union[str, Path], cfg: InferenceConfig
+) -> tuple[torch.Tensor, InferenceArtifacts]:
+    """Load audio, validate, and prepare model input plus reconstruction artifacts."""
+    audio_path = Path(audio_path).expanduser().resolve()
+    _validate_input_audio(audio_path)
 
-    channels = int(waveform.shape[0])
-    n_samples = int(waveform.shape[1])
-    if channels <= 0 or n_samples <= 0:
-        raise ValueError("waveform must have non-empty shape (channels, samples)")
+    waveform, _sr = load_audio(audio_path, sr=cfg.sample_rate, mono=False)
+    waveform = ensure_stereo(waveform)
+    num_samples = int(waveform.shape[-1])
 
-    dev = torch.device(device)
-    x = waveform.to(device=dev, dtype=torch.float32)
+    waveform, waveform_norm_params = normalize_waveform(waveform, method=cfg.waveform_norm)
 
-    window = torch.hann_window(cfg.win_length, periodic=True, dtype=torch.float32, device=dev)
-
-    stfts = []
-    for ch in range(channels):
-        stft_c = torch.stft(
-            x[ch],
+    stft_channels = [
+        compute_stft(
+            waveform[ch],
             n_fft=cfg.n_fft,
             hop_length=cfg.hop_length,
             win_length=cfg.win_length,
-            window=window,
             center=cfg.center,
-            return_complex=True,
         )
-        stfts.append(stft_c)
-    stft = torch.stack(stfts, dim=0)  # (C, F, T)
+        for ch in range(waveform.shape[0])
+    ]
+    stft_mix = np.stack(stft_channels, axis=0)
+    mix_magnitude, mix_phase = split_magnitude_phase(stft_mix)
 
-    x_mono = x.mean(dim=0)
-    stft_mono = torch.stft(
-        x_mono,
+    mono_waveform = waveform.mean(axis=0)
+    stft_mono = compute_stft(
+        mono_waveform,
         n_fft=cfg.n_fft,
         hop_length=cfg.hop_length,
         win_length=cfg.win_length,
-        window=window,
         center=cfg.center,
-        return_complex=True,
-    )  # (F, T)
-    mix_mag_mono = torch.abs(stft_mono)
+    )
+    mono_mag = np.abs(stft_mono)
 
-    mix_norm, _, _ = freq_minmax_normalize(mix_mag_mono, eps=cfg.eps)
-    model_in = mix_norm.unsqueeze(0).unsqueeze(0)  # (1, 1, F, T)
+    mono_mag_t = torch.from_numpy(mono_mag).to(torch.float32)
+    mono_mag_norm, _f_min, _f_max = freq_minmax_normalize(mono_mag_t, eps=cfg.eps)
+
+    model_input = mono_mag_norm.unsqueeze(0).unsqueeze(0)
+
+    artifacts = InferenceArtifacts(
+        mix_magnitude=mix_magnitude,
+        mix_phase=mix_phase,
+        waveform_norm_params=waveform_norm_params,
+        sample_rate=cfg.sample_rate,
+        num_samples=num_samples,
+    )
+    return model_input, artifacts
+
+
+def _validate_stem_output(waveform: np.ndarray) -> None:
+    """Validate separated waveform."""
+    validator = OutputValidator(waveform)
+    is_valid, message = validator.validate()
+    if not is_valid:
+        raise OutputValidationException(message)
+
+
+def separate_from_model_output(
+    model_output: torch.Tensor,
+    artifacts: InferenceArtifacts,
+    cfg: InferenceConfig,
+    stem_names: Sequence[str] = STEMS_4,
+    output_dir: Union[str, Path, None] = None,
+    track_name: Union[str, None] = None,
+    export_files: bool = True,
+) -> StemOutputs:
+    """Convert model masks into audio waveforms and optionally export WAV files."""
+    if model_output.ndim != 4:
+        raise ValueError("model_output must have shape [1, S, F, T]")
+
+    masks = torch.clamp(model_output, 0.0, 1.0).squeeze(0).cpu().numpy()
+    if masks.shape[1:] != artifacts.mix_magnitude.shape[1:]:
+        raise ValueError("model_output frequency/time dimensions must match mix magnitude shape")
+    if masks.shape[0] != len(stem_names):
+        raise ValueError("stem_names length must match model output stems")
+
+    if cfg.renorm_masks:
+        denom = np.maximum(masks.sum(axis=0, keepdims=True), cfg.eps)
+        masks = masks / denom
+
+    waveforms: dict[str, np.ndarray] = {}
+    paths: dict[str, Path] = {}
+
+    if output_dir is not None:
+        output_dir = Path(output_dir)
+
+    for stem_idx, stem_name in enumerate(stem_names):
+        mask = masks[stem_idx]
+        stereo_mask = np.stack([mask, mask])
+
+        masked_mag = apply_mask(artifacts.mix_magnitude, stereo_mask)
+        stft_complex = combine_magnitude_phase(masked_mag, artifacts.mix_phase)
+        waveform = compute_istft(
+            stft_complex,
+            hop_length=cfg.hop_length,
+            win_length=cfg.win_length,
+            length=artifacts.num_samples,
+            center=cfg.center,
+        )
+        waveform = denormalize_waveform(waveform, artifacts.waveform_norm_params)
+
+        if cfg.validate_outputs:
+            _validate_stem_output(waveform)
+
+        waveforms[stem_name] = waveform
+
+        if export_files and output_dir is not None:
+            name_root = track_name or "separated"
+            file_path = output_dir / f"{name_root}_{stem_name}.wav"
+            paths[stem_name] = export_audio(waveform, file_path, artifacts.sample_rate)
+
+    return StemOutputs(waveforms=waveforms, paths=paths, sample_rate=artifacts.sample_rate)
+
+
+def separate_audio_file(
+    audio_path: Union[str, Path],
+    model: torch.nn.Module,
+    cfg: InferenceConfig,
+    stem_names: Sequence[str] = STEMS_4,
+    output_dir: Union[str, Path, None] = None,
+    export_files: bool = True,
+) -> StemOutputs:
+    """End-to-end inference: preprocess audio, run model, and reconstruct stems."""
+    model_input, artifacts = prepare_model_input(audio_path, cfg)
+
+    dev = torch.device(cfg.device)
+    model_input = model_input.to(dev)
 
     with torch.no_grad():
-        pred = model(model_in)
+        model_output = model(model_input)
 
-    if not isinstance(pred, torch.Tensor) or pred.ndim != 4:
-        raise ValueError("model must return a Tensor of shape (1,4,F,T)")
-    if pred.shape[0] != 1 or pred.shape[1] != 4:
-        raise ValueError("model must return a Tensor of shape (1,4,F,T)")
-    if pred.shape[2] != stft_mono.shape[0] or pred.shape[3] != stft_mono.shape[1]:
-        raise ValueError("model output shape must match mono STFT (F,T)")
-    if stft.shape[1] != stft_mono.shape[0] or stft.shape[2] != stft_mono.shape[1]:
-        raise ValueError("per-channel STFT shape must match mono STFT shape")
+    track_name = Path(audio_path).stem
+    return separate_from_model_output(
+        model_output=model_output,
+        artifacts=artifacts,
+        cfg=cfg,
+        stem_names=stem_names,
+        output_dir=output_dir,
+        track_name=track_name,
+        export_files=export_files,
+    )
 
-    masks = torch.clamp(pred[0], 0.0, 1.0)  # (4, F, T)
 
-    if renorm_sum_to_one:
-        s = masks.sum(dim=0)  # (F, T)
-        denom = torch.clamp(s, min=cfg.eps)
-        masks = masks / denom.unsqueeze(0)
-
-    names = ["drums", "bass", "vocals", "other"]
-    stems: Dict[str, torch.Tensor] = {}
-
-    mix_phase = torch.angle(stft)  # (C, F, T)
-    mix_mag = torch.abs(stft)  # (C, F, T)
-
-    for i, name in enumerate(names):
-        outs = []
-        for ch in range(channels):
-            stem_mag = masks[i] * mix_mag[ch]
-            spec = torch.polar(stem_mag, mix_phase[ch])
-
-            y = _istft_overlap_add_no_check(
-                spec,
-                n_fft=cfg.n_fft,
-                hop_length=cfg.hop_length,
-                win_length=cfg.win_length,
-                window=window,
-                length=n_samples,
-                eps=cfg.eps,
-                denom_floor=cfg.ola_denom_floor,
-            )
-
-            if int(y.numel()) > n_samples:
-                y = y[:n_samples]
-            elif int(y.numel()) < n_samples:
-                y = torch.nn.functional.pad(y, (0, n_samples - int(y.numel())))
-
-            outs.append(y.detach().cpu())
-        stems[name] = torch.stack(outs, dim=0)
-
-    return stems
+def separate_batch(
+    audio_files: Iterable[Union[str, Path]],
+    model: torch.nn.Module,
+    cfg: InferenceConfig,
+    stem_names: Sequence[str] = STEMS_4,
+    output_dir: Union[str, Path, None] = None,
+    export_files: bool = True,
+) -> dict[str, StemOutputs]:
+    """Run inference for multiple audio files."""
+    results: dict[str, StemOutputs] = {}
+    for audio_path in audio_files:
+        outputs = separate_audio_file(
+            audio_path=audio_path,
+            model=model,
+            cfg=cfg,
+            stem_names=stem_names,
+            output_dir=output_dir,
+            export_files=export_files,
+        )
+        results[str(audio_path)] = outputs
+    return results

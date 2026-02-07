@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional, Tuple, Union
 
 import torch
 
@@ -9,7 +10,7 @@ def save_checkpoint(
     optimizer: torch.optim.Optimizer,
     epoch: int,
     step: int,
-    extra: dict | None = None,
+    extra: Optional[dict] = None,
 ) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -27,9 +28,9 @@ def save_checkpoint(
 def load_checkpoint(
     path: str,
     model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer | None = None,
-    map_location: str | torch.device = "cpu",
-) -> tuple[int, int, dict]:
+    optimizer: Optional[torch.optim.Optimizer] = None,
+    map_location: Union[str, torch.device] = "cpu",
+) -> Tuple[int, int, dict]:
     payload = torch.load(path, map_location=map_location)
     model.load_state_dict(payload["model_state"])
 
@@ -53,6 +54,12 @@ def export_torchscript(
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
 
+    was_training = model.training
+    original_device = next(model.parameters()).device
+
     model_cpu = model.to("cpu").eval()
     scripted = torch.jit.script(model_cpu)
     scripted.save(str(p))
+
+    model.to(original_device)
+    model.train(was_training)

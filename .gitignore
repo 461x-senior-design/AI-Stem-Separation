@@ -65,3 +65,6 @@ local_ckpts/
 # Claude Code
 .claude/
 /local/
+
+Training checkpoints and torchscript output
+/runs/

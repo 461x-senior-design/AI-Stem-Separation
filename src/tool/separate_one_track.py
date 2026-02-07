@@ -1,13 +1,20 @@
 import os
+from dataclasses import replace
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import soundfile as sf
 import torch
 
-from src.inference import config_from_checkpoint, load_pth_model, separate_waveform_4stems
+from src.constants import STEMS_4
+from src.inference import (
+    config_from_checkpoint,
+    load_pth_model,
+    separate_audio_file,
+)
 
-STEM_NAMES: list[str] = ["drums", "bass", "vocals", "other"]
+STEM_NAMES: list[str] = STEMS_4
 
 
 def validate_file(path: Path, description: str) -> None:
@@ -26,7 +33,7 @@ def validate_dir(path: Path, description: str) -> None:
         raise NotADirectoryError(f"Expected a directory for {description}: {path}")
 
 
-def get_env_path(name: str) -> Path | None:
+def get_env_path(name: str) -> Optional[Path]:
     """Return an environment variable as an absolute Path, or None if unset/blank."""
     value = os.environ.get(name, "").strip()
     if not value:
@@ -117,44 +124,29 @@ def main() -> None:
     mix, sr = read_mixture_stereo(mix_path, max_seconds=max_seconds)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model, ckpt_obj = load_pth_model(str(ckpt_path), device=device, stems=4)
+    model, ckpt_obj = load_pth_model(str(ckpt_path), device=device, stems=len(STEM_NAMES))
     cfg = config_from_checkpoint(ckpt_obj)
+    cfg = replace(cfg, device=device, renorm_masks=True)
     model.eval()
 
     if sr != cfg.sample_rate:
         raise RuntimeError(
-            f"Sample-rate mismatch: mixture is {sr}, checkpoint expects {cfg.sample_rate}"
+            f"Sample-rate mismatch: mixture is {sr}, config expects {cfg.sample_rate}"
         )
 
-    waveform = torch.from_numpy(mix).to(dtype=torch.float32).t().contiguous()  # (C,N)
-
-    pred_t: dict[str, torch.Tensor] = separate_waveform_4stems(
-        waveform=waveform,
-        cfg=cfg,
+    out_dir.mkdir(parents=True, exist_ok=True)
+    outputs = separate_audio_file(
+        audio_path=mix_path,
         model=model,
-        device=device,
-        renorm_sum_to_one=True,
+        cfg=cfg,
+        stem_names=STEM_NAMES,
+        output_dir=out_dir,
+        export_files=True,
     )
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     pred_np: dict[str, np.ndarray] = {}
-    for name in STEM_NAMES:
-        if name not in pred_t:
-            raise RuntimeError(f"Missing stem in output dict: {name}")
-
-        y = pred_t[name].detach().cpu().to(dtype=torch.float32)
-        if y.ndim != 2:
-            raise RuntimeError(f"Expected stem tensor shape (C,N) for {name}, got {tuple(y.shape)}")
-        if int(y.shape[0]) != 2:
-            raise RuntimeError(f"Expected 2 channels for {name}, got {int(y.shape[0])}")
-
-        audio = y.t().contiguous().numpy()  # (N,2) for soundfile
-        pred_np[name] = audio
-
-        out_path = out_dir / f"{name}.wav"
-        sf.write(str(out_path), audio, cfg.sample_rate, subtype="FLOAT")
-        print("WROTE:", out_path)
+    for name, waveform in outputs.waveforms.items():
+        pred_np[name] = waveform.T
 
     # Diagnostics
     # energy check per stem

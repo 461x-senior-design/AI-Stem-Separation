@@ -5,6 +5,14 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
+from src.constants import (
+    DEFAULT_WAVEFORM_NORM,
+    HOP_LENGTH,
+    N_FFT,
+    STFT_CENTER,
+    TARGET_SAMPLE_RATE,
+    WIN_LENGTH,
+)
 from src.models.unet_2d import UNet2D
 from src.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from src.training.musdb18hq_dataset import STEMS_4, CropConfig, Musdb18HQDataset, StftConfig
@@ -24,9 +32,16 @@ def parse_args():
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--num-workers", type=int, default=2)
+    p.add_argument(
+        "--waveform-norm",
+        type=str,
+        default=DEFAULT_WAVEFORM_NORM,
+        choices=["peak", "rms", "none"],
+        help="Waveform normalization method (applies to mix and stems).",
+    )
 
     p.add_argument(
-        "--time-frames", type=int, default=256, help="Fixed STFT time frames T (e.g., 256 or 512)."
+        "--time-frames", type=int, default=256, help="Fixed STFT time frames T (256 or 512)."
     )
     p.add_argument(
         "--max-tracks", type=int, default=0, help="If >0, limit number of tracks per split."
@@ -79,7 +94,12 @@ def main():
 
     device = pick_device(args.device)
 
-    stft_cfg = StftConfig(sample_rate=44100, n_fft=4096, hop_length=1024, win_length=4096)
+    stft_cfg = StftConfig(
+        sample_rate=TARGET_SAMPLE_RATE,
+        n_fft=N_FFT,
+        hop_length=HOP_LENGTH,
+        win_length=WIN_LENGTH,
+    )
     crop_cfg = CropConfig(time_frames=args.time_frames)
 
     max_tracks = args.max_tracks if args.max_tracks > 0 else None
@@ -92,6 +112,7 @@ def main():
         stems=STEMS_4,
         max_tracks=max_tracks,
         deterministic=False,
+        waveform_norm=args.waveform_norm,
         seed=0,
     )
     val_ds = Musdb18HQDataset(
@@ -102,8 +123,16 @@ def main():
         stems=STEMS_4,
         max_tracks=max_tracks,
         deterministic=True,
+        waveform_norm=args.waveform_norm,
         seed=0,
     )
+
+    train_drop_last = len(train_ds) >= args.batch_size
+    if not train_drop_last:
+        print(
+            f"WARNING: train dataset size ({len(train_ds)}) is smaller than batch_size "
+            f"({args.batch_size}); disabling drop_last to avoid zero training batches."
+        )
 
     train_loader = DataLoader(
         train_ds,
@@ -111,7 +140,7 @@ def main():
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=(device.type == "cuda"),
-        drop_last=True,
+        drop_last=train_drop_last,
     )
     val_loader = DataLoader(
         val_ds,
@@ -150,7 +179,8 @@ def main():
         "device": str(device),
         "stems": STEMS_4,
         "max_tracks": args.max_tracks,
-        "center": False,
+        "center": STFT_CENTER,
+        "waveform_norm": args.waveform_norm,
     }
 
     ckpt_dir = Path(args.checkpoint_dir)
@@ -169,8 +199,10 @@ def main():
             optimizer.zero_grad(set_to_none=True)
 
             # Model predicts per-stem ratio masks in [0,1]
-            # (targets: stem_mag / (mix_mag + eps), clamped).
+            # (targets: stem_mag / (mix_mag + eps), clamped, then sum-to-1).
             pred_norm = model(mix_norm)  # [B, S, F, T]
+            pred_norm = torch.clamp(pred_norm, 0.0, 1.0)
+            pred_norm = pred_norm / (pred_norm.sum(dim=1, keepdim=True) + 1e-8)
             loss = l1_loss(pred_norm, targets_norm)
 
             loss.backward()
@@ -191,6 +223,8 @@ def main():
                 mix_norm = mix_norm.to(device, non_blocking=True)
                 targets_norm = targets_norm.to(device, non_blocking=True)
                 pred_norm = model(mix_norm)
+                pred_norm = torch.clamp(pred_norm, 0.0, 1.0)
+                pred_norm = pred_norm / (pred_norm.sum(dim=1, keepdim=True) + 1e-8)
                 v_loss = l1_loss(pred_norm, targets_norm)
                 v_running += float(v_loss.cpu().item())
                 v_batches += 1
