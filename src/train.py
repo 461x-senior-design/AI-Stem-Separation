@@ -169,6 +169,21 @@ def main():
     writer = SummaryWriter(log_dir=args.log_dir)
     # TensorBoard: log run configuration for traceability.
     writer.add_text("run/config", str(config))
+    # TensorBoard: log the model graph once, using a dummy input that matches the
+    # training data shape. The dataset yields mix_norm as [1, F, T] per item, so
+    # the model expects [B, 1, F, T]. We build a minimal batch with the correct
+    # frequency bins (F = n_fft // 2 + 1) and the configured time frames (T).
+    # This is wrapped in try/except because add_graph can fail on some ops/devices.
+    try:
+        f_bins = (stft_cfg.n_fft // 2) + 1
+        t_frames = crop_cfg.time_frames
+        dummy = torch.zeros((1, 1, f_bins, t_frames), device=device)
+        model.eval()
+        with torch.no_grad():
+            writer.add_graph(model, dummy)
+        model.train()
+    except Exception as exc:
+        print(f"TensorBoard graph logging skipped: {exc}")
 
     for epoch in range(start_epoch, args.epochs):
         model.train()
