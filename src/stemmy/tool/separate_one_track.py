@@ -7,8 +7,8 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from src.constants import STEMS_4
-from src.inference import (
+from stemmy.constants import STEMS_4
+from stemmy.inference import (
     config_from_checkpoint,
     load_pth_model,
     separate_audio_file,

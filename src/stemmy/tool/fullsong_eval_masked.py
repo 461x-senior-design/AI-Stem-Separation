@@ -9,10 +9,10 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from src.inference import config_from_checkpoint, load_pth_model
-from src.postprocessing.audio import denormalize_waveform
-from src.preprocessing.audio import normalize_waveform
-from src.training.stft import freq_minmax_normalize
+from stemmy.inference import config_from_checkpoint, load_pth_model
+from stemmy.postprocessing import denormalize_waveform
+from stemmy.preprocessing import normalize_waveform
+from stemmy.training.stft import freq_minmax_normalize
 
 STEMS = ["drums", "bass", "vocals", "other"]
 

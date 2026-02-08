@@ -25,9 +25,12 @@ test = [
 ]
 
 [project.scripts]
-separate = "tool.cli:separate"
+separate = "stemmy.tool.cli:separate"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = ["src"]
 testpaths = ["tests"]
 norecursedirs = ["local", ".git", ".venv", "build", "dist"]

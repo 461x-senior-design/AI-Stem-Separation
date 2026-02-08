@@ -1,7 +1,7 @@
 # Test script - run from project root
 from pathlib import Path
 
-from src.preprocessing.audio import load_audio
+from stemmy.preprocessing.audio import load_audio
 
 # Test with a real audio file (replace with your path)
 base_path = Path(__file__).parent

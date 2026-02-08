@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.preprocessing.spectral import compute_stft, normalize_spectrogram, split_magnitude_phase
+from stemmy.preprocessing.spectral import compute_stft, normalize_spectrogram, split_magnitude_phase
 
 
 def test_stft_output_shape_mono():

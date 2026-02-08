@@ -2,9 +2,9 @@
 
 import os
 
-from src.logging_config import get_logger
-from src.preprocessing.utility import constants
-from src.preprocessing.utility.audio_metadata_extractor import AudioMetadataExtractor
+from stemmy.logging_config import get_logger
+from stemmy.preprocessing.utility import constants
+from stemmy.preprocessing.utility.audio_metadata_extractor import AudioMetadataExtractor
 
 logger = get_logger(__name__)
 

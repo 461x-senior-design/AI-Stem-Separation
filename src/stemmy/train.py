@@ -5,17 +5,18 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 
-from src.constants import (
+from stemmy.constants import (
     DEFAULT_WAVEFORM_NORM,
     HOP_LENGTH,
     N_FFT,
+    STEMS_4,
     STFT_CENTER,
     TARGET_SAMPLE_RATE,
     WIN_LENGTH,
 )
-from src.models.unet_2d import UNet2D
-from src.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
-from src.training.musdb18hq_dataset import STEMS_4, CropConfig, Musdb18HQDataset, StftConfig
+from stemmy.models.unet_2d import UNet2D
+from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
+from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset, StftConfig
 
 
 def parse_args():

@@ -7,7 +7,7 @@ from typing import Iterable, Mapping, Sequence, Union
 import numpy as np
 import torch
 
-from src.constants import (
+from stemmy.constants import (
     DEFAULT_WAVEFORM_NORM,
     HOP_LENGTH,
     N_FFT,
@@ -16,17 +16,22 @@ from src.constants import (
     TARGET_SAMPLE_RATE,
     WIN_LENGTH,
 )
-from src.models.unet_2d import UNet2D
-from src.postprocessing.audio import denormalize_waveform, export_audio
-from src.postprocessing.spectral import apply_mask, combine_magnitude_phase, compute_istft
-from src.postprocessing.utility.output_validator import OutputValidationException, OutputValidator
-from src.preprocessing.audio import ensure_stereo, load_audio, normalize_waveform
-from src.preprocessing.spectral import compute_stft, split_magnitude_phase
-from src.preprocessing.utility.audio_file_validator import (
+from stemmy.models.unet_2d import UNet2D
+from stemmy.postprocessing import (
+    apply_mask,
+    combine_magnitude_phase,
+    compute_istft,
+    denormalize_waveform,
+    export_audio,
+)
+from stemmy.postprocessing.utility import OutputValidationException, OutputValidator
+from stemmy.preprocessing import ensure_stereo, load_audio, normalize_waveform
+from stemmy.preprocessing.spectral import compute_stft, split_magnitude_phase
+from stemmy.preprocessing.utility.audio_file_validator import (
     AudioFileValidator,
     AudioValidationException,
 )
-from src.training.stft import freq_minmax_normalize
+from stemmy.training.stft import freq_minmax_normalize
 
 
 @dataclass(frozen=True)
