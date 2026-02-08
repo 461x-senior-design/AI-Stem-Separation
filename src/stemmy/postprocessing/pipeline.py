@@ -8,7 +8,7 @@ from typing import Optional, Union
 import numpy as np
 import torch
 
-from src.preprocessing.pipeline import PreprocessingMetadata
+from stemmy.preprocessing.pipeline import PreprocessingMetadata
 
 from .audio import denormalize_waveform, export_audio
 from .spectral import apply_mask, combine_magnitude_phase, compute_istft, denormalize_spectrogram

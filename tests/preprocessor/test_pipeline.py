@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from src.preprocessing.pipeline import PreprocessingMetadata, Preprocessor
+from stemmy.preprocessing.pipeline import PreprocessingMetadata, Preprocessor
 
 
 @pytest.fixture

@@ -14,9 +14,9 @@ import numpy as np
 import pytest
 import torch
 
-from src.postprocessing.pipeline import Postprocessor
-from src.preprocessing.audio import load_audio
-from src.preprocessing.pipeline import Preprocessor
+from stemmy.postprocessing.pipeline import Postprocessor
+from stemmy.preprocessing.audio import load_audio
+from stemmy.preprocessing.pipeline import Preprocessor
 
 
 @pytest.fixture
@@ -142,7 +142,7 @@ def test_full_pipeline_creates_valid_files(pipeline_output, tmp_path):
     assert result.instrumentals_path.exists()
 
     # Files should be readable
-    from src.preprocessing.audio import load_audio
+    from stemmy.preprocessing.audio import load_audio
 
     vocals_loaded, sr = load_audio(result.vocals_path, sr=metadata.processed_sr)
 
