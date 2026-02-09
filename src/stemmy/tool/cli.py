@@ -1,28 +1,96 @@
-#########################
-# cli.py
-# CLI entry point for Stemmy.
-
 from pathlib import Path
 
 import click
-import torch
 from rich.console import Console
+from rich.padding import Padding
+from rich.text import Text
+from rich.tree import Tree
 
-from src.constants import STEMS_4
-from src.inference import config_from_checkpoint, load_pth_model, separate_audio_file
-from src.logging_config import get_logger
-
-logger = get_logger(__name__)
-
-
-class CliException(Exception):
-    """Raised for predictable CLI failures."""
+BOLD_GREEN: str = "bold green"
+BOLD_RED: str = "bold red"
+CYAN: str = "cyan"
+DIR: str = Path.cwd().name
+STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 
 
 #########################
 # Change by Ryan:
 # Reason:
-# Validate device strings (cpu/cuda/cuda:N) and refuse CUDA when unavailable.
+# The original teammate stub only prints expected output. End-to-end separation requires calling the
+# unified inference stack with a checkpoint and (optionally) a device selection, without changing
+# the original stub text.
+# What it does:
+# Re-defines the Click command named "separate" with additional options (-c/--checkpoint, --device).
+# Validates inputs, loads the model/checkpoint using the project's unified inference utilities.
+# Builds an InferenceConfig from checkpoint metadata, and runs separation to export stems into the
+# output directory. The new command replaces the stub by re-binding the name `separate` before the
+# __main__ call runs.
+#########################
+
+
+def _import_inference_stack():
+    try:
+        from stemmy.constants import STEMS_4
+        from stemmy.inference import (
+            InferenceConfig,
+            config_from_checkpoint,
+            load_pth_model,
+            separate_audio_file,
+        )
+
+        return STEMS_4, InferenceConfig, config_from_checkpoint, load_pth_model, separate_audio_file
+    except Exception:
+        pass
+
+    try:
+        from src.stemmy.constants import STEMS_4
+        from src.stemmy.inference import (
+            InferenceConfig,
+            config_from_checkpoint,
+            load_pth_model,
+            separate_audio_file,
+        )
+
+        return STEMS_4, InferenceConfig, config_from_checkpoint, load_pth_model, separate_audio_file
+    except Exception as e:
+        raise click.ClickException(
+            (
+                "Failed to import inference stack. Neither 'stemmy.*' nor 'src.stemmy.*' "
+                "imports worked. "
+                f"Import error: {e}"
+            )
+        )
+
+
+def _get_attr_or_key(obj, name: str, default=None):
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _validate_paths(input_file: str, output_dir: str, checkpoint: str):
+    in_path = Path(input_file).expanduser().resolve()
+    out_dir = Path(output_dir).expanduser().resolve()
+    ckpt_path = Path(checkpoint).expanduser().resolve()
+
+    if not in_path.exists():
+        raise click.ClickException(f"Input file does not exist: {in_path}")
+    if not in_path.is_file():
+        raise click.ClickException(f"Input path is not a file: {in_path}")
+
+    if not ckpt_path.exists():
+        raise click.ClickException(f"Checkpoint does not exist: {ckpt_path}")
+    if not ckpt_path.is_file():
+        raise click.ClickException(f"Checkpoint path is not a file: {ckpt_path}")
+
+    if out_dir.exists() and not out_dir.is_dir():
+        raise click.ClickException(f"Output path exists but is not a directory: {out_dir}")
+
+    return in_path, out_dir, ckpt_path
+
+
 def _validate_device(device: str) -> str:
     dev = (device or "").strip()
     if dev == "":
@@ -32,121 +100,107 @@ def _validate_device(device: str) -> str:
         return dev
 
     if dev == "cuda" or dev.startswith("cuda:"):
+        try:
+            import torch
+        except Exception as e:
+            raise click.ClickException(f"CUDA device requested but torch import failed: {e}")
+
         if not torch.cuda.is_available():
-            raise CliException("Requested CUDA device but torch.cuda.is_available() is False.")
+            raise click.ClickException(
+                "Requested CUDA device but torch.cuda.is_available() is False."
+            )
         return dev
 
-    raise CliException("Invalid --device. Use cpu, cuda, or cuda:N (example: cuda:0).")
-#########################
+    raise click.ClickException('Invalid --device. Expected "cpu", "cuda", or "cuda:N".')
 
 
-#########################
-# Change by Ryan:
-# Reason:
-# Create timestamped run directories under the base output directory and
-# write a command.txt file for later comparisons.
-def _timestamp_tag() -> str:
-    from datetime import datetime
-
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-
-def _make_run_dir(base_output_dir: Path) -> Path:
-    tag = _timestamp_tag()
-    run_dir = base_output_dir / tag
-    run_dir.mkdir(parents=True, exist_ok=False)
-    return run_dir
-
-
-def _write_command_file(run_dir: Path) -> None:
-    import os
-    import shlex
-    import sys
-
-    cmd = " ".join(shlex.quote(a) for a in sys.argv)
-    cwd = os.getcwd()
-
-    (run_dir / "command.txt").write_text(
-        "cwd: %s\ncmd: %s\n" % (cwd, cmd),
-        encoding="utf-8",
-    )
-#########################
-
-
-@click.group()
-def cli() -> None:
-    """Stemmy command-line interface."""
-
-
-@cli.command("separate")
-@click.option("--input-file", "-i", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--checkpoint", "-c", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option(
-    "--output-dir",
-    "-o",
-    default="runs/separated_cli",
-    type=click.Path(file_okay=False),
-    help="Base output directory. A timestamped subdirectory is created inside it.",
-)
-@click.option("--device", default="cpu", help="cpu, cuda, or cuda:N")
-def separate(input_file: str, checkpoint: str, output_dir: str, device: str) -> None:
-    """Separate a single audio file into stems."""
+@click.command(name="separate")
+@click.option("--input-file", "-i", required=True, type=str, help="Path to input audio file.")
+@click.option("--output-dir", "-o", default=DIR, type=str, help="Output directory.")
+@click.option("--checkpoint", "-c", required=True, type=str, help="Path to .pth checkpoint file.")
+@click.option("--device", default="cpu", type=str, help='Device: "cpu", "cuda", or "cuda:N".')
+def separate(input_file: str, output_dir: str, checkpoint: str, device: str) -> None:
+    """CLI wrapper for the separate command."""
     console = Console()
 
+    in_path, out_dir, ckpt_path = _validate_paths(input_file, output_dir, checkpoint)
+    dev = _validate_device(device)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    STEMS_4, InferenceConfig, config_from_checkpoint, load_pth_model, separate_audio_file = (
+        _import_inference_stack()
+    )
+
+    console.print("\nSong Name:", style=BOLD_RED, end=" ")
+    console.print(str(in_path), style=CYAN)
+    console.print("\nExpected Output:", style=BOLD_RED)
+    tree = Tree(Text(str(out_dir), style=BOLD_GREEN))
+    for stem in STEMS:
+        tree.add(Text(f"{stem}{in_path.name}", style=CYAN))
+    console.print(Padding(tree, (0, 0, 0, 2)))
+
     try:
-        dev = _validate_device(device)
-    except CliException as exc:
-        raise click.ClickException(str(exc))
+        model, ckpt_obj = load_pth_model(str(ckpt_path), device=dev, stems=len(STEMS_4))
+    except TypeError:
+        model, ckpt_obj = load_pth_model(str(ckpt_path), device=dev, stems=list(STEMS_4))
 
-    base_out_dir = Path(output_dir).expanduser().resolve()
-    base_out_dir.mkdir(parents=True, exist_ok=True)
+    base_cfg_raw = config_from_checkpoint(ckpt_obj)
 
-    #########################
-    # Change by Ryan:
-    # Reason:
-    # Always use a timestamped output run folder and log the exact command.
-    run_dir = _make_run_dir(base_out_dir)
-    _write_command_file(run_dir)
-    #########################
+    sample_rate = int(_get_attr_or_key(base_cfg_raw, "sample_rate", 44100))
+    n_fft = int(_get_attr_or_key(base_cfg_raw, "n_fft", 4096))
+    hop_length = int(_get_attr_or_key(base_cfg_raw, "hop_length", 1024))
+    win_length = int(_get_attr_or_key(base_cfg_raw, "win_length", n_fft))
+    window = str(_get_attr_or_key(base_cfg_raw, "window", "hann"))
+    center = bool(_get_attr_or_key(base_cfg_raw, "center", True))
+    waveform_norm = str(_get_attr_or_key(base_cfg_raw, "waveform_norm", "peak"))
+    spectrogram_norm = str(_get_attr_or_key(base_cfg_raw, "spectrogram_norm", "minmax"))
+    eps = float(_get_attr_or_key(base_cfg_raw, "eps", 1e-8))
+    validate_outputs = bool(_get_attr_or_key(base_cfg_raw, "validate_outputs", False))
 
-    ckpt_path = Path(checkpoint).expanduser().resolve()
-    in_path = Path(input_file).expanduser().resolve()
+    try:
+        cfg = InferenceConfig(
+            sample_rate=sample_rate,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            win_length=win_length,
+            window=window,
+            center=center,
+            waveform_norm=waveform_norm,
+            spectrogram_norm=spectrogram_norm,
+            eps=eps,
+            device=dev,
+            stems=list(STEMS_4),
+            export_files=True,
+            renorm_masks=True,
+            validate_outputs=validate_outputs,
+        )
+    except TypeError as e:
+        raise click.ClickException(f"InferenceConfig constructor mismatch. Error: {e}")
 
-    logger.info(
-        "CLI separate: input=%s checkpoint=%s base_output_dir=%s run_dir=%s device=%s",
-        str(in_path),
-        str(ckpt_path),
-        str(base_out_dir),
-        str(run_dir),
-        dev,
-    )
+    try:
+        separate_audio_file(
+            audio_path=in_path,
+            model=model,
+            cfg=cfg,
+            output_dir=out_dir,
+            export_files=True,
+            stems=list(STEMS_4),
+            checkpoint=ckpt_obj,
+        )
+    except TypeError:
+        separate_audio_file(
+            audio_path=in_path,
+            model=model,
+            cfg=cfg,
+            output_dir=out_dir,
+            export_files=True,
+            stems=list(STEMS_4),
+        )
 
-    console.print(f"[bold green]Run directory[/bold green] {run_dir}")
-    console.print(f"[bold green]Loading model[/bold green] from {ckpt_path}")
-
-    model, ckpt = load_pth_model(str(ckpt_path), device=dev, stems=len(STEMS_4))
-    cfg = config_from_checkpoint(ckpt)
-
-    cfg.device = dev
-    cfg.export_files = True
-    cfg.renorm_masks = True
-    cfg.stems = list(STEMS_4)
-
-    outputs = separate_audio_file(
-        audio_path=in_path,
-        model=model,
-        cfg=cfg,
-        output_dir=run_dir,
-        export_files=True,
-        stems=list(STEMS_4),
-        checkpoint=ckpt,
-    )
-
-    console.print("[bold green]Exported stems:[/bold green]")
-    for name in STEMS_4:
-        console.print(f"  {name}: {outputs.stem_paths.get(name)}")
+    console.print("\nDone.", style=BOLD_GREEN)
 
 
 if __name__ == "__main__":
-    cli()
+    separate()
 
