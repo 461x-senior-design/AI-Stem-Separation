@@ -1,131 +1,159 @@
+# src/stemmy/training/stft.py
+"""STFT helpers for training.
+
+This module defines:
+- StftConfig: a small configuration object used across training code.
+- stft_mag_phase_mono: compute mono STFT magnitude and phase using torch.stft.
+- freq_minmax_normalize: per-frequency min/max normalization used for model inputs.
+
+The key requirement is that STFT framing is consistent across the project.
+In particular, the `center` setting must match stemmy.constants.STFT_CENTER.
+"""
+
+from dataclasses import dataclass
+from typing import Optional
+
 import torch
+
+from stemmy.constants import HOP_LENGTH, N_FFT, STFT_CENTER, TARGET_SAMPLE_RATE, WIN_LENGTH, WINDOW
+
+
+@dataclass(frozen=True)
+class StftConfig:
+    """Configuration for computing STFTs in training.
+
+    Attributes:
+        sample_rate: Sample rate in Hz (stored for completeness; not used by torch.stft)
+        n_fft: FFT size (window size in samples)
+        hop_length: Hop length in samples
+        win_length: Window length in samples
+        center: Whether to pad the signal so frames are centered
+        window: Window function name
+    """
+
+    sample_rate: int = TARGET_SAMPLE_RATE
+    n_fft: int = N_FFT
+    hop_length: int = HOP_LENGTH
+    win_length: int = WIN_LENGTH
+    center: bool = STFT_CENTER
+    window: str = WINDOW
+
+    def validate(self) -> None:
+        """Validate configuration values."""
+        if not isinstance(self.sample_rate, int) or self.sample_rate <= 0:
+            raise ValueError("sample_rate must be > 0.")
+        if not isinstance(self.n_fft, int) or self.n_fft <= 0:
+            raise ValueError("n_fft must be > 0.")
+        if not isinstance(self.hop_length, int) or self.hop_length <= 0:
+            raise ValueError("hop_length must be > 0.")
+        if not isinstance(self.win_length, int) or self.win_length <= 0:
+            raise ValueError("win_length must be > 0.")
+        if self.win_length > self.n_fft:
+            raise ValueError("win_length must be <= n_fft.")
+
+        if not isinstance(self.window, str) or self.window.strip() == "":
+            raise ValueError("window must be a non-empty string.")
+
+        window = self.window.strip().lower()
+        expected = str(WINDOW).strip().lower()
+        if window != expected:
+            raise ValueError(
+                "window must match stemmy.constants.WINDOW (%s)." % (str(WINDOW),)
+            )
+
+        if window != "hann":
+            raise ValueError("Only WINDOW='hann' is supported in this training path.")
+
+
+def _build_window(cfg: StftConfig, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+    """Build a torch window tensor for torch.stft."""
+    window = cfg.window.strip().lower()
+    if window == "hann":
+        return torch.hann_window(cfg.win_length, device=device, dtype=dtype)
+    raise ValueError(f"Unsupported window type: {cfg.window}")
 
 
 def stft_mag_phase_mono(
-    wav_mono: torch.Tensor,
-    n_fft: int,
-    hop_length: int,
-    win_length: int,
+    waveform: torch.Tensor,
+    cfg: StftConfig,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    wav_mono: 1D tensor [N] float32
+    """Compute mono STFT magnitude and phase.
+
+    Args:
+        waveform: Mono waveform tensor with shape [N]
+        cfg: STFT configuration
+
     Returns:
-      mag:   [F, T] float32
-      phase: [F, T] float32 (angle)
-    Notes:
-      - center=False so that frame counts are deterministic:
-        T = 1 + (N - n_fft) // hop_length
+        Tuple of (magnitude, phase):
+            magnitude: [F, T] float32/float64
+            phase: [F, T] float32/float64 (radians)
     """
-    if wav_mono.ndim != 1:
-        raise ValueError("wav_mono must be a 1D tensor [N].")
+    if not isinstance(waveform, torch.Tensor):
+        raise ValueError("waveform must be a torch.Tensor.")
+    if waveform.ndim != 1:
+        raise ValueError("waveform must be 1D (mono) with shape [N].")
 
-    if wav_mono.dtype != torch.float32:
-        wav_mono = wav_mono.to(torch.float32)
+    cfg.validate()
 
-    if n_fft <= 0 or hop_length <= 0 or win_length <= 0:
-        raise ValueError("n_fft, hop_length, win_length must be positive integers.")
+    device = waveform.device
+    dtype = waveform.dtype
+    window = _build_window(cfg, device=device, dtype=dtype)
 
-    if win_length > n_fft:
-        raise ValueError("win_length must be <= n_fft.")
-
-    window = torch.hann_window(
-        win_length, periodic=True, dtype=torch.float32, device=wav_mono.device
-    )
-
-    spec = torch.stft(
-        wav_mono,
-        n_fft=n_fft,
-        hop_length=hop_length,
-        win_length=win_length,
+    stft_complex = torch.stft(
+        waveform,
+        n_fft=cfg.n_fft,
+        hop_length=cfg.hop_length,
+        win_length=cfg.win_length,
         window=window,
-        center=False,
+        center=bool(cfg.center),
         return_complex=True,
     )
-    mag = torch.abs(spec)
-    phase = torch.angle(spec)
-    return mag, phase
 
-
-def istft_from_mag_phase(
-    mag: torch.Tensor,
-    phase: torch.Tensor,
-    n_fft: int,
-    hop_length: int,
-    win_length: int,
-    length: int,
-) -> torch.Tensor:
-    """
-    mag, phase: [F, T]
-    Returns wav_mono: [length]
-    """
-    if mag.shape != phase.shape:
-        raise ValueError("mag and phase must have the same shape.")
-
-    if mag.dtype != torch.float32:
-        mag = mag.to(torch.float32)
-    if phase.dtype != torch.float32:
-        phase = phase.to(torch.float32)
-
-    window = torch.hann_window(win_length, periodic=True, dtype=torch.float32, device=mag.device)
-
-    spec = mag * torch.exp(1j * phase)
-
-    wav = torch.istft(
-        spec,
-        n_fft=n_fft,
-        hop_length=hop_length,
-        win_length=win_length,
-        window=window,
-        center=False,
-        length=length,
-    )
-    return wav
+    magnitude = torch.abs(stft_complex)
+    phase = torch.angle(stft_complex)
+    return magnitude, phase
 
 
 def freq_minmax_normalize(
-    mag: torch.Tensor,
-    eps: float = 1e-8,
+    magnitude: torch.Tensor,
+    eps: Optional[float] = 1e-8,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Normalize a magnitude spectrogram along the frequency axis to [0,1],
-    using per-frequency min/max across time.
+    """Per-frequency min/max normalization.
 
-    mag: [F, T]
+    This normalizes each frequency bin independently across time, mapping
+    values to [0, 1] based on per-bin min/max.
+
+    Args:
+        magnitude: STFT magnitude with shape [F, T]
+        eps: Small value to avoid division by zero. If None, uses torch.finfo(dtype).eps.
+
     Returns:
-      mag_norm: [F, T]
-      f_min: [F, 1]
-      f_max: [F, 1]
+        Tuple of (normalized, f_min, f_max):
+            normalized: [F, T]
+            f_min: [F, 1]
+            f_max: [F, 1]
     """
-    if mag.ndim != 2:
-        raise ValueError("mag must have shape [F, T].")
+    if not isinstance(magnitude, torch.Tensor):
+        raise ValueError("magnitude must be a torch.Tensor.")
+    if magnitude.ndim != 2:
+        raise ValueError("magnitude must have shape [F, T].")
+    if not torch.is_floating_point(magnitude):
+        raise ValueError("magnitude must be a floating-point tensor.")
 
-    f_min = torch.amin(mag, dim=1, keepdim=True)
-    f_max = torch.amax(mag, dim=1, keepdim=True)
-    denom = torch.clamp(f_max - f_min, min=eps)
-    mag_norm = (mag - f_min) / denom
-    mag_norm = torch.clamp(mag_norm, 0.0, 1.0)
-    return mag_norm, f_min, f_max
+    if eps is None:
+        eps_val = float(torch.finfo(magnitude.dtype).eps)
+    else:
+        try:
+            eps_val = float(eps)
+        except (TypeError, ValueError):
+            raise ValueError("eps must be a float or None.")
+        if eps_val <= 0.0:
+            raise ValueError("eps must be > 0.")
 
+    f_min = magnitude.min(dim=1, keepdim=True).values
+    f_max = magnitude.max(dim=1, keepdim=True).values
+    denom = torch.clamp(f_max - f_min, min=eps_val)
+    normalized = (magnitude - f_min) / denom
+    normalized = torch.clamp(normalized, 0.0, 1.0)
+    return normalized, f_min, f_max
 
-def freq_minmax_denormalize(
-    mag_norm: torch.Tensor,
-    f_min: torch.Tensor,
-    f_max: torch.Tensor,
-    eps: float = 1e-8,
-) -> torch.Tensor:
-    """
-    Inverse of freq_minmax_normalize.
-
-    mag_norm: [F, T]
-    f_min/f_max: [F, 1]
-    """
-    if mag_norm.ndim != 2:
-        raise ValueError("mag_norm must have shape [F, T].")
-    if f_min.ndim != 2 or f_max.ndim != 2:
-        raise ValueError("f_min and f_max must have shape [F, 1].")
-    if f_min.shape[0] != mag_norm.shape[0] or f_max.shape[0] != mag_norm.shape[0]:
-        raise ValueError("f_min/f_max must match mag_norm frequency dimension.")
-
-    denom = torch.clamp(f_max - f_min, min=eps)
-    mag = mag_norm * denom + f_min
-    return mag
