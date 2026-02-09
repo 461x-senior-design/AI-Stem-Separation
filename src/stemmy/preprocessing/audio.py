@@ -7,7 +7,13 @@ from typing import Union
 import librosa
 import numpy as np
 
-from .constants import TARGET_SAMPLE_RATE
+#########################
+# Change by Ryan:
+# Reason:
+# TARGET_SAMPLE_RATE is a shared project-wide default, so import it from the
+# centralized constants module (single source of truth).
+from stemmy.constants import TARGET_SAMPLE_RATE
+#########################
 
 
 def load_audio(
@@ -101,3 +107,4 @@ def normalize_waveform(waveform: np.ndarray, method: str = "peak") -> tuple[np.n
         return normalized, {"method": "rms", "scale_factor": rms}
 
     raise ValueError(f"Unkown normalization method: {method}")
+

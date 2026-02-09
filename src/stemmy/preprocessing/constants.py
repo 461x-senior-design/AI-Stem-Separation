@@ -2,16 +2,24 @@
 # Audio processing constants for preprocessing pipeline.
 # These values must match the model's training configuration.
 
-## Audio Format
-TARGET_SAMPLE_RATE: int = 44100  # Hz
-TARGET_CHANNELS: int = 2  # Stereo
+#########################
+# Change by Ryan:
+# Reason:
+# This module is not an authoritative "global constants" file.
+# Re-export shared defaults from stemmy.constants so preprocessing modules
+# stay aligned with training/inference while keeping a single source of truth.
+# What it does:
+# Re-exports the shared constants so existing preprocessing imports keep working
+# without duplicating or drifting from stemmy.constants.
+from stemmy.constants import (  # noqa: F401
+    HOP_LENGTH,
+    N_FFT,
+    N_FREQ_BINS,
+    STFT_CENTER,
+    TARGET_CHANNELS,
+    TARGET_SAMPLE_RATE,
+    WIN_LENGTH,
+    WINDOW,
+)
+#########################
 
-## STFT Parameters
-N_FFT: int = 4096  # FFT window size (samples)
-HOP_LENGTH: int = 1024  # Samples between STFT frames
-WIN_LENGTH: int = N_FFT  # Window length (same as N_FFT)
-WINDOW: str = "hann"  # Window function type
-
-# Derived Constants
-
-N_FREQ_BINS: int = N_FFT // 2 + 1  # = 2049 frequency bins

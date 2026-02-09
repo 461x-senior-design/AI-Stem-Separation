@@ -26,6 +26,16 @@ class SeparationResult:
     instrumentals_path: Optional[Path]
     vocals_waveform: Optional[np.ndarray]
     instrumentals_waveform: Optional[np.ndarray]
+
+    #########################
+    # Change by Ryan:
+    # Reason:
+    # Support N-stem models while preserving legacy 2-stem fields above; adds mapping fields
+    # (stem_paths/stem_waveforms) required by the canonical separation contract.
+    stem_paths: dict[str, Optional[Path]]
+    stem_waveforms: dict[str, np.ndarray]
+    #########################
+
     sample_rate: int
 
 
@@ -49,6 +59,13 @@ class Postprocessor:
         output_dir: Union[str, Path],
         stem_name: str,
         export_files: bool = True,
+        #########################
+        # Change by Ryan:
+        # Reason:
+        # Accept ordered stem names so model_output channel mapping is explicit and we can reconstruct
+        # an arbitrary number of stems [1, S, F, T] into a stable mapping {stem -> waveform/path}.
+        stems: Optional[list[str]] = None,
+        #########################
     ) -> SeparationResult:
         """
         Run full postprocessing pipeline.
@@ -67,14 +84,116 @@ class Postprocessor:
         """
         output_dir = Path(output_dir)
 
-        # Recover original magnitude from normalized tensor
-        normalized_magnitude = input_tensor.squeeze(0).numpy()  # [2, F, T]
-        original_magnitude = denormalize_spectrogram(
-            normalized_magnitude, metadata.spectrogram_norm_params
-        )
+        #########################
+        # Change by Ryan:
+        # Reason:
+        # Ensure consistent export behavior even when Postprocessor is called directly; creates output_dir
+        # when export_files is enabled so export_audio() never fails due to a missing directory.
+        if export_files:
+            output_dir.mkdir(parents=True, exist_ok=True)
+        #########################
+
+        #########################
+        # Change by Ryan:
+        # Reason:
+        # Prefer stereo mixture magnitude preserved during preprocessing when available; the unified pipeline
+        # feeds mono magnitude to the model so input_tensor can be mono and may not contain stereo magnitude.
+        if hasattr(metadata, "mix_magnitude"):
+            original_magnitude = getattr(metadata, "mix_magnitude")
+        else:
+            normalized_magnitude = input_tensor.squeeze(0).detach().cpu().numpy()
+            original_magnitude = denormalize_spectrogram(
+                normalized_magnitude, metadata.spectrogram_norm_params
+            )
+
+            # If the model input tensor is mono [1, F, T], broadcast to stereo [2, F, T]
+            if original_magnitude.ndim == 3 and original_magnitude.shape[0] == 1:
+                original_magnitude = np.concatenate([original_magnitude, original_magnitude], axis=0)
+            elif original_magnitude.ndim == 2:
+                original_magnitude = np.stack([original_magnitude, original_magnitude])
+        #########################
+
+        #########################
+        # Change by Ryan:
+        # Reason:
+        # If stems are provided, treat model_output as [1, S, F, T] and reconstruct each stem into the
+        # canonical mapping fields; otherwise, preserve the original 2-stem behavior for compatibility.
+        if stems is not None:
+            stem_list = [str(s) for s in stems]
+            if len(stem_list) == 0:
+                raise ValueError("stems cannot be empty.")
+
+            masks = model_output.squeeze(0).detach().cpu().numpy()  # [S, F, T]
+            if masks.ndim != 3:
+                raise ValueError("model_output must have shape [1, S, F, T].")
+            if masks.shape[0] != len(stem_list):
+                raise ValueError(
+                    "Mask channel count (%d) does not match stems (%d)."
+                    % (int(masks.shape[0]), int(len(stem_list)))
+                )
+
+            stem_paths: dict[str, Optional[Path]] = {}
+            stem_waveforms: dict[str, np.ndarray] = {}
+
+            for stem_idx, stem in enumerate(stem_list):
+                stem_mask = masks[stem_idx]  # [F, T]
+                stereo_mask = np.stack([stem_mask, stem_mask])  # [2, F, T]
+                waveform = self._reconstruct_stem(stereo_mask, original_magnitude, metadata)
+
+                if waveform.ndim == 2 and waveform.shape[0] != 2 and waveform.shape[1] == 2:
+                    waveform = waveform.T
+                if waveform.ndim != 2 or waveform.shape[0] != 2:
+                    raise ValueError(
+                        "Reconstructed waveform has wrong shape %s, expected [2, N]."
+                        % (str(waveform.shape),)
+                    )
+
+                stem_waveforms[stem] = waveform
+
+                if export_files:
+                    stem_paths[stem] = export_audio(
+                        waveform,
+                        output_dir / f"{stem_name}_{stem}.wav",
+                        metadata.processed_sr,
+                    )
+                else:
+                    stem_paths[stem] = None
+
+            #########################
+            # Change by Ryan:
+            # Reason:
+            # Canonical contract: when export_files is False, stem_paths must be empty (not a mapping of
+            # stem -> None). Some downstream validation expects this invariant.
+            if not export_files:
+                stem_paths = {}
+            #########################
+
+            vocals_path = None
+            instrumentals_path = None
+            vocals_waveform = None
+            instrumentals_waveform = None
+
+            if "vocals" in stem_waveforms:
+                vocals_waveform = stem_waveforms["vocals"]
+                vocals_path = stem_paths.get("vocals", None)
+
+            if "instrumentals" in stem_waveforms:
+                instrumentals_waveform = stem_waveforms["instrumentals"]
+                instrumentals_path = stem_paths.get("instrumentals", None)
+
+            return SeparationResult(
+                vocals_path=vocals_path,
+                instrumentals_path=instrumentals_path,
+                vocals_waveform=vocals_waveform,
+                instrumentals_waveform=instrumentals_waveform,
+                stem_paths=stem_paths,
+                stem_waveforms=stem_waveforms,
+                sample_rate=metadata.processed_sr,
+            )
+        #########################
 
         # Extract masks from model output [1, 2, F, T] -> [F, T] each
-        masks = model_output.squeeze(0).numpy()  # [2, F, T]
+        masks = model_output.squeeze(0).detach().cpu().numpy()  # [2, F, T]
         vocals_mask = masks[0]  # [F, T]
         instrumentals_mask = masks[1]  # [F, T]
 
@@ -104,11 +223,35 @@ class Postprocessor:
                 metadata.processed_sr,
             )
 
+        #########################
+        # Change by Ryan:
+        # Reason:
+        # Populate canonical mapping fields in the legacy 2-stem mode so downstream callers can rely
+        # on stem_paths/stem_waveforms consistently even when stems=None.
+        #
+        # Canonical contract: when export_files is False, stem_paths must be empty (not a mapping of
+        # stem -> None). Downstream validation expects this invariant.
+        if export_files:
+            stem_paths = {
+                "vocals": vocals_path,
+                "instrumentals": instrumentals_path,
+            }
+        else:
+            stem_paths = {}
+
+        stem_waveforms = {
+            "vocals": vocals_waveform,
+            "instrumentals": instrumentals_waveform,
+        }
+        #########################
+
         return SeparationResult(
             vocals_path=vocals_path,
             instrumentals_path=instrumentals_path,
             vocals_waveform=vocals_waveform,
             instrumentals_waveform=instrumentals_waveform,
+            stem_paths=stem_paths,
+            stem_waveforms=stem_waveforms,
             sample_rate=metadata.processed_sr,
         )
 
@@ -132,15 +275,27 @@ class Postprocessor:
         # Recombine with phase
         stft_complex = combine_magnitude_phase(masked_magnitude, metadata.phase)
 
+        #########################
+        # Change by Ryan:
+        # Reason:
+        # Use forward-STFT framing settings for iSTFT when available; reads win_length/center from
+        # metadata (fallbacks preserve legacy behavior) and passes them to compute_istft so reconstruction
+        # matches the canonical framing contract.
+        win_length = getattr(metadata, "win_length", metadata.n_fft)
+        center = getattr(metadata, "center", False)
+        #########################
+
         # ISTFT to get waveform
         waveform = compute_istft(
             stft_complex,
             hop_length=metadata.hop_length,
-            win_length=metadata.n_fft,
+            win_length=win_length,
             length=metadata.processed_length,
+            center=center,
         )
 
         # Denormalize waveform
         waveform = denormalize_waveform(waveform, metadata.waveform_norm_params)
 
         return waveform
+
