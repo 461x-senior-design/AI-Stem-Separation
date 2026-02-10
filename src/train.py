@@ -105,16 +105,36 @@ def l1_loss(pred, target):
 
 
 def _try_compile_model(model):
-    """Attempt torch.compile(); returns original model on failure."""
+    """Attempt torch.compile(); returns original model on failure.
+
+    torch.compile() is lazy — it defers actual compilation to the first forward
+    pass. If the Triton backend is missing (common on Windows), the error only
+    surfaces mid-training. We detect this upfront by checking for Triton.
+    """
+    import sys
+
     if not hasattr(torch, "compile"):
-        logger.info("torch.compile not available; skipping.")
+        logger.info("torch.compile not available (PyTorch < 2.0); skipping.")
         return model
+
+    # torch.compile with the inductor backend requires Triton on CUDA.
+    # On Windows, Triton is typically unavailable.
+    if sys.platform == "win32":
+        try:
+            import triton  # noqa: F401
+        except ImportError:
+            logger.info(
+                "torch.compile skipped: Triton is not installed (required on Windows/CUDA). "
+                "Install triton or use --no-compile."
+            )
+            return model
+
     try:
         compiled = torch.compile(model)
         logger.info("Model compiled with torch.compile().")
         return compiled
     except Exception as e:
-        logger.warning("torch.compile() failed: %s", e)
+        logger.warning("torch.compile() failed, using eager mode: %s", e)
         return model
 
 
@@ -142,7 +162,7 @@ def train(args):
 
     if device.type == "cuda":
         gpu_name = torch.cuda.get_device_name(device)
-        gpu_mem = torch.cuda.get_device_properties(device).total_mem / (1024**3)
+        gpu_mem = torch.cuda.get_device_properties(device).total_memory / (1024**3)
         logger.info("GPU: %s (%.1f GB)", gpu_name, gpu_mem)
 
     stft_cfg = StftConfig(sample_rate=44100, n_fft=4096, hop_length=1024, win_length=4096)

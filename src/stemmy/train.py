@@ -469,10 +469,28 @@ def _try_compile_model(model: torch.nn.Module) -> torch.nn.Module:
 
     Returns the compiled model on success, or the original model if compilation
     is not available or fails (e.g., on Windows or older PyTorch).
+
+    torch.compile() is lazy — it defers actual compilation to the first forward
+    pass. If the Triton backend is missing (common on Windows), the error only
+    surfaces mid-training. We detect this upfront by checking for Triton.
     """
+    import sys
+
     if not hasattr(torch, "compile"):
         logger.info("torch.compile not available (PyTorch < 2.0); skipping compilation.")
         return model
+
+    # torch.compile with the inductor backend requires Triton on CUDA.
+    # On Windows, Triton is typically unavailable.
+    if sys.platform == "win32":
+        try:
+            import triton  # noqa: F401
+        except ImportError:
+            logger.info(
+                "torch.compile skipped: Triton is not installed (required on Windows/CUDA). "
+                "Install triton or use --no-compile."
+            )
+            return model
 
     try:
         compiled = torch.compile(model)
@@ -501,7 +519,7 @@ def main() -> None:
 
     if device.type == "cuda":
         gpu_name = torch.cuda.get_device_name(device)
-        gpu_mem = torch.cuda.get_device_properties(device).total_mem / (1024**3)
+        gpu_mem = torch.cuda.get_device_properties(device).total_memory / (1024**3)
         logger.info("GPU: %s (%.1f GB)", gpu_name, gpu_mem)
 
     # Determine AMP usage: enabled by default on CUDA, disabled on CPU

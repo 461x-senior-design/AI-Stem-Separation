@@ -550,11 +550,23 @@ def _try_compile_model(model: torch.nn.Module) -> torch.nn.Module:
     """Attempt to compile the model with torch.compile() for faster inference.
 
     Returns the compiled model on success, or the original model if compilation
-    is not available or fails.
+    is not available or fails. Checks for Triton upfront on Windows since
+    torch.compile() is lazy and would otherwise crash mid-inference.
     """
+    import sys
+
     if not hasattr(torch, "compile"):
         logger.debug("torch.compile not available; skipping inference compilation.")
         return model
+
+    if sys.platform == "win32":
+        try:
+            import triton  # noqa: F401
+        except ImportError:
+            logger.debug(
+                "torch.compile skipped: Triton not installed (Windows)."
+            )
+            return model
 
     try:
         compiled = torch.compile(model)
