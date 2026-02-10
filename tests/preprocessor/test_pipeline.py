@@ -26,7 +26,7 @@ def test_preprocessor_output_types(test_audio_path):
 
 
 def test_preprocessor_tensor_shape(test_audio_path):
-    """Test that output tensor has correct shape [1, 2, F, T]."""
+    """Test that output tensor has correct shape [1, 1, F, T] (mono)."""
     # Arrange
     prep = Preprocessor()
 
@@ -36,7 +36,7 @@ def test_preprocessor_tensor_shape(test_audio_path):
     # Assert
     assert tensor.ndim == 4
     assert tensor.shape[0] == 1  # batch
-    assert tensor.shape[1] == 2  # stereo channels
+    assert tensor.shape[1] == 1  # mono channel (stereo converted to mono)
     assert tensor.shape[2] == 2049  # frequency bins (n_fft // 2 + 1)
     assert tensor.shape[3] > 0  # time frames
 
@@ -69,7 +69,7 @@ def test_preprocessor_metadata_has_phase(test_audio_path):
 
 
 def test_preprocessor_metadata_has_norm_params(test_audio_path):
-    """Test that metadata contains normalization parameters."""
+    """Test that metadata contains normalization parameters (freq_minmax method)."""
     # Arrange
     prep = Preprocessor()
 
@@ -78,8 +78,8 @@ def test_preprocessor_metadata_has_norm_params(test_audio_path):
 
     # Assert
     assert "scale_factor" in metadata.waveform_norm_params
-    assert "min" in metadata.spectrogram_norm_params
-    assert "max" in metadata.spectrogram_norm_params
+    assert "f_min" in metadata.spectrogram_norm_params
+    assert "f_max" in metadata.spectrogram_norm_params
 
 
 def test_preprocessor_normalized_range(test_audio_path):
