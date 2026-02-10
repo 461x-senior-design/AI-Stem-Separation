@@ -1,4 +1,4 @@
-# postprocessing/spectral.py
+# src/stemmy/postprocessing/spectral.py
 # Frequency domain operations including
 # - Mask application
 # - Spectogram denormalizaiton
@@ -13,6 +13,7 @@ import numpy as np
 # preprocessing/training/inference/postprocessing; importing STFT_CENTER here keeps iSTFT
 # center behavior aligned with the shared project-wide setting.
 from stemmy.constants import STFT_CENTER
+
 #########################
 
 
@@ -88,8 +89,9 @@ def compute_istft(
     #########################
     # Change by Ryan:
     # Reason:
-    # The canonical separation contract requires iSTFT framing to match the forward STFT framing;
-    # exposing center here (defaulting from shared constants) keeps reconstruction aligned end-to-end.
+    # The canonical separation contract requires iSTFT framing to match the forward STFT framing.
+    # Exposing center here (defaulting from shared constants) keeps reconstruction aligned
+    # end-to-end.
     center: bool = STFT_CENTER,
     #########################
 ) -> np.ndarray:
@@ -141,4 +143,3 @@ def compute_istft(
     #########################
 
     return np.stack([left, right])
-

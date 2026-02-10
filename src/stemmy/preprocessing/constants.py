@@ -22,4 +22,3 @@ from stemmy.constants import (  # noqa: F401
     WINDOW,
 )
 #########################
-

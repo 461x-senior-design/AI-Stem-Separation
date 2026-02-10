@@ -1,4 +1,4 @@
-# pipeline.py
+# src/stemmy/preprocessing/pipeline.py
 # Orchestrator for the preprocessing modules.
 
 from dataclasses import dataclass
@@ -24,7 +24,6 @@ from stemmy.constants import (
 )
 
 #########################
-
 from .audio import ensure_stereo, load_audio, normalize_waveform
 from .spectral import compute_stft, normalize_spectrogram, split_magnitude_phase
 from .utility.audio_file_validator import AudioFileValidator, AudioValidationException
@@ -153,7 +152,8 @@ class Preprocessor:
         #########################
         # Change by Ryan:
         # Reason:
-        # Preserve stereo mixture magnitude for reconstruction, but feed mono magnitude into the model.
+        # Preserve stereo mixture magnitude for reconstruction, but feed mono magnitude into the
+        # model.
         mix_magnitude = magnitude
         if mix_magnitude.ndim == 3 and mix_magnitude.shape[0] == 2:
             mono_magnitude = mix_magnitude.mean(axis=0)
@@ -210,4 +210,3 @@ class Preprocessor:
         )
 
         return tensor, metadata
-

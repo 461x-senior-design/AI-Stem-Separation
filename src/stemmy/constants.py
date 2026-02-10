@@ -27,4 +27,3 @@ DEFAULT_SPECTROGRAM_NORM: str = "freq_minmax"
 
 # Default stem ordering
 STEMS_4: list[str] = ["drums", "bass", "vocals", "other"]
-

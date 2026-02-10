@@ -269,4 +269,3 @@ class UNet2D(nn.Module):
         out = self.out_act(self.out_conv(d1))
         out = unpad(out, pad)
         return out
-

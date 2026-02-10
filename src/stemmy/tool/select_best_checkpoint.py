@@ -377,11 +377,7 @@ def print_top(scores: list[RowScore], top_k: int) -> None:
         corr_s = "" if row.corr is None else f"{row.corr:.6f}"
         ckpt_s = "" if row.ckpt_path is None else str(row.ckpt_path)
         print(
-            f"{i},{row.epoch},{row.score:.6f},"
-            f"{recon_snr_s},"
-            f"{corr_s},"
-            f"\"{row.sisdr_values}\","
-            f"{ckpt_s}"
+            f'{i},{row.epoch},{row.score:.6f},{recon_snr_s},{corr_s},"{row.sisdr_values}",{ckpt_s}'
         )
 
 
@@ -428,7 +424,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--metric",
         type=str,
         default="mean_sisdr",
-        help="Ranking metric: mean_sisdr | vocals_sisdr | recon_snr | corr | weighted | sisdr_index_N",
+        help=(
+            "Ranking metric: mean_sisdr | vocals_sisdr | recon_snr | corr | weighted "
+            "| sisdr_index_N"
+        ),
     )
     parser.add_argument(
         "--top-k",
@@ -497,4 +496,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

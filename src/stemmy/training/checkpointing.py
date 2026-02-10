@@ -261,7 +261,9 @@ def export_torchscript(
         first_param = next(model.parameters())
         original_device = first_param.device
     except StopIteration as e:
-        raise CheckpointFormatException("Model has no parameters; cannot export TorchScript.") from e
+        raise CheckpointFormatException(
+            "Model has no parameters; cannot export TorchScript."
+        ) from e
 
     model_cpu = model.to("cpu").eval()
     scripted = torch.jit.script(model_cpu)
@@ -271,4 +273,3 @@ def export_torchscript(
     model.train(was_training)
 
     logger.info("Exported TorchScript model: %s", str(p))
-

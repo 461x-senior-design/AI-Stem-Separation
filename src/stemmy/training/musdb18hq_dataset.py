@@ -15,12 +15,16 @@ Returned tensors:
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, Optional
 
 import soundfile as sf
 import torch
 
-from stemmy.constants import DEFAULT_SPECTROGRAM_NORM, DEFAULT_WAVEFORM_NORM, STEMS_4, TARGET_SAMPLE_RATE
+from stemmy.constants import (
+    DEFAULT_SPECTROGRAM_NORM,
+    DEFAULT_WAVEFORM_NORM,
+    STEMS_4,
+)
 from stemmy.preprocessing import normalize_waveform
 from stemmy.training.stft import StftConfig, freq_minmax_normalize, stft_mag_phase_mono
 
@@ -194,7 +198,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         expected_sr = int(self.stft_cfg.sample_rate)
         if int(info.samplerate) != expected_sr:
             raise ValueError(
-                f"Sample rate mismatch for {wav_path}: got {info.samplerate}, expected {expected_sr}"
+                f"Sample rate mismatch for {wav_path}: got {info.samplerate}, expected "
+                f"{expected_sr}"
             )
 
         audio, sr = sf.read(
@@ -280,7 +285,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         mix_mag, _mix_phase = stft_mag_phase_mono(mix_wav, self.stft_cfg)
         if int(mix_mag.shape[1]) != int(self.crop_cfg.time_frames):
             raise RuntimeError(
-                f"Unexpected time frames: got {mix_mag.shape[1]}, expected {self.crop_cfg.time_frames}"
+                f"Unexpected time frames: got {mix_mag.shape[1]}, expected "
+                f"{self.crop_cfg.time_frames}"
             )
 
         eps_mag = self._dtype_eps(mix_mag)
@@ -313,4 +319,3 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         targets_norm = targets_norm / (targets_norm.sum(dim=0, keepdim=True) + eps_targets)
 
         return mix_norm, targets_norm
-

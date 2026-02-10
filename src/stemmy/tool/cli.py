@@ -203,4 +203,3 @@ def separate(input_file: str, output_dir: str, checkpoint: str, device: str) -> 
 
 if __name__ == "__main__":
     separate()
-

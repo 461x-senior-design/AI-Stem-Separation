@@ -222,8 +222,7 @@ def main() -> int:
 
         if gt_sr != pr_sr:
             raise SystemExit(
-                f"Sample-rate mismatch for {stem}: gt={gt_sr} pred={pr_sr} "
-                f"(pred file: {pr_path})"
+                f"Sample-rate mismatch for {stem}: gt={gt_sr} pred={pr_sr} (pred file: {pr_path})"
             )
 
         if sr_ref is None:
@@ -269,4 +268,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -22,7 +22,6 @@ import math
 import os
 from dataclasses import replace
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import soundfile as sf
@@ -64,7 +63,9 @@ def _get_env_int(name: str, default: int) -> int:
     try:
         return int(raw)
     except ValueError as exc:
-        raise EvaluationException("Environment variable %s must be an int, got: %s" % (name, raw)) from exc
+        raise EvaluationException(
+            "Environment variable %s must be an int, got: %s" % (name, raw)
+        ) from exc
 
 
 def _validate_device(device: str) -> str:
@@ -78,7 +79,9 @@ def _validate_device(device: str) -> str:
 
     if dev == "cuda" or dev.startswith("cuda:"):
         if not torch.cuda.is_available():
-            raise EvaluationException("Requested CUDA device but torch.cuda.is_available() is False.")
+            raise EvaluationException(
+                "Requested CUDA device but torch.cuda.is_available() is False."
+            )
         return dev
 
     raise EvaluationException("Invalid DEVICE. Use cpu, cuda, or cuda:N (example: cuda:0).")
@@ -114,7 +117,9 @@ def _read_slice(path: Path, max_samples: int) -> tuple[np.ndarray, int]:
     """Read audio as float32 stereo (N, 2) and optionally truncate to max_samples."""
     x, sr = sf.read(str(path), always_2d=True, dtype="float32")
     if x.ndim != 2 or x.shape[1] != 2:
-        raise EvaluationException("Expected stereo audio with shape (N,2), got: %s" % (str(x.shape),))
+        raise EvaluationException(
+            "Expected stereo audio with shape (N,2), got: %s" % (str(x.shape),)
+        )
     if max_samples > 0 and x.shape[0] > max_samples:
         x = x[:max_samples, :]
     return x, int(sr)
@@ -133,7 +138,9 @@ def _si_sdr(est: np.ndarray, ref: np.ndarray, eps: float = 1e-12) -> float:
     ref_f = ref.astype(np.float64, copy=False)
 
     if est_f.shape != ref_f.shape:
-        raise EvaluationException("Shape mismatch est=%s ref=%s" % (str(est_f.shape), str(ref_f.shape)))
+        raise EvaluationException(
+            "Shape mismatch est=%s ref=%s" % (str(est_f.shape), str(ref_f.shape))
+        )
     if est_f.ndim != 2 or est_f.shape[1] != 2:
         raise EvaluationException("Expected stereo shape (N,2), got: %s" % (str(est_f.shape),))
 
@@ -177,7 +184,9 @@ def _recon_snr_db(mix: np.ndarray, stems_sum: np.ndarray, eps: float = 1e-12) ->
 def _corr(a: np.ndarray, b: np.ndarray, eps: float = 1e-12) -> float:
     """Compute a simple normalized correlation between two stereo signals."""
     if a.shape != b.shape:
-        raise EvaluationException("Shape mismatch for correlation: a=%s b=%s" % (str(a.shape), str(b.shape)))
+        raise EvaluationException(
+            "Shape mismatch for correlation: a=%s b=%s" % (str(a.shape), str(b.shape))
+        )
 
     a_f = a.reshape(-1).astype(np.float64, copy=False)
     b_f = b.reshape(-1).astype(np.float64, copy=False)
@@ -215,7 +224,9 @@ def _ckpt_sort_key(p: Path) -> tuple[int, int, str]:
     return unknown, epoch_val, p.name
 
 
-def _truncate_outputs_to_mix_len(pred: dict[str, np.ndarray], mix_len: int) -> dict[str, np.ndarray]:
+def _truncate_outputs_to_mix_len(
+    pred: dict[str, np.ndarray], mix_len: int
+) -> dict[str, np.ndarray]:
     """Trim or pad predicted stems to match the mixture length (N)."""
     if mix_len < 0:
         raise EvaluationException("mix_len must be >= 0, got %d" % int(mix_len))
@@ -227,7 +238,9 @@ def _truncate_outputs_to_mix_len(pred: dict[str, np.ndarray], mix_len: int) -> d
 
         x = pred[stem]
         if x.ndim != 2 or x.shape[1] != 2:
-            raise EvaluationException("Expected pred stem %s to have shape (N,2), got %s" % (stem, str(x.shape)))
+            raise EvaluationException(
+                "Expected pred stem %s to have shape (N,2), got %s" % (stem, str(x.shape))
+            )
 
         if x.shape[0] > mix_len:
             out[stem] = x[:mix_len, :]
@@ -454,4 +467,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -57,9 +57,7 @@ class StftConfig:
         window = self.window.strip().lower()
         expected = str(WINDOW).strip().lower()
         if window != expected:
-            raise ValueError(
-                "window must match stemmy.constants.WINDOW (%s)." % (str(WINDOW),)
-            )
+            raise ValueError("window must match stemmy.constants.WINDOW (%s)." % (str(WINDOW),))
 
         if window != "hann":
             raise ValueError("Only WINDOW='hann' is supported in this training path.")
@@ -156,4 +154,3 @@ def freq_minmax_normalize(
     normalized = (magnitude - f_min) / denom
     normalized = torch.clamp(normalized, 0.0, 1.0)
     return normalized, f_min, f_max
-

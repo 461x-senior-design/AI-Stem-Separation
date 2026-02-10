@@ -6,7 +6,8 @@ and writes separated stems to OUT_DIR.
 
 Environment variables:
   - TRACK_DIR: Required. MUSDB track directory containing mixture.wav
-  - CKPT: Optional. Path to a .pth checkpoint. If unset, uses runs/best_ckpt/unet_phase1_best.pth if present.
+  - CKPT: Optional. Path to a .pth checkpoint. If unset, uses
+    runs/best_ckpt/unet_phase1_best.pth if present.
   - OUT_DIR: Optional. Output directory for separated stems (default: runs/separated_demo)
   - MAX_SECONDS: Optional. If > 0, truncate mixture to this duration in seconds (default: 60)
 """
@@ -127,7 +128,9 @@ class SeparateOneTrack:
     def _finalize_output_files(self, outputs) -> None:
         """Rename exported stem files to OUT_DIR/{stem}.wav for compatibility with other tools."""
         if not hasattr(outputs, "stem_paths"):
-            raise SeparationException("separate_audio_file() did not return an object with stem_paths.")
+            raise SeparationException(
+                "separate_audio_file() did not return an object with stem_paths."
+            )
         if not hasattr(outputs, "stem_waveforms"):
             raise SeparationException(
                 "separate_audio_file() did not return an object with stem_waveforms."
@@ -141,13 +144,17 @@ class SeparateOneTrack:
                 src_path = Path(src_path)
 
             if not src_path.is_file():
-                raise SeparationException("Expected exported stem file not found: %s" % str(src_path))
+                raise SeparationException(
+                    "Expected exported stem file not found: %s" % str(src_path)
+                )
 
             dst_path = self.out_dir / f"{stem}.wav"
 
             if dst_path.exists():
                 if not dst_path.is_file():
-                    raise SeparationException("Output path exists and is not a file: %s" % str(dst_path))
+                    raise SeparationException(
+                        "Output path exists and is not a file: %s" % str(dst_path)
+                    )
                 dst_path.unlink()
 
             src_path.replace(dst_path)
@@ -164,7 +171,9 @@ class SeparateOneTrack:
             peak = float(np.max(np.abs(x)))
             print(f"{name:6s} rms={rms:.6f} peak={peak:.6f}")
 
-    def _print_inner_peaks(self, pred_np: dict[str, np.ndarray], mix: np.ndarray, edge: int) -> None:
+    def _print_inner_peaks(
+        self, pred_np: dict[str, np.ndarray], mix: np.ndarray, edge: int
+    ) -> None:
         """Print inner peak (excluding window edges) for each stem, and mixture levels."""
         if edge < 0:
             raise SeparationException("edge must be >= 0, got %d" % int(edge))
@@ -172,7 +181,9 @@ class SeparateOneTrack:
         if mix.shape[0] > 2 * edge and edge > 0:
             for name in STEM_NAMES:
                 if name not in pred_np:
-                    raise SeparationException("Missing predicted stem for inner-peak print: %s" % name)
+                    raise SeparationException(
+                        "Missing predicted stem for inner-peak print: %s" % name
+                    )
 
                 x = pred_np[name]
                 inner = x[edge:-edge, :]
@@ -253,7 +264,9 @@ class SeparateOneTrack:
             )
 
         if mix.ndim != 2:
-            raise SeparationException("Expected mixture to be 2D (N,C), got shape %s" % (str(mix.shape),))
+            raise SeparationException(
+                "Expected mixture to be 2D (N,C), got shape %s" % (str(mix.shape),)
+            )
 
         if mix.shape[1] != 2:
             raise SeparationException(
@@ -329,4 +342,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

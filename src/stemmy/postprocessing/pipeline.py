@@ -62,8 +62,9 @@ class Postprocessor:
         #########################
         # Change by Ryan:
         # Reason:
-        # Accept ordered stem names so model_output channel mapping is explicit and we can reconstruct
-        # an arbitrary number of stems [1, S, F, T] into a stable mapping {stem -> waveform/path}.
+        # Accept ordered stem names so model_output channel mapping is explicit.
+        # This reconstructs an arbitrary number of stems [1, S, F, T] into a stable mapping
+        # {stem -> waveform/path}.
         stems: Optional[list[str]] = None,
         #########################
     ) -> SeparationResult:
@@ -87,8 +88,9 @@ class Postprocessor:
         #########################
         # Change by Ryan:
         # Reason:
-        # Ensure consistent export behavior even when Postprocessor is called directly; creates output_dir
-        # when export_files is enabled so export_audio() never fails due to a missing directory.
+        # Ensure consistent export behavior even when Postprocessor is called directly.
+        # Creates output_dir when export_files is enabled so export_audio() never fails due to
+        # a missing directory.
         if export_files:
             output_dir.mkdir(parents=True, exist_ok=True)
         #########################
@@ -96,8 +98,9 @@ class Postprocessor:
         #########################
         # Change by Ryan:
         # Reason:
-        # Prefer stereo mixture magnitude preserved during preprocessing when available; the unified pipeline
-        # feeds mono magnitude to the model so input_tensor can be mono and may not contain stereo magnitude.
+        # Prefer stereo mixture magnitude preserved during preprocessing when available.
+        # The unified pipeline feeds mono magnitude to the model, so input_tensor can be mono
+        # and may not contain stereo magnitude.
         if hasattr(metadata, "mix_magnitude"):
             original_magnitude = getattr(metadata, "mix_magnitude")
         else:
@@ -108,7 +111,9 @@ class Postprocessor:
 
             # If the model input tensor is mono [1, F, T], broadcast to stereo [2, F, T]
             if original_magnitude.ndim == 3 and original_magnitude.shape[0] == 1:
-                original_magnitude = np.concatenate([original_magnitude, original_magnitude], axis=0)
+                original_magnitude = np.concatenate(
+                    [original_magnitude, original_magnitude], axis=0
+                )
             elif original_magnitude.ndim == 2:
                 original_magnitude = np.stack([original_magnitude, original_magnitude])
         #########################
@@ -116,8 +121,9 @@ class Postprocessor:
         #########################
         # Change by Ryan:
         # Reason:
-        # If stems are provided, treat model_output as [1, S, F, T] and reconstruct each stem into the
-        # canonical mapping fields; otherwise, preserve the original 2-stem behavior for compatibility.
+        # If stems are provided, treat model_output as [1, S, F, T] and reconstruct each stem
+        # into the canonical mapping fields.
+        # Otherwise, preserve the original 2-stem behavior for compatibility.
         if stems is not None:
             stem_list = [str(s) for s in stems]
             if len(stem_list) == 0:
@@ -162,8 +168,9 @@ class Postprocessor:
             #########################
             # Change by Ryan:
             # Reason:
-            # Canonical contract: when export_files is False, stem_paths must be empty (not a mapping of
-            # stem -> None). Some downstream validation expects this invariant.
+            # Canonical contract: when export_files is False, stem_paths must be empty
+            # (not a mapping of stem -> None).
+            # Some downstream validation expects this invariant.
             if not export_files:
                 stem_paths = {}
             #########################
@@ -279,8 +286,8 @@ class Postprocessor:
         # Change by Ryan:
         # Reason:
         # Use forward-STFT framing settings for iSTFT when available; reads win_length/center from
-        # metadata (fallbacks preserve legacy behavior) and passes them to compute_istft so reconstruction
-        # matches the canonical framing contract.
+        # metadata (fallbacks preserve legacy behavior) and passes them to compute_istft so
+        # reconstruction matches the canonical framing contract.
         win_length = getattr(metadata, "win_length", metadata.n_fft)
         center = getattr(metadata, "center", False)
         #########################
@@ -298,4 +305,3 @@ class Postprocessor:
         waveform = denormalize_waveform(waveform, metadata.waveform_norm_params)
 
         return waveform
-

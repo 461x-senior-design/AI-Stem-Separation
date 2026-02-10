@@ -9,6 +9,7 @@ import numpy as np
 # What it does:
 # Imports STFT defaults (N_FFT/HOP_LENGTH/WIN_LENGTH/STFT_CENTER) from stemmy.constants.
 from stemmy.constants import HOP_LENGTH, N_FFT, STFT_CENTER, WIN_LENGTH
+
 #########################
 
 
@@ -116,11 +117,12 @@ def normalize_spectrogram(magnitude: np.ndarray, method: str = "minmax") -> tupl
         f_min = magnitude.min(axis=1, keepdims=True)  # [F, 1]
         f_max = magnitude.max(axis=1, keepdims=True)  # [F, 1]
 
-        eps = np.finfo(magnitude.dtype).eps if np.issubdtype(magnitude.dtype, np.floating) else 1e-12
+        eps = (
+            np.finfo(magnitude.dtype).eps if np.issubdtype(magnitude.dtype, np.floating) else 1e-12
+        )
         denom = np.maximum(f_max - f_min, eps)
         normalized = np.clip((magnitude - f_min) / denom, 0.0, 1.0)
         return normalized, {"method": "freq_minmax", "f_min": f_min, "f_max": f_max}
     #########################
 
     raise ValueError(f"Unkown normalization method: {method}")
-

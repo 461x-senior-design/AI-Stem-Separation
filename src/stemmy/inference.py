@@ -454,8 +454,10 @@ def _adapt_postprocess_result(result: Any) -> StemOutputs:
         paths_map = dict(paths) if isinstance(paths, Mapping) else {}
         return StemOutputs(waveforms=waveforms, paths=paths_map, sample_rate=int(sample_rate))
 
-    if hasattr(result, "stem_waveforms") and hasattr(result, "stem_paths") and hasattr(
-        result, "sample_rate"
+    if (
+        hasattr(result, "stem_waveforms")
+        and hasattr(result, "stem_paths")
+        and hasattr(result, "sample_rate")
     ):
         waveforms = getattr(result, "stem_waveforms")
         paths = getattr(result, "stem_paths")
@@ -504,10 +506,14 @@ def _validate_stem_outputs(outputs: StemOutputs, stems: Sequence[str], export_fi
     waveforms_keys = set(outputs.waveforms.keys())
     missing_waveforms = [s for s in stems if s not in outputs.waveforms]
     if missing_waveforms:
-        raise InferenceException("Missing stems in outputs.waveforms: %s" % (",".join(missing_waveforms)))
+        raise InferenceException(
+            "Missing stems in outputs.waveforms: %s" % (",".join(missing_waveforms))
+        )
     extra_waveforms = sorted(waveforms_keys - stems_set)
     if extra_waveforms:
-        raise InferenceException("Unexpected stems in outputs.waveforms: %s" % (",".join(extra_waveforms)))
+        raise InferenceException(
+            "Unexpected stems in outputs.waveforms: %s" % (",".join(extra_waveforms))
+        )
 
     if export_files:
         if not isinstance(outputs.paths, Mapping):
@@ -516,10 +522,14 @@ def _validate_stem_outputs(outputs: StemOutputs, stems: Sequence[str], export_fi
         paths_keys = set(outputs.paths.keys())
         missing_paths = [s for s in stems if s not in outputs.paths]
         if missing_paths:
-            raise InferenceException("Missing stems in outputs.paths: %s" % (",".join(missing_paths)))
+            raise InferenceException(
+                "Missing stems in outputs.paths: %s" % (",".join(missing_paths))
+            )
         extra_paths = sorted(paths_keys - stems_set)
         if extra_paths:
-            raise InferenceException("Unexpected stems in outputs.paths: %s" % (",".join(extra_paths)))
+            raise InferenceException(
+                "Unexpected stems in outputs.paths: %s" % (",".join(extra_paths))
+            )
 
         for stem in stems:
             p = outputs.paths.get(stem)
@@ -528,7 +538,9 @@ def _validate_stem_outputs(outputs: StemOutputs, stems: Sequence[str], export_fi
                     "Invalid path type in outputs.paths for stem %s: %s" % (stem, type(p).__name__)
                 )
             if not p.exists():
-                raise InferenceException("Export path does not exist for stem %s: %s" % (stem, str(p)))
+                raise InferenceException(
+                    "Export path does not exist for stem %s: %s" % (stem, str(p))
+                )
     else:
         if isinstance(outputs.paths, Mapping) and len(outputs.paths) != 0:
             raise InferenceException("export_files=False but outputs.paths is not empty.")
@@ -582,7 +594,10 @@ def separate_audio_file(
         raise InferenceException("Model output must have shape [B, S, F, T].")
     if model_output.shape[0] != input_tensor.shape[0]:
         raise InferenceException("Model batch dimension does not match input batch dimension.")
-    if model_output.shape[2] != input_tensor.shape[2] or model_output.shape[3] != input_tensor.shape[3]:
+    if (
+        model_output.shape[2] != input_tensor.shape[2]
+        or model_output.shape[3] != input_tensor.shape[3]
+    ):
         raise InferenceException("Model output [F, T] does not match input [F, T].")
     if model_output.shape[1] != len(stem_list):
         raise InferenceException(
@@ -639,4 +654,3 @@ def separate_batch(
         )
         results[str(audio_path)] = outputs
     return results
-

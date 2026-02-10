@@ -206,7 +206,9 @@ def validate_args(args: argparse.Namespace) -> None:
         if not resume_p.exists():
             raise FileNotFoundError(f"--resume checkpoint not found: {resume_p}")
         if resume_p.is_dir():
-            raise IsADirectoryError(f"--resume must point to a .pth file, got directory: {resume_p}")
+            raise IsADirectoryError(
+                f"--resume must point to a .pth file, got directory: {resume_p}"
+            )
 
 
 def build_dataloaders(
@@ -383,7 +385,9 @@ def main() -> None:
     )
     crop_cfg = CropConfig(time_frames=args.time_frames)
 
-    _train_ds, _val_ds, train_loader, val_loader = build_dataloaders(args, stft_cfg, crop_cfg, device)
+    _train_ds, _val_ds, train_loader, val_loader = build_dataloaders(
+        args, stft_cfg, crop_cfg, device
+    )
 
     model = UNet2D(stems=len(STEMS_4), base_channels=args.base_channels).to(device)
 
@@ -462,4 +466,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

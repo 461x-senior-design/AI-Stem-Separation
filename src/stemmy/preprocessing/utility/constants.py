@@ -10,7 +10,6 @@ OPTIONAL_FORMATS: list[str] = ["flac", "mp3"]  # Stretch goals
 # What it does:
 # Imports TARGET_SAMPLE_RATE from stemmy.constants while preserving the upstream
 # metadata keys and message formats expected by AudioMetadataExtractor/AudioFileValidator.
-from stemmy.constants import TARGET_SAMPLE_RATE
 #########################
 
 # Sample rate validation
@@ -57,4 +56,3 @@ METADATA_SAMPLE_RATE: str = "sample_rate"
 METADATA_CHANNELS: str = "channels"
 METADATA_FILE_SIZE: str = "file_size_mb"
 METADATA_FORMAT: str = "audio_format"
-
