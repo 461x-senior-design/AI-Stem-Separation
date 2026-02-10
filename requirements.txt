@@ -1,9 +1,14 @@
 # Core dependencies
-torch>=2.0.0
-torchaudio>=2.0.0
+# NOTE: This installs CPU-only PyTorch by default.
+# For GPU/CUDA support:
+#   - RTX 50xx series (Blackwell): pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   - RTX 40xx/30xx and older: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+torch>=2.6.0
+torchvision>=0.21.0
+torchaudio>=2.6.0
 librosa>=0.10.0
 soundfile>=0.12.0
-numpy>=1.24.0, <2.0
+numpy>=1.24.0
 scipy>=1.10.0
 
 # CLI dependencies

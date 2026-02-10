@@ -12,6 +12,7 @@ Returned tensors:
 - targets_norm: [S, F, T] float32 per-stem ratio masks (S=4), sum-to-one across stems
 """
 
+import logging
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +28,8 @@ from stemmy.constants import (
 )
 from stemmy.preprocessing import normalize_waveform
 from stemmy.training.stft import StftConfig, freq_minmax_normalize, stft_mag_phase_mono
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -129,6 +132,13 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         self.segment_samples = self._segment_samples_required()
         self._validate_track_files()
+
+        logger.info(
+            "Musdb18HQDataset(%s): %d tracks, segment_samples=%d, "
+            "stems=%s, waveform_norm=%s, spectrogram_norm=%s",
+            split, len(self.track_dirs), self.segment_samples,
+            self.stems, self.waveform_norm, self.spectrogram_norm,
+        )
 
     def _segment_samples_required(self) -> int:
         """Compute waveform samples required to yield exactly T STFT frames.

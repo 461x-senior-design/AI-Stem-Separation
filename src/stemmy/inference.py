@@ -546,6 +546,25 @@ def _validate_stem_outputs(outputs: StemOutputs, stems: Sequence[str], export_fi
             raise InferenceException("export_files=False but outputs.paths is not empty.")
 
 
+def _try_compile_model(model: torch.nn.Module) -> torch.nn.Module:
+    """Attempt to compile the model with torch.compile() for faster inference.
+
+    Returns the compiled model on success, or the original model if compilation
+    is not available or fails.
+    """
+    if not hasattr(torch, "compile"):
+        logger.debug("torch.compile not available; skipping inference compilation.")
+        return model
+
+    try:
+        compiled = torch.compile(model)
+        logger.info("Inference model compiled with torch.compile().")
+        return compiled
+    except Exception as e:
+        logger.warning("torch.compile() failed for inference, using eager mode: %s", e)
+        return model
+
+
 def separate_audio_file(
     audio_path: Union[str, Path],
     model: torch.nn.Module,
@@ -554,12 +573,32 @@ def separate_audio_file(
     export_files: Optional[bool] = None,
     stems: Optional[list[str]] = None,
     checkpoint: Optional[Mapping[str, Any]] = None,
+    compile_model: bool = True,
 ) -> StemOutputs:
-    """Run end-to-end separation on a single audio file."""
+    """Run end-to-end separation on a single audio file.
+
+    Args:
+        audio_path: Path to the input audio file.
+        model: Loaded model (eager or compiled).
+        cfg: InferenceConfig with STFT and normalization settings.
+        output_dir: Directory to write output stems.
+        export_files: Whether to write WAV files (overrides cfg if set).
+        stems: Stem ordering (overrides cfg if set).
+        checkpoint: Optional checkpoint dict for alignment validation.
+        compile_model: Whether to attempt torch.compile() on the model.
+    """
+    import time as _time
+
+    t_start = _time.perf_counter()
+
     cfg = _ensure_cfg_stems(cfg)
 
     audio_path_p = Path(audio_path).expanduser().resolve()
     output_dir_p = Path(output_dir).expanduser().resolve()
+
+    logger.info("=" * 50)
+    logger.info("Inference: %s", audio_path_p.name)
+    logger.info("  device=%s, stems=%s", cfg.device, cfg.stems)
 
     _validate_input_audio(audio_path_p)
 
@@ -576,17 +615,37 @@ def separate_audio_file(
     if checkpoint is not None:
         _validate_checkpoint_alignment(checkpoint, cfg, stem_list)
 
+    # Preprocessing
+    t_pre = _time.perf_counter()
     pre = _build_preprocessor(cfg)
     post = Postprocessor()
 
     input_tensor, metadata = _preprocess_audio(pre, audio_path_p)
+    dt_pre = _time.perf_counter() - t_pre
+    logger.info(
+        "  Preprocessing done: input_shape=%s (%.2fs)",
+        list(input_tensor.shape), dt_pre,
+    )
 
     device = torch.device(str(cfg.device))
     model = model.to(device)
     input_tensor = input_tensor.to(device)
 
+    # Optionally compile model for inference speed
+    if compile_model:
+        model = _try_compile_model(model)
+
+    # Model forward pass with optional half precision
+    t_model = _time.perf_counter()
+    use_amp = device.type == "cuda"
     with torch.no_grad():
-        model_output = model(input_tensor)
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            model_output = model(input_tensor)
+    dt_model = _time.perf_counter() - t_model
+    logger.info(
+        "  Model forward pass: output_shape=%s, amp=%s (%.2fs)",
+        list(model_output.shape), use_amp, dt_model,
+    )
 
     if not isinstance(model_output, torch.Tensor):
         raise InferenceException("Model did not return a torch.Tensor.")
@@ -610,11 +669,9 @@ def separate_audio_file(
         model_output = _renorm_sum_to_one(model_output, eps=cfg.eps)
 
     stem_name = audio_path_p.stem
-    logger.info(
-        f"Separating audio file: {audio_path_p} -> output_dir={output_dir_p} "
-        f"export={bool(export_files)} stems={','.join(stem_list)}"
-    )
 
+    # Postprocessing
+    t_post = _time.perf_counter()
     result = _postprocess_masks(
         post=post,
         model_output=model_output.cpu(),
@@ -626,8 +683,21 @@ def separate_audio_file(
         stems=stem_list,
     )
     outputs = _adapt_postprocess_result(result)
+    dt_post = _time.perf_counter() - t_post
+    logger.info(
+        "  Postprocessing done: export=%s (%.2fs)", bool(export_files), dt_post,
+    )
+
     if cfg.validate_outputs:
         _validate_stem_outputs(outputs, stems=stem_list, export_files=bool(export_files))
+
+    dt_total = _time.perf_counter() - t_start
+    logger.info(
+        "  Total: %.2fs (pre=%.2fs, model=%.2fs, post=%.2fs)",
+        dt_total, dt_pre, dt_model, dt_post,
+    )
+    logger.info("=" * 50)
+
     return outputs
 
 
@@ -639,10 +709,25 @@ def separate_batch(
     export_files: Optional[bool] = None,
     stems: Optional[list[str]] = None,
     checkpoint: Optional[Mapping[str, Any]] = None,
+    compile_model: bool = True,
 ) -> dict[str, StemOutputs]:
-    """Run inference for multiple audio files."""
+    """Run inference for multiple audio files.
+
+    The model is compiled once (if enabled) and reused across all files.
+    """
+    import time as _time
+
+    file_list = list(audio_files)
+    logger.info("Batch inference: %d files", len(file_list))
+
+    # Compile model once for the entire batch
+    if compile_model:
+        model = _try_compile_model(model)
+
+    t_batch = _time.perf_counter()
     results: dict[str, StemOutputs] = {}
-    for audio_path in audio_files:
+    for i, audio_path in enumerate(file_list, 1):
+        logger.info("Processing file %d/%d: %s", i, len(file_list), audio_path)
         outputs = separate_audio_file(
             audio_path=audio_path,
             model=model,
@@ -651,6 +736,14 @@ def separate_batch(
             export_files=export_files,
             stems=stems,
             checkpoint=checkpoint,
+            compile_model=False,  # Already compiled above
         )
         results[str(audio_path)] = outputs
+
+    dt_batch = _time.perf_counter() - t_batch
+    logger.info(
+        "Batch complete: %d files in %.2fs (%.2fs/file)",
+        len(file_list), dt_batch, dt_batch / max(1, len(file_list)),
+    )
+
     return results

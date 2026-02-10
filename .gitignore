@@ -73,3 +73,4 @@ local_ckpts/
 
 # Script .env
 scripts/stemmy.env
+/docs/

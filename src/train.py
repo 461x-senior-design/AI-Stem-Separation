@@ -1,4 +1,14 @@
+"""Legacy training entry point.
+
+This script delegates to the main training entry point in stemmy.train.
+For the full set of CLI arguments (including --no-amp, --no-compile,
+--grad-clip-norm, --log-level), run:
+
+    python -m stemmy.train --help
+"""
+
 import argparse
+import logging
 import time
 from pathlib import Path
 
@@ -6,10 +16,13 @@ import torch
 from torch.utils.data import DataLoader
 
 import wandb
-from src.models.unet_2d import UNet2D
-from src.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
-from src.training.musdb18hq_dataset import STEMS_4, CropConfig, Musdb18HQDataset, StftConfig
-from src.wandb_config import wandb_run
+from stemmy.logging_config import get_logger, setup_logging
+from stemmy.models.unet_2d import UNet2D
+from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
+from stemmy.training.musdb18hq_dataset import STEMS_4, CropConfig, Musdb18HQDataset, StftConfig
+from wandb_config import wandb_run
+
+logger = get_logger(__name__)
 
 
 def parse_args():
@@ -25,7 +38,7 @@ def parse_args():
     p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--lr", type=float, default=1e-4)
-    p.add_argument("--num-workers", type=int, default=2)
+    p.add_argument("--num-workers", type=int, default=4)
 
     p.add_argument(
         "--time-frames", type=int, default=256, help="Fixed STFT time frames T (e.g., 256 or 512)."
@@ -47,6 +60,32 @@ def parse_args():
     )
     p.add_argument("--device", type=str, default="", help="cpu, cuda, or leave empty for auto.")
 
+    # Performance flags
+    p.add_argument(
+        "--no-amp",
+        action="store_true",
+        help="Disable Automatic Mixed Precision (AMP) even on CUDA.",
+    )
+    p.add_argument(
+        "--no-compile",
+        action="store_true",
+        help="Disable torch.compile() model optimization.",
+    )
+    p.add_argument(
+        "--grad-clip-norm",
+        type=float,
+        default=1.0,
+        help="Max gradient norm for clipping (0 to disable).",
+    )
+
+    p.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging level.",
+    )
+
     return p.parse_args()
 
 
@@ -65,6 +104,20 @@ def l1_loss(pred, target):
     return torch.mean(torch.abs(pred - target))
 
 
+def _try_compile_model(model):
+    """Attempt torch.compile(); returns original model on failure."""
+    if not hasattr(torch, "compile"):
+        logger.info("torch.compile not available; skipping.")
+        return model
+    try:
+        compiled = torch.compile(model)
+        logger.info("Model compiled with torch.compile().")
+        return compiled
+    except Exception as e:
+        logger.warning("torch.compile() failed: %s", e)
+        return model
+
+
 @wandb_run(job_type="training", name="training")
 def train(args):
     """Main training function wrapped with wandb decorator."""
@@ -80,6 +133,17 @@ def train(args):
         raise ValueError("--time-frames must be 256 or 512 for this baseline.")
 
     device = pick_device(args.device)
+    logger.info("Device: %s", device)
+
+    # AMP setup
+    use_amp = (device.type == "cuda") and (not args.no_amp)
+    scaler = torch.amp.GradScaler(device=device.type, enabled=use_amp)
+    logger.info("AMP: %s", "enabled" if use_amp else "disabled")
+
+    if device.type == "cuda":
+        gpu_name = torch.cuda.get_device_name(device)
+        gpu_mem = torch.cuda.get_device_properties(device).total_mem / (1024**3)
+        logger.info("GPU: %s (%.1f GB)", gpu_name, gpu_mem)
 
     stft_cfg = StftConfig(sample_rate=44100, n_fft=4096, hop_length=1024, win_length=4096)
     crop_cfg = CropConfig(time_frames=args.time_frames)
@@ -107,6 +171,10 @@ def train(args):
         seed=0,
     )
 
+    logger.info("Dataset: train=%d, val=%d tracks", len(train_ds), len(val_ds))
+
+    use_persistent = args.num_workers > 0
+
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,
@@ -114,17 +182,31 @@ def train(args):
         num_workers=args.num_workers,
         pin_memory=(device.type == "cuda"),
         drop_last=True,
+        persistent_workers=use_persistent,
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=max(0, args.num_workers // 2),
+        num_workers=max(1, args.num_workers // 2) if args.num_workers > 0 else 0,
         pin_memory=(device.type == "cuda"),
         drop_last=False,
+        persistent_workers=use_persistent,
+    )
+
+    logger.info(
+        "DataLoaders: batch=%d, workers=%d, persistent=%s",
+        args.batch_size, args.num_workers, use_persistent,
     )
 
     model = UNet2D(stems=4).to(device)
+    param_count = sum(p.numel() for p in model.parameters())
+    logger.info("Model params: %d", param_count)
+
+    # Optionally compile
+    if not args.no_compile:
+        model = _try_compile_model(model)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     start_epoch = 0
@@ -135,9 +217,8 @@ def train(args):
         start_epoch, global_step, extra = load_checkpoint(
             ckpt_path, model, optimizer, map_location=device
         )
-        print(
-            f"Resumed from {ckpt_path}: epoch={start_epoch}, step={global_step}, "
-            f"extra_keys={list(extra.keys())}"
+        logger.info(
+            "Resumed from %s: epoch=%d, step=%d", ckpt_path, start_epoch, global_step,
         )
 
     config = {
@@ -163,11 +244,18 @@ def train(args):
                 "epochs": args.epochs,
                 "num_workers": args.num_workers,
                 "save_every_epochs": args.save_every_epochs,
+                "amp": use_amp,
+                "grad_clip_norm": args.grad_clip_norm,
             }
         )
 
     ckpt_dir = Path(args.checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.grad_clip_norm > 0:
+        logger.info("Gradient clipping: max_norm=%.2f", args.grad_clip_norm)
+
+    logger.info("Starting training: %d epochs", args.epochs)
 
     for epoch in range(start_epoch, args.epochs):
         model.train()
@@ -181,13 +269,26 @@ def train(args):
 
             optimizer.zero_grad(set_to_none=True)
 
-            # Model predicts per-stem ratio masks in [0,1]
-            # (targets: stem_mag / (mix_mag + eps), clamped).
-            pred_norm = model(mix_norm)  # [B, S, F, T]
-            loss = l1_loss(pred_norm, targets_norm)
+            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+                pred_norm = model(mix_norm)  # [B, S, F, T]
+                loss = l1_loss(pred_norm, targets_norm)
 
-            loss.backward()
-            optimizer.step()
+            if use_amp:
+                scaler.scale(loss).backward()
+                if args.grad_clip_norm > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm=args.grad_clip_norm,
+                    )
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                if args.grad_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm=args.grad_clip_norm,
+                    )
+                optimizer.step()
 
             val = float(loss.detach().cpu().item())
             running += val
@@ -207,18 +308,22 @@ def train(args):
             for mix_norm, targets_norm in val_loader:
                 mix_norm = mix_norm.to(device, non_blocking=True)
                 targets_norm = targets_norm.to(device, non_blocking=True)
-                pred_norm = model(mix_norm)
-                v_loss = l1_loss(pred_norm, targets_norm)
+
+                with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+                    pred_norm = model(mix_norm)
+                    v_loss = l1_loss(pred_norm, targets_norm)
+
                 v_running += float(v_loss.cpu().item())
                 v_batches += 1
 
         val_loss = v_running / max(1, v_batches)
         dt = time.time() - t0
 
-        print(
-            f"Epoch {epoch + 1}/{args.epochs} | "
-            f"train_loss={train_loss:.6f} val_loss={val_loss:.6f} | "
-            f"time={dt:.1f}s"
+        logger.info(
+            "Epoch %d/%d | train_loss=%.6f val_loss=%.6f | "
+            "%.1fs (%d batches, %.2fs/batch)",
+            epoch + 1, args.epochs, train_loss, val_loss,
+            dt, batches, dt / max(1, batches),
         )
 
         # Log per-epoch metrics
@@ -240,16 +345,22 @@ def train(args):
             save_checkpoint(
                 str(ckpt_path), model, optimizer, epoch=epoch + 1, step=global_step, extra=extra
             )
-            print(f"Saved checkpoint: {ckpt_path}")
+            logger.info("Saved checkpoint: %s", ckpt_path)
 
             if args.export_ts:
                 ts_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt"
                 export_torchscript(str(ts_path), model)
-                print(f"Exported TorchScript: {ts_path}")
+                logger.info("Exported TorchScript: %s", ts_path)
+
+    logger.info("Training complete.")
 
 
 def main():
     args = parse_args()
+    setup_logging(level=args.log_level)
+    logger.info("=" * 50)
+    logger.info("Starting training (legacy entry point)")
+    logger.info("=" * 50)
     train(args)
 
 

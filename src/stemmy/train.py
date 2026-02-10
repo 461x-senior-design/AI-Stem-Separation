@@ -10,11 +10,20 @@ Key invariants:
   preprocessing, training, inference, and reconstruction.
 - Dataset crops are chosen so each example produces exactly T time frames.
 
+Performance optimizations:
+- Automatic Mixed Precision (AMP) on CUDA for ~20-30% faster training
+- torch.compile() for graph-level optimizations on PyTorch 2.0+
+- Gradient clipping for training stability
+- Persistent DataLoader workers to avoid respawn overhead
+- Configurable num_workers for I/O parallelism
+
 Outputs:
 - Checkpoints (*.pth) written to --checkpoint-dir, containing model+optimizer state
   and a small config dict for reproducibility.
 - Optional TorchScript export (*.pt) via --export-ts.
 """
+
+from __future__ import annotations
 
 import argparse
 import time
@@ -34,10 +43,13 @@ from stemmy.constants import (
     WIN_LENGTH,
     WINDOW,
 )
+from stemmy.logging_config import get_logger, setup_logging
 from stemmy.models.unet_2d import UNet2D
 from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset
 from stemmy.training.stft import StftConfig
+
+logger = get_logger(__name__)
 
 # Local constant: used only by this training entry point unless you choose to share it.
 _MASK_RENORM_EPS: float = 1e-8
@@ -64,7 +76,7 @@ def parse_args() -> argparse.Namespace:
         help="Weight decay for AdamW (>= 0).",
     )
 
-    p.add_argument("--num-workers", type=int, default=2, help="DataLoader worker processes.")
+    p.add_argument("--num-workers", type=int, default=4, help="DataLoader worker processes.")
 
     p.add_argument(
         "--waveform-norm",
@@ -121,6 +133,24 @@ def parse_args() -> argparse.Namespace:
         help="ReduceLROnPlateau minimum LR (> 0).",
     )
 
+    # Performance flags
+    p.add_argument(
+        "--no-amp",
+        action="store_true",
+        help="Disable Automatic Mixed Precision (AMP) even on CUDA.",
+    )
+    p.add_argument(
+        "--no-compile",
+        action="store_true",
+        help="Disable torch.compile() model optimization.",
+    )
+    p.add_argument(
+        "--grad-clip-norm",
+        type=float,
+        default=1.0,
+        help="Max gradient norm for clipping (0 to disable).",
+    )
+
     p.add_argument("--checkpoint-dir", type=str, default="checkpoints", help="Output directory.")
     p.add_argument(
         "--resume",
@@ -145,6 +175,14 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="",
         help="cpu, cuda, or leave empty for auto selection.",
+    )
+
+    p.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Logging level.",
     )
 
     return p.parse_args()
@@ -195,6 +233,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--lr-patience must be >= 0")
     if args.min_lr <= 0:
         raise ValueError("--min-lr must be > 0")
+    if args.grad_clip_norm < 0:
+        raise ValueError("--grad-clip-norm must be >= 0")
 
     if not isinstance(args.data_root, str) or args.data_root.strip() == "":
         raise ValueError("--data-root must be a non-empty string")
@@ -219,6 +259,11 @@ def build_dataloaders(
 ) -> tuple[Musdb18HQDataset, Musdb18HQDataset, DataLoader, DataLoader]:
     """Build train/val datasets and DataLoaders."""
     max_tracks = args.max_tracks if args.max_tracks > 0 else None
+
+    logger.info(
+        "Building datasets: data_root=%s, max_tracks=%s, time_frames=%d",
+        args.data_root, max_tracks, crop_cfg.time_frames,
+    )
 
     train_ds = Musdb18HQDataset(
         root_dir=args.data_root,
@@ -245,12 +290,21 @@ def build_dataloaders(
         seed=0,
     )
 
+    logger.info(
+        "Dataset sizes: train=%d tracks, val=%d tracks", len(train_ds), len(val_ds),
+    )
+
     train_drop_last = len(train_ds) >= args.batch_size
     if not train_drop_last:
-        print(
-            f"WARNING: train dataset size ({len(train_ds)}) is smaller than batch_size "
-            f"({args.batch_size}); disabling drop_last to avoid zero training batches."
+        logger.warning(
+            "Train dataset size (%d) is smaller than batch_size (%d); "
+            "disabling drop_last to avoid zero training batches.",
+            len(train_ds), args.batch_size,
         )
+
+    # Use persistent_workers when num_workers > 0 to avoid worker respawn overhead
+    use_persistent = args.num_workers > 0
+    val_workers = max(1, args.num_workers // 2) if args.num_workers > 0 else 0
 
     train_loader = DataLoader(
         train_ds,
@@ -259,15 +313,25 @@ def build_dataloaders(
         num_workers=args.num_workers,
         pin_memory=(device.type == "cuda"),
         drop_last=train_drop_last,
+        persistent_workers=use_persistent,
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=max(0, args.num_workers // 2),
+        num_workers=val_workers,
         pin_memory=(device.type == "cuda"),
         drop_last=False,
+        persistent_workers=use_persistent,
     )
+
+    logger.info(
+        "DataLoaders: batch_size=%d, num_workers=%d (train) / %d (val), "
+        "persistent_workers=%s, pin_memory=%s",
+        args.batch_size, args.num_workers, val_workers, use_persistent,
+        device.type == "cuda",
+    )
+
     return train_ds, val_ds, train_loader, val_loader
 
 
@@ -314,8 +378,21 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     train_loader: DataLoader,
     device: torch.device,
+    use_amp: bool = False,
+    scaler: torch.amp.GradScaler | None = None,
+    grad_clip_norm: float = 0.0,
 ) -> tuple[float, int]:
-    """Run one training epoch and return (mean_loss, num_batches)."""
+    """Run one training epoch and return (mean_loss, num_batches).
+
+    Args:
+        model: The model to train.
+        optimizer: The optimizer.
+        train_loader: Training DataLoader.
+        device: Target device.
+        use_amp: Whether to use Automatic Mixed Precision.
+        scaler: GradScaler for AMP (required if use_amp is True on CUDA).
+        grad_clip_norm: Max gradient norm for clipping (0 to disable).
+    """
     model.train()
     running = 0.0
     batches = 0
@@ -326,16 +403,33 @@ def train_one_epoch(
 
         optimizer.zero_grad(set_to_none=True)
 
-        pred_norm = model(mix_norm)
-        pred_norm = torch.clamp(pred_norm, 0.0, 1.0)
-        pred_norm = _renorm_sum_to_one(pred_norm, eps=_MASK_RENORM_EPS)
+        # Use AMP autocast for forward pass + loss computation
+        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            pred_norm = model(mix_norm)
+            pred_norm = torch.clamp(pred_norm, 0.0, 1.0)
+            pred_norm = _renorm_sum_to_one(pred_norm, eps=_MASK_RENORM_EPS)
+            loss = l1_loss(pred_norm, targets_norm)
 
-        loss = l1_loss(pred_norm, targets_norm)
-        loss.backward()
-        optimizer.step()
+        if use_amp and scaler is not None:
+            scaler.scale(loss).backward()
+            if grad_clip_norm > 0:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            if grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
+            optimizer.step()
 
         running += float(loss.detach().cpu().item())
         batches += 1
+
+        if batches % 50 == 0:
+            logger.debug(
+                "  batch %d: loss=%.6f", batches, running / batches,
+            )
 
     mean_loss = running / max(1, batches)
     return mean_loss, batches
@@ -345,6 +439,7 @@ def eval_one_epoch(
     model: torch.nn.Module,
     val_loader: DataLoader,
     device: torch.device,
+    use_amp: bool = False,
 ) -> tuple[float, int]:
     """Run validation and return (mean_loss, num_batches)."""
     model.eval()
@@ -356,11 +451,12 @@ def eval_one_epoch(
             mix_norm = mix_norm.to(device, non_blocking=True)
             targets_norm = targets_norm.to(device, non_blocking=True)
 
-            pred_norm = model(mix_norm)
-            pred_norm = torch.clamp(pred_norm, 0.0, 1.0)
-            pred_norm = _renorm_sum_to_one(pred_norm, eps=_MASK_RENORM_EPS)
+            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+                pred_norm = model(mix_norm)
+                pred_norm = torch.clamp(pred_norm, 0.0, 1.0)
+                pred_norm = _renorm_sum_to_one(pred_norm, eps=_MASK_RENORM_EPS)
+                v_loss = l1_loss(pred_norm, targets_norm)
 
-            v_loss = l1_loss(pred_norm, targets_norm)
             running += float(v_loss.cpu().item())
             batches += 1
 
@@ -368,12 +464,52 @@ def eval_one_epoch(
     return mean_loss, batches
 
 
+def _try_compile_model(model: torch.nn.Module) -> torch.nn.Module:
+    """Attempt to compile the model with torch.compile() for faster execution.
+
+    Returns the compiled model on success, or the original model if compilation
+    is not available or fails (e.g., on Windows or older PyTorch).
+    """
+    if not hasattr(torch, "compile"):
+        logger.info("torch.compile not available (PyTorch < 2.0); skipping compilation.")
+        return model
+
+    try:
+        compiled = torch.compile(model)
+        logger.info("Model compiled successfully with torch.compile().")
+        return compiled
+    except Exception as e:
+        logger.warning("torch.compile() failed, falling back to eager mode: %s", e)
+        return model
+
+
 def main() -> None:
     """Main training loop."""
     args = parse_args()
+
+    # Setup logging before anything else
+    setup_logging(level=args.log_level)
+
+    logger.info("=" * 60)
+    logger.info("Starting training session")
+    logger.info("=" * 60)
+
     validate_args(args)
 
     device = pick_device(args.device)
+    logger.info("Device: %s", device)
+
+    if device.type == "cuda":
+        gpu_name = torch.cuda.get_device_name(device)
+        gpu_mem = torch.cuda.get_device_properties(device).total_mem / (1024**3)
+        logger.info("GPU: %s (%.1f GB)", gpu_name, gpu_mem)
+
+    # Determine AMP usage: enabled by default on CUDA, disabled on CPU
+    use_amp = (device.type == "cuda") and (not args.no_amp)
+    logger.info("Automatic Mixed Precision (AMP): %s", "enabled" if use_amp else "disabled")
+
+    # GradScaler for AMP (only meaningful on CUDA)
+    scaler = torch.amp.GradScaler(device=device.type, enabled=use_amp)
 
     stft_cfg = StftConfig(
         sample_rate=TARGET_SAMPLE_RATE,
@@ -385,11 +521,28 @@ def main() -> None:
     )
     crop_cfg = CropConfig(time_frames=args.time_frames)
 
+    logger.info(
+        "STFT config: n_fft=%d, hop=%d, win=%d, center=%s",
+        stft_cfg.n_fft, stft_cfg.hop_length, stft_cfg.win_length, stft_cfg.center,
+    )
+
     _train_ds, _val_ds, train_loader, val_loader = build_dataloaders(
         args, stft_cfg, crop_cfg, device
     )
 
     model = UNet2D(stems=len(STEMS_4), base_channels=args.base_channels).to(device)
+    param_count = sum(p.numel() for p in model.parameters())
+    trainable_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(
+        "Model: UNet2D (stems=%d, base_channels=%d) - %d params (%d trainable)",
+        len(STEMS_4), args.base_channels, param_count, trainable_count,
+    )
+
+    # Optionally compile model for faster execution
+    if not args.no_compile:
+        model = _try_compile_model(model)
+    else:
+        logger.info("Model compilation disabled via --no-compile.")
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -404,6 +557,17 @@ def main() -> None:
         patience=args.lr_patience,
         min_lr=args.min_lr,
     )
+    logger.info(
+        "Optimizer: AdamW (lr=%.2e, weight_decay=%.2e)", args.lr, args.weight_decay,
+    )
+    logger.info(
+        "Scheduler: ReduceLROnPlateau (factor=%.2f, patience=%d, min_lr=%.2e)",
+        args.lr_factor, args.lr_patience, args.min_lr,
+    )
+    if args.grad_clip_norm > 0:
+        logger.info("Gradient clipping: max_norm=%.2f", args.grad_clip_norm)
+    else:
+        logger.info("Gradient clipping: disabled")
 
     start_epoch = 0
     global_step = 0
@@ -416,9 +580,9 @@ def main() -> None:
             optimizer,
             map_location=device,
         )
-        print(
-            f"Resumed from {ckpt_path}: epoch={start_epoch}, step={global_step}, "
-            f"extra_keys={list(extra.keys())}"
+        logger.info(
+            "Resumed from %s: epoch=%d, step=%d, extra_keys=%s",
+            ckpt_path, start_epoch, global_step, list(extra.keys()),
         )
 
     config = build_run_config(args, device, stft_cfg, crop_cfg)
@@ -426,22 +590,35 @@ def main() -> None:
     ckpt_dir = Path(args.checkpoint_dir).expanduser().resolve()
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
+    logger.info("Training for %d epochs (starting from epoch %d)", args.epochs, start_epoch + 1)
+    logger.info("-" * 60)
+
     for epoch in range(start_epoch, args.epochs):
         t0 = time.time()
 
-        train_loss, train_batches = train_one_epoch(model, optimizer, train_loader, device)
+        train_loss, train_batches = train_one_epoch(
+            model, optimizer, train_loader, device,
+            use_amp=use_amp,
+            scaler=scaler,
+            grad_clip_norm=args.grad_clip_norm,
+        )
         global_step += train_batches
 
-        val_loss, _val_batches = eval_one_epoch(model, val_loader, device)
+        val_loss, _val_batches = eval_one_epoch(
+            model, val_loader, device,
+            use_amp=use_amp,
+        )
 
         scheduler.step(val_loss)
 
         dt = time.time() - t0
         lr_now = float(optimizer.param_groups[0].get("lr", args.lr))
-        print(
-            f"Epoch {epoch + 1}/{args.epochs} - "
-            f"lr={lr_now:.6e} train_loss={train_loss:.6f} val_loss={val_loss:.6f} - "
-            f"time={dt:.1f}s"
+
+        logger.info(
+            "Epoch %d/%d - lr=%.2e train_loss=%.6f val_loss=%.6f - %.1fs "
+            "(%d batches, %.2fs/batch)",
+            epoch + 1, args.epochs, lr_now, train_loss, val_loss,
+            dt, train_batches, dt / max(1, train_batches),
         )
 
         do_save = ((epoch + 1) % args.save_every_epochs) == 0
@@ -456,12 +633,16 @@ def main() -> None:
                 step=global_step,
                 extra=extra,
             )
-            print(f"Saved checkpoint: {ckpt_path}")
+            logger.info("Saved checkpoint: %s", ckpt_path)
 
             if args.export_ts:
                 ts_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt"
                 export_torchscript(str(ts_path), model)
-                print(f"Exported TorchScript: {ts_path}")
+                logger.info("Exported TorchScript: %s", ts_path)
+
+    logger.info("=" * 60)
+    logger.info("Training complete.")
+    logger.info("=" * 60)
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import click
@@ -121,7 +122,15 @@ def _validate_device(device: str) -> str:
 @click.option("--device", default="cpu", type=str, help='Device: "cpu", "cuda", or "cuda:N".')
 def separate(input_file: str, output_dir: str, checkpoint: str, device: str) -> None:
     """CLI wrapper for the separate command."""
+    # Setup logging for CLI usage
+    try:
+        from stemmy.logging_config import setup_logging
+        setup_logging(level="INFO")
+    except ImportError:
+        pass
+
     console = Console()
+    t_start = time.perf_counter()
 
     in_path, out_dir, ckpt_path = _validate_paths(input_file, output_dir, checkpoint)
     dev = _validate_device(device)
@@ -198,7 +207,8 @@ def separate(input_file: str, output_dir: str, checkpoint: str, device: str) -> 
             stems=list(STEMS_4),
         )
 
-    console.print("\nDone.", style=BOLD_GREEN)
+    dt = time.perf_counter() - t_start
+    console.print(f"\nDone in {dt:.1f}s.", style=BOLD_GREEN)
 
 
 if __name__ == "__main__":

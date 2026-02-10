@@ -10,12 +10,18 @@ The key requirement is that STFT framing is consistent across the project.
 In particular, the `center` setting must match stemmy.constants.STFT_CENTER.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 import torch
 
 from stemmy.constants import HOP_LENGTH, N_FFT, STFT_CENTER, TARGET_SAMPLE_RATE, WIN_LENGTH, WINDOW
+
+logger = logging.getLogger(__name__)
+
+# Module-level window cache: keyed by (win_length, device_str, dtype_str)
+_window_cache: dict[tuple[int, str, str], torch.Tensor] = {}
 
 
 @dataclass(frozen=True)
@@ -64,11 +70,26 @@ class StftConfig:
 
 
 def _build_window(cfg: StftConfig, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-    """Build a torch window tensor for torch.stft."""
-    window = cfg.window.strip().lower()
-    if window == "hann":
-        return torch.hann_window(cfg.win_length, device=device, dtype=dtype)
-    raise ValueError(f"Unsupported window type: {cfg.window}")
+    """Build (or retrieve cached) a torch window tensor for torch.stft.
+
+    Windows are cached by (win_length, device, dtype) to avoid re-creating them
+    on every STFT call. This is safe because Hann windows are deterministic and
+    immutable for a given size/device/dtype combination.
+    """
+    window_name = cfg.window.strip().lower()
+    if window_name != "hann":
+        raise ValueError(f"Unsupported window type: {cfg.window}")
+
+    cache_key = (cfg.win_length, str(device), str(dtype))
+    if cache_key not in _window_cache:
+        _window_cache[cache_key] = torch.hann_window(
+            cfg.win_length, device=device, dtype=dtype
+        )
+        logger.debug(
+            "Created and cached STFT window: win_length=%d device=%s dtype=%s",
+            cfg.win_length, device, dtype,
+        )
+    return _window_cache[cache_key]
 
 
 def stft_mag_phase_mono(

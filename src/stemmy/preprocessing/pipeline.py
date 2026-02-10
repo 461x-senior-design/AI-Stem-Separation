@@ -1,12 +1,15 @@
 # src/stemmy/preprocessing/pipeline.py
 # Orchestrator for the preprocessing modules.
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Union
 
 import numpy as np
 import torch
+
+logger = logging.getLogger(__name__)
 
 #########################
 # Change by Ryan:
@@ -122,8 +125,10 @@ class Preprocessor:
             raise AudioValidationException(message)
 
         # Load audio
+        logger.debug("Loading audio: %s (target sr=%d)", audio_path, self.sample_rate)
         waveform, sr = load_audio(audio_path, sr=self.sample_rate)
         original_length = waveform.shape[-1]
+        logger.debug("  Loaded: shape=%s, sr=%d", waveform.shape, sr)
 
         # Ensure Stereo
         waveform = ensure_stereo(waveform)
@@ -209,4 +214,8 @@ class Preprocessor:
             #########################
         )
 
+        logger.debug(
+            "  Preprocessed: tensor=%s, mono_mag=%s",
+            list(tensor.shape), mono_magnitude.shape,
+        )
         return tensor, metadata
