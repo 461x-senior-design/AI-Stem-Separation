@@ -51,21 +51,6 @@ class ThemedTimeRemainingColumn(ProgressColumn):
         return Text(f"{hours:d}:{minutes:02d}:{seconds:02d}", style=self.style)
 
 
-class ThemedLossColumn(ProgressColumn):
-    """Render loss label/value with explicit styles (no markup)."""
-
-    def __init__(self, table_column=None):
-        super().__init__(table_column=table_column)
-
-    def render(self, task):
-        label = task.fields.get("loss_label", "Batch Loss:")
-        value = task.fields.get("loss", "--")
-        value_style = task.fields.get("loss_style", LOSS_STYLE)
-        text = Text(f"{label} ", style="white")
-        text.append(str(value), style=value_style)
-        return text
-
-
 class ThemedStepColumn(ProgressColumn):
     """Render setup step text with explicit style (no markup)."""
 
@@ -104,7 +89,9 @@ def create_themed_progress(title_template, title_style, refresh_per_second=30):
             bar_width=34,
             table_column=Column(width=34),
         ),
-        TextColumn("{task.completed}/{task.total}", style=COUNT_STYLE, table_column=Column(width=8)),
+        TextColumn(
+            "{task.completed}/{task.total}", style=COUNT_STYLE, table_column=Column(width=8)
+        ),
         ThemedTimeElapsedColumn(style=ELAPSED_STYLE, table_column=Column(width=9)),
         ThemedTimeRemainingColumn(style=REMAINING_STYLE, table_column=Column(width=9)),
         TextColumn(
@@ -112,7 +99,6 @@ def create_themed_progress(title_template, title_style, refresh_per_second=30):
             style=EQ_STYLE,
             table_column=Column(width=10, justify="left"),
         ),
-        ThemedLossColumn(table_column=Column(width=24)),
         refresh_per_second=refresh_per_second,
     )
 
@@ -128,7 +114,9 @@ def create_setup_progress(title_template, title_style, refresh_per_second=30):
             bar_width=34,
             table_column=Column(width=34),
         ),
-        TextColumn("{task.completed}/{task.total}", style=COUNT_STYLE, table_column=Column(width=8)),
+        TextColumn(
+            "{task.completed}/{task.total}", style=COUNT_STYLE, table_column=Column(width=8)
+        ),
         ThemedTimeElapsedColumn(style=ELAPSED_STYLE, table_column=Column(width=9)),
         ThemedTimeRemainingColumn(style=REMAINING_STYLE, table_column=Column(width=9)),
         ThemedStepColumn(table_column=Column(width=28)),

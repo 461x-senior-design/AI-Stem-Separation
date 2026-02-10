@@ -1,19 +1,15 @@
 import argparse
-import time
 from pathlib import Path
 
 import torch
 from rich.console import Console
-from rich.text import Text
-from rich.tree import Tree
+from rich.table import Table
 
 from torch.utils.data import DataLoader
 
 from src.constants import (
-    BAR_COMPLETE_STYLE,
     BAR_FINISHED_STYLE,
     DEFAULT_WAVEFORM_NORM,
-    FINAL_AVG_LOSS_STYLE,
     HOP_LENGTH,
     LOSS_STYLE,
     N_FFT,
@@ -87,31 +83,48 @@ def l1_loss(pred, target):
     return torch.mean(torch.abs(pred - target))
 
 
-def _add_checkpoint_nodes(parent: Tree, path: Path):
-    entries = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
-    for entry in entries:
-        if entry.is_dir():
-            node = parent.add(f"{entry.name}/", style="#B8A9D9")
-            _add_checkpoint_nodes(node, entry)
-        else:
-            parent.add(entry.name, style="white")
-
-
-def print_checkpoint_tree(ckpt_dir: Path):
+def print_training_summary(rows, include_torchscript=False):
     console = Console()
-    title = Text()
-    title.append("\nCheckpoint Directory:", style="bold white")
-    title.append(f" {ckpt_dir}", style="white")
-    root = Tree(title, style="white", guide_style="#B8A9D9")
-    if not ckpt_dir.exists():
-        root.add("(missing)", style="#FF4D6D")
-    else:
-        _add_checkpoint_nodes(root, ckpt_dir)
-    console.print(root)
+    table = Table(title="Training Summary", header_style="bold #B65CFF")
+    table.add_column("Epoch", justify="right", style="white")
+    table.add_column("Train Loss", justify="right", style="white")
+    table.add_column("Val Loss", justify="right", style="white")
+    table.add_column("Checkpoint", style="#B8A9D9")
+    if include_torchscript:
+        table.add_column("TorchScript", style="#39FF14")
+
+    best_train = min((row["train_loss"] for row in rows), default=None)
+    worst_train = max((row["train_loss"] for row in rows), default=None)
+    best_val = min((row["val_loss"] for row in rows), default=None)
+    worst_val = max((row["val_loss"] for row in rows), default=None)
+
+    def style_loss(value, best, worst):
+        if best is None or worst is None:
+            return f"[white]{value:.6f}[/]"
+        if value == best:
+            return f"[#39FF14]{value:.6f}[/]"
+        if value == worst:
+            return f"[#FF4D6D]{value:.6f}[/]"
+        return f"[white]{value:.6f}[/]"
+
+    for row in rows:
+        cells = [
+            str(row["epoch"]),
+            style_loss(row["train_loss"], best_train, worst_train),
+            style_loss(row["val_loss"], best_val, worst_val),
+            row["checkpoint_path"],
+        ]
+        if include_torchscript:
+            cells.append(row["torchscript_path"])
+        table.add_row(*cells)
+
+    console.print()
+    console.print(table)
 
 
 def main():
     args = parse_args()
+    summary_rows = []
 
     with create_setup_progress("Setup", title_style="bold #B65CFF") as setup_progress:
         setup_task = setup_progress.add_task(
@@ -254,13 +267,9 @@ def main():
                 total=len(train_loader),
                 epoch=epoch + 1,
                 eq="",
-                loss="--",
-                loss_label="    Loss:",
-                loss_style=LOSS_STYLE,
             )
             train_anim_stop, train_anim_thread = start_eq_animator(progress, train_task, fps=8)
             try:
-                train_best = float("inf")
                 for mix_norm, targets_norm in train_loader:
                     mix_norm = mix_norm.to(device, non_blocking=True)
                     targets_norm = targets_norm.to(device, non_blocking=True)
@@ -281,28 +290,14 @@ def main():
                     running += val
                     batches += 1
                     global_step += 1
-                    # Batch updates advance progress and loss only; EQ runs in animator thread.
-                    progress.update(
-                        train_task,
-                        advance=1,
-                        loss=f"{val:.6f}",
-                        loss_label="    Loss:",
-                        loss_style=(BAR_FINISHED_STYLE if val < train_best else BAR_COMPLETE_STYLE),
-                    )
-                    train_best = min(train_best, val)
-                # Replace last-batch loss with epoch-average loss before closing the bar.
-                progress.update(
-                    train_task,
-                    loss=f"{(running / max(1, batches)):.6f}",
-                    loss_label="AVG Loss:",
-                    loss_style=FINAL_AVG_LOSS_STYLE,
-                )
+                    # Batch updates only advance the bar; EQ runs in animator thread.
+                    progress.update(train_task, advance=1)
             finally:
                 train_anim_stop.set()
                 train_anim_thread.join()
                 progress.update(train_task, eq="▁▁▁▁▁")
 
-        # train_loss = running / max(1, batches)
+        train_loss = running / max(1, batches)
 
         model.eval()
         v_running = 0.0
@@ -317,13 +312,9 @@ def main():
                     total=len(val_loader),
                     epoch=epoch + 1,
                     eq="",
-                    loss="--",
-                    loss_label="    Loss:",
-                    loss_style=LOSS_STYLE,
                 )
                 val_anim_stop, val_anim_thread = start_eq_animator(progress, val_task, fps=8)
                 try:
-                    val_best = float("inf")
                     for mix_norm, targets_norm in val_loader:
                         mix_norm = mix_norm.to(device, non_blocking=True)
                         targets_norm = targets_norm.to(device, non_blocking=True)
@@ -334,54 +325,42 @@ def main():
                         v_loss_value = float(v_loss.cpu().item())
                         v_running += v_loss_value
                         v_batches += 1
-                        # Validation updates advance and loss only; EQ runs independently.
-                        progress.update(
-                            val_task,
-                            advance=1,
-                            loss=f"{v_loss_value:.6f}",
-                            loss_label="    Loss:",
-                            loss_style=(
-                                BAR_FINISHED_STYLE
-                                if v_loss_value < val_best
-                                else BAR_COMPLETE_STYLE
-                            ),
-                        )
-                        val_best = min(val_best, v_loss_value)
-                    # Replace last-batch loss with epoch-average val loss before closing the bar.
-                    progress.update(
-                        val_task,
-                        loss=f"{(v_running / max(1, v_batches)):.6f}",
-                        loss_label="AVG Loss:",
-                        loss_style=FINAL_AVG_LOSS_STYLE,
-                    )
+                        # Validation updates only advance the bar; EQ runs independently.
+                        progress.update(val_task, advance=1)
                 finally:
                     val_anim_stop.set()
                     val_anim_thread.join()
                     progress.update(val_task, eq="▁▁▁▁▁")
 
-        # val_loss = v_running / max(1, v_batches)
-        # dt = time.time() - t0
-        #
-        # print(
-        #     f"Epoch {epoch + 1}/{args.epochs} | "
-        #     f"train_loss={train_loss:.6f} val_loss={val_loss:.6f} | "
-        #     f"time={dt:.1f}s"
-        # )
+        val_loss = v_running / max(1, v_batches)
 
         do_save = ((epoch + 1) % args.save_every_epochs) == 0
+        saved_ckpt = "-"
+        saved_ts = "-"
         if do_save:
             ckpt_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pth"
             extra = {"config": config}
             save_checkpoint(
                 str(ckpt_path), model, optimizer, epoch=epoch + 1, step=global_step, extra=extra
             )
+            saved_ckpt = str(ckpt_path)
 
             if args.export_ts:
                 ts_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt"
                 export_torchscript(str(ts_path), model)
-                print(f"Exported TorchScript: {ts_path}")
+                saved_ts = str(ts_path)
 
-    print_checkpoint_tree(ckpt_dir)
+        summary_rows.append(
+            {
+                "epoch": epoch + 1,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "checkpoint_path": saved_ckpt,
+                "torchscript_path": saved_ts,
+            }
+        )
+
+    print_training_summary(summary_rows, include_torchscript=args.export_ts)
 
 
 if __name__ == "__main__":
