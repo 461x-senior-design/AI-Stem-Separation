@@ -48,8 +48,9 @@ checkpoints/
 *.aiff
 *.aif
 
-# Local notes
-docs/
+# Local notes (keep docs/ folder tracked)
+docs/local/
+docs/*.local.md
 
 # Local dev
 examples/local/
@@ -65,6 +66,7 @@ local_ckpts/
 # Claude Code
 .claude/
 /local/
+/wandb/
 
 # Training checkpoints and torchscript output
 /runs/
