@@ -34,4 +34,3 @@ def test_separate_prints_expected_tree() -> None:
     assert "song_bass.wav" in output
     assert "song_vocals.wav" in output
     assert "song_other.wav" in output
-
