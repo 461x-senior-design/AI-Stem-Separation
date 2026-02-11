@@ -1,5 +1,4 @@
 import re
-from pathlib import Path
 
 from click.testing import CliRunner
 
@@ -17,28 +16,21 @@ def test_separate_prints_expected_tree() -> None:
     """Verify the CLI stub prints the expected output preview tree."""
     runner = CliRunner()
 
-    # Use CliRunner's isolated filesystem feature to create temporary files
-    with runner.isolated_filesystem():
-        # Create dummy input audio file
-        Path("song.wav").touch()
+    # Invoke the command as a user would from the shell.
+    result = runner.invoke(separate, ["-i", "song.wav", "-o", "outdir", "--preview"])
 
-        # Create dummy checkpoint file
-        Path("model.pth").touch()
+    # Ensure the command succeeded.
+    assert result.exit_code == 0
 
-        # Invoke the command as a user would from the shell.
-        result = runner.invoke(separate, ["-i", "song.wav", "-o", "outdir", "-c", "model.pth"])
+    # Strip ANSI codes to make the test stable across terminals/CI.
+    output = strip_ansi(result.output)
 
-        # The command will fail during actual inference since these are dummy files,
-        # but we're only testing that it prints the expected tree before attempting inference.
-        # Check if the output contains the expected preview tree elements.
-        output = strip_ansi(result.output)
-
-        # Validate the core content of the preview tree.
-        assert "Song Name:" in output
-        assert "song.wav" in output
-        assert "Expected Output:" in output
-        assert "outdir" in output
-        assert "drums-song.wav" in output
-        assert "vocals-song.wav" in output
-        assert "bass-song.wav" in output
-        assert "other-song.wav" in output
+    # Validate the core content of the preview tree.
+    assert "Song Name:" in output
+    assert "song.wav" in output
+    assert "Expected Output:" in output
+    assert "outdir" in output
+    assert "song_drums.wav" in output
+    assert "song_bass.wav" in output
+    assert "song_vocals.wav" in output
+    assert "song_other.wav" in output
