@@ -37,6 +37,8 @@ STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 def cli() -> None:
     """Stemmy command-line interface."""
     pass
+
+
 #########################
 
 
@@ -151,4 +153,3 @@ def separate(input_file: str, output_dir: str, checkpoint: str, device: str) -> 
 
 if __name__ == "__main__":
     cli()
-
