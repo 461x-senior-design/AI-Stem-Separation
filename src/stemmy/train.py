@@ -34,6 +34,7 @@ from stemmy.constants import (
     WIN_LENGTH,
     WINDOW,
 )
+from stemmy.logging_config import setup_logging
 from stemmy.models.unet_2d import UNet2D
 from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset
@@ -370,6 +371,8 @@ def eval_one_epoch(
 
 def main() -> None:
     """Main training loop."""
+    setup_logging()
+
     args = parse_args()
     validate_args(args)
 

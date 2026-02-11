@@ -1,3 +1,16 @@
+#########################
+# Changed by Ryan
+# Reason:
+# Ruff E402 requires imports at the top of the module (comments are fine, but no
+# executable code before imports). This CLI also extends Austin's preview-only
+# command into a functional entry point using canonical stems and the project's
+# inference pipeline, and configures centralized logging once at process startup.
+#
+# What it does:
+# - Adds imports required for inference, device validation, and logging.
+# - Converts the single command into a Click group with a `separate` subcommand.
+# - Updates preview output naming to canonical: <base>_<stem>.wav.
+# - Adds --checkpoint/--device/--preview and runs .pth inference to export stems.
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,36 +23,28 @@ from rich.tree import Tree
 
 from stemmy.constants import STEMS_4
 from stemmy.inference import config_from_checkpoint, load_pth_model, separate_audio_file
+from stemmy.logging_config import setup_logging
+
+#########################
 
 BOLD_GREEN: str = "bold green"
 BOLD_RED: str = "bold red"
 CYAN: str = "cyan"
 DIR: str = Path.cwd().name
-STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 
 
 #########################
 # Changed by Ryan
 # Reason:
-#   Wrapper calls:
-#     python -m stemmy.tool.cli separate ...
-#   Austin's file was a single Click command.
-#   Define a Click group and register `separate`.
-#
-#   Use canonical stems (STEMS_4) and naming:
-#     <base>_<stem>.wav
-#
-#   Run canonical .pth inference:
-#     load_pth_model -> config_from_checkpoint
-#     override: device/stems/export_files/renorm_masks
-#     separate_audio_file
+# The CLI is now a Click group entry point (not a single command function), and
+# logging should be configured once at startup for consistent formatting and
+# third-party suppression.
+# What it does:
+# Defines a Click group and calls setup_logging() when invoked.
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
-    pass
-
-
-#########################
+    setup_logging()
 
 
 @cli.command()
@@ -74,12 +79,6 @@ def separate(
     console.print("\nExpected Output:", style=BOLD_RED)
 
     tree = Tree(Text(output_dir, style=BOLD_GREEN))
-
-    #########################
-    # Changed by Ryan
-    # Reason:
-    #   Display uses canonical stems and naming.
-    #   Canonical .pth inference integration.
 
     stems = list(STEMS_4)
     base = Path(display_input).stem
@@ -140,7 +139,6 @@ def separate(
         raise ValueError("Invalid --device (must be cpu|cuda|cuda:N): %s" % dev_in)
 
     model, ckpt_obj = load_pth_model(str(ckpt_path), device=resolved_device, stems=len(stems))
-
     cfg = config_from_checkpoint(ckpt_obj)
 
     try:
@@ -166,8 +164,8 @@ def separate(
         stems=stems,
         checkpoint=ckpt_obj,
     )
-    #########################
 
 
 if __name__ == "__main__":
     cli()
+#########################

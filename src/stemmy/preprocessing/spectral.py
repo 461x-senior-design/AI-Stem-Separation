@@ -35,6 +35,14 @@ def compute_stft(
         n_fft: FFT window size (default: 4096)
         hop_length: Samples between frames (default: 1024)
         win_length: Window length (default: n_fft)
+        #########################
+        # Change by Ryan:
+        # Reason:
+        # Document the center parameter because it is part of the framing contract.
+        # What it does:
+        # Adds center to the Args list so docstring matches the function signature.
+        center: Whether to pad the signal so frames are centered (must match project setting)
+        #########################
 
     Returns:
         Complex STFT array, shape [F, T] for mono or [2, F, T] for stereo where
@@ -43,16 +51,55 @@ def compute_stft(
     #########################
     # Change by Ryan:
     # Reason:
-    # Pass center explicitly so librosa STFT framing matches the project-wide contract.
+    # librosa.stft expects a 1-D time series. Passing a 2-D stereo array is incorrect.
+    # This function's docstring says it supports stereo [2, N], so we must explicitly
+    # handle stereo by computing per-channel STFT and stacking.
     # What it does:
-    # Calls librosa.stft with center set from the compute_stft argument.
-    return librosa.stft(
-        waveform,
+    # Supports waveform shapes:
+    #   - [N] mono
+    #   - [2, N] stereo (channel-first)
+    #   - [N, 2] stereo (channel-last)
+    # and returns [F, T] for mono or [2, F, T] for stereo.
+    if not isinstance(waveform, np.ndarray):
+        raise ValueError("waveform must be a numpy.ndarray.")
+
+    if waveform.ndim == 1:
+        return librosa.stft(
+            waveform,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            win_length=win_length,
+            center=bool(center),
+        )
+
+    if waveform.ndim != 2:
+        raise ValueError("waveform must have shape [N] or stereo shape [2, N] or [N, 2].")
+
+    # Support both channel-first and channel-last stereo layouts.
+    if waveform.shape[0] == 2:
+        ch0 = waveform[0]
+        ch1 = waveform[1]
+    elif waveform.shape[1] == 2:
+        ch0 = waveform[:, 0]
+        ch1 = waveform[:, 1]
+    else:
+        raise ValueError("Stereo waveform must have 2 channels (shape [2, N] or [N, 2]).")
+
+    stft0 = librosa.stft(
+        ch0,
         n_fft=n_fft,
         hop_length=hop_length,
         win_length=win_length,
-        center=center,
+        center=bool(center),
     )
+    stft1 = librosa.stft(
+        ch1,
+        n_fft=n_fft,
+        hop_length=hop_length,
+        win_length=win_length,
+        center=bool(center),
+    )
+    return np.stack([stft0, stft1], axis=0)
     #########################
 
 
@@ -123,6 +170,6 @@ def normalize_spectrogram(magnitude: np.ndarray, method: str = "minmax") -> tupl
         denom = np.maximum(f_max - f_min, eps)
         normalized = np.clip((magnitude - f_min) / denom, 0.0, 1.0)
         return normalized, {"method": "freq_minmax", "f_min": f_min, "f_max": f_max}
-    #########################
 
-    raise ValueError(f"Unkown normalization method: {method}")
+    raise ValueError(f"Unknown normalization method: {method}")
+    #########################

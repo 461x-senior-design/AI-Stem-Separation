@@ -1,20 +1,26 @@
+from stemmy.constants import TARGET_SAMPLE_RATE as _PROJECT_TARGET_SAMPLE_RATE
+
 # File format validation
 SUPPORTED_FORMATS: list[str] = ["wav"]  # Only WAV confirmed for Sprint 1
 OPTIONAL_FORMATS: list[str] = ["flac", "mp3"]  # Stretch goals
 
+# Sample rate validation
+TARGET_SAMPLE_RATE: int = 44100  # MUSDB18-HQ dataset standard
+MIN_SAMPLE_RATE: int = 8000
+MAX_SAMPLE_RATE: int = 192000
+
 #########################
 # Change by Ryan:
 # Reason:
-# Keep preprocessing validation aligned with the centralized audio configuration
-# (single source of truth) without changing validator/extractor field names.
+# Keep preprocessing validation aligned with the centralized project constants
+# (single source of truth) while preserving the existing constant name used by
+# validators/extractors.
 # What it does:
-# Imports TARGET_SAMPLE_RATE from stemmy.constants while preserving the upstream
-# metadata keys and message formats expected by AudioMetadataExtractor/AudioFileValidator.
+# Uses stemmy.constants.TARGET_SAMPLE_RATE to override the local TARGET_SAMPLE_RATE
+# value so downstream code continues to reference
+# preprocessing.utility.constants.TARGET_SAMPLE_RATE unchanged.
+TARGET_SAMPLE_RATE = _PROJECT_TARGET_SAMPLE_RATE
 #########################
-
-# Sample rate validation
-MIN_SAMPLE_RATE: int = 8000
-MAX_SAMPLE_RATE: int = 192000
 
 # Channel validation
 MIN_CHANNELS: int = 1

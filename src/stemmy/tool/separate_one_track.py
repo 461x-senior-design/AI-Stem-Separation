@@ -23,7 +23,7 @@ import torch
 
 from stemmy.constants import STEMS_4
 from stemmy.inference import config_from_checkpoint, load_pth_model, separate_audio_file
-from stemmy.logging_config import get_logger
+from stemmy.logging_config import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
@@ -334,6 +334,8 @@ class SeparateOneTrack:
 
 def main() -> None:
     """Entry point."""
+    setup_logging()
+
     logger.info("Starting separate_one_track")
     runner = SeparateOneTrack()
     runner.run()
