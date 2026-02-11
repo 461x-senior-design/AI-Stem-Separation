@@ -17,7 +17,7 @@ def test_separate_prints_expected_tree() -> None:
     runner = CliRunner()
 
     # Invoke the command as a user would from the shell.
-    result = runner.invoke(separate, ["-i", "song.wav", "-o", "outdir"])
+    result = runner.invoke(separate, ["-i", "song.wav", "-o", "outdir", "--preview"])
 
     # Ensure the command succeeded.
     assert result.exit_code == 0
@@ -30,7 +30,8 @@ def test_separate_prints_expected_tree() -> None:
     assert "song.wav" in output
     assert "Expected Output:" in output
     assert "outdir" in output
-    assert "drums-song.wav" in output
-    assert "vocals-song.wav" in output
-    assert "bass-song.wav" in output
-    assert "other-song.wav" in output
+    assert "song_drums.wav" in output
+    assert "song_bass.wav" in output
+    assert "song_vocals.wav" in output
+    assert "song_other.wav" in output
+

@@ -45,7 +45,7 @@ def cli() -> None:
 @cli.command()
 @click.option("--input-file", "-i", required=True, help="Name of input audio file.")
 @click.option("--output-dir", "-o", default=DIR, help="Name of output directory.")
-@click.option("--checkpoint", "-c", required=True, help="Path to model checkpoint (.pth).")
+@click.option("--checkpoint", "-c", required=False, help="Path to model checkpoint (.pth).")
 @click.option(
     "--device",
     "-d",
@@ -53,7 +53,19 @@ def cli() -> None:
     show_default=True,
     help="Device for inference: cpu | cuda | cuda:N",
 )
-def separate(input_file: str, output_dir: str, checkpoint: str, device: str) -> None:
+@click.option(
+    "--preview",
+    is_flag=True,
+    default=False,
+    help="Print expected output names and exit without running inference.",
+)
+def separate(
+    input_file: str,
+    output_dir: str,
+    checkpoint: str,
+    device: str,
+    preview: bool,
+) -> None:
     """CLI wrapper for the separate command."""
     console = Console()
     display_input = input_file
@@ -75,6 +87,12 @@ def separate(input_file: str, output_dir: str, checkpoint: str, device: str) -> 
         tree.add(Text(f"{base}_{stem}.wav", style=CYAN))
 
     console.print(Padding(tree, (0, 0, 0, 2)))
+
+    if preview:
+        return
+
+    if checkpoint is None or checkpoint.strip() == "":
+        raise click.ClickException("--checkpoint is required unless --preview is set.")
 
     input_path = Path(input_file).expanduser().resolve()
     if not input_path.exists():
@@ -153,3 +171,4 @@ def separate(input_file: str, output_dir: str, checkpoint: str, device: str) -> 
 
 if __name__ == "__main__":
     cli()
+
