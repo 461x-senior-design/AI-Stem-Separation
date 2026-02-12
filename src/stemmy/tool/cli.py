@@ -20,7 +20,13 @@ from rich.text import Text
 from rich.tree import Tree
 
 from stemmy.constants import STEMS_4
-from stemmy.inference import config_from_checkpoint, load_pth_model, separate_audio_file
+from stemmy.inference import (
+    InferenceConfig,
+    config_from_checkpoint,
+    load_pth_model,
+    load_torchscript_model,
+    separate_audio_file,
+)
 from stemmy.logging_config import setup_logging
 
 #########################
@@ -38,7 +44,7 @@ STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 # Convert the single-command stub into a Click group with a real `separate`
 # subcommand that:
 # - Preserves Austin's preview output behavior.
-# - Adds --checkpoint/--device for actual inference.
+# - Adds --checkpoint/--torchscript/--device for actual inference.
 # - Adds --chunk-frames/--overlap-frames/--amp to reduce VRAM usage on GPU.
 # - Uses canonical stem naming: <base>_<stem>.wav (based on STEMS_4 ordering).
 @click.group()
@@ -50,7 +56,18 @@ def cli() -> None:
 @cli.command()
 @click.option("--input-file", "-i", required=True, help="Name of input audio file.")
 @click.option("--output-dir", "-o", default=DIR, help="Name of output directory.")
-@click.option("--checkpoint", "-c", required=False, help="Path to model checkpoint (.pth).")
+@click.option(
+    "--checkpoint",
+    "-c",
+    required=False,
+    help="Path to model checkpoint (.pth). Mutually exclusive with --torchscript.",
+)
+@click.option(
+    "--torchscript",
+    "-t",
+    required=False,
+    help="Path to TorchScript model (.pt). Mutually exclusive with --checkpoint.",
+)
 @click.option(
     "--device",
     "-d",
@@ -91,6 +108,7 @@ def separate(
     input_file: str,
     output_dir: str,
     checkpoint: str,
+    torchscript: str,
     device: str,
     preview: bool,
     chunk_frames: int,
@@ -115,8 +133,15 @@ def separate(
     if preview:
         return
 
-    if checkpoint is None or checkpoint.strip() == "":
-        raise click.ClickException("--checkpoint is required unless --preview is set.")
+    # Exactly one model source required unless preview.
+    ckpt_in = checkpoint.strip() if isinstance(checkpoint, str) and checkpoint is not None else ""
+    ts_in = torchscript.strip() if isinstance(torchscript, str) and torchscript is not None else ""
+    if ckpt_in == "" and ts_in == "":
+        raise click.ClickException(
+            "Either --checkpoint (.pth) or --torchscript (.pt) is required unless --preview is set."
+        )
+    if ckpt_in != "" and ts_in != "":
+        raise click.ClickException("Use only one: --checkpoint or --torchscript (not both).")
 
     if not isinstance(chunk_frames, int) or chunk_frames < 0:
         raise click.ClickException("--chunk-frames must be >= 0.")
@@ -139,12 +164,6 @@ def separate(
             "Output path exists but is not a directory: %s" % str(out_dir_path)
         )
     out_dir_path.mkdir(parents=True, exist_ok=True)
-
-    ckpt_path = Path(checkpoint).expanduser().resolve()
-    if not ckpt_path.exists():
-        raise FileNotFoundError("Checkpoint not found: %s" % str(ckpt_path))
-    if not ckpt_path.is_file():
-        raise IsADirectoryError("Expected a checkpoint file, got a directory: %s" % str(ckpt_path))
 
     dev_in = (device or "cpu").strip()
     if dev_in == "":
@@ -172,8 +191,32 @@ def separate(
     else:
         raise ValueError("Invalid --device (must be cpu|cuda|cuda:N): %s" % dev_in)
 
-    model, ckpt_obj = load_pth_model(str(ckpt_path), device=resolved_device, stems=len(stems))
-    cfg = config_from_checkpoint(ckpt_obj)
+    model = None
+    ckpt_obj = None
+    cfg = None
+
+    if ckpt_in != "":
+        ckpt_path = Path(ckpt_in).expanduser().resolve()
+        if not ckpt_path.exists():
+            raise FileNotFoundError("Checkpoint not found: %s" % str(ckpt_path))
+        if not ckpt_path.is_file():
+            raise IsADirectoryError(
+                "Expected a checkpoint file, got a directory: %s" % str(ckpt_path)
+            )
+
+        model, ckpt_obj = load_pth_model(str(ckpt_path), device=resolved_device, stems=len(stems))
+        cfg = config_from_checkpoint(ckpt_obj)
+    else:
+        ts_path = Path(ts_in).expanduser().resolve()
+        if not ts_path.exists():
+            raise FileNotFoundError("TorchScript model not found: %s" % str(ts_path))
+        if not ts_path.is_file():
+            raise IsADirectoryError(
+                "Expected a TorchScript file, got a directory: %s" % str(ts_path)
+            )
+
+        model = load_torchscript_model(str(ts_path), device=resolved_device)
+        cfg = InferenceConfig()
 
     try:
         cfg = replace(

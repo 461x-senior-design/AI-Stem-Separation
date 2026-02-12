@@ -11,12 +11,25 @@ This runs:
   1) training
   2) evaluation
   3) best checkpoint selection
-  4) torchscript export
+  4) torchscript export (.pt)
 
-It writes timestamped outputs under RUNS_BASE, plus stable "latest" pointers:
-  RUNS_BASE/latest_best_<partition>.pth  (symlink to best .pth)
-  RUNS_BASE/latest_best_<partition>.pt   (symlink to best .pt)
-  RUNS_BASE/latest_<partition>.env       (exports paths for downstream scripts)
+Directory layout (single timestamped directory per run):
+
+  RUNS_BASE/run_<partition>_<stamp>/
+    logs/
+      console.log
+    run_info.txt
+    checkpoints/
+    eval/
+    best/
+      unet_best_<partition>_<stamp>.pth
+      unet_best_<partition>_<stamp>.pt
+
+It also writes stable "latest" pointers at RUNS_BASE:
+  RUNS_BASE/latest_run_<partition>      (symlink to run directory)
+  RUNS_BASE/latest_best_<partition>.pth (symlink to best .pth within latest run)
+  RUNS_BASE/latest_best_<partition>.pt  (symlink to best .pt within latest run)
+  RUNS_BASE/latest_<partition>.env      (exports paths for downstream scripts)
 
 Defaults are loaded from scripts/stemmy.env if present. CLI flags override env.
 
@@ -51,7 +64,7 @@ Eval progress + durability overrides (passed into stemmy.tool.fullsong_eval_mask
   --eval-fsync-every N     (0 disables)
   --eval-print-every-tracks N
 
-Example (fast smoke test):
+Example (minimal run):
   PYTHONUNBUFFERED=1 scripts/train_eval_export.sh --partition gpu \
     --epochs 1 --max-tracks 1 --time-frames 256 --batch-size 1 --num-workers 0 \
     --save-every-epochs 1 --n-eval-tracks 1 --max-seconds 5 --device cuda \
@@ -445,7 +458,7 @@ except RuntimeError as e:
 PY
     rc=$?
     set -e
-    if [[ "$rc" -eq 0 ]]; then
+    if [[ "${rc}" -eq 0 ]]; then
       BATCH_SIZE="${bs}"
       break
     fi
@@ -457,15 +470,26 @@ PY
   fi
 fi
 
+# --------------------------
+# Single run directory layout
+# --------------------------
 STAMP="$(date +%Y%m%d_%H%M%S)"
+RUN_DIR="${RUNS_BASE}/run_${PARTITION}_${STAMP}"
+LOG_DIR="${RUN_DIR}/logs"
+CKPT_DIR="${RUN_DIR}/checkpoints"
+EVAL_DIR="${RUN_DIR}/eval"
+BEST_DIR="${RUN_DIR}/best"
 
-CKPT_DIR="${RUNS_BASE}/checkpoints_${PARTITION}_${STAMP}"
-EVAL_DIR="${RUNS_BASE}/eval_${PARTITION}_${STAMP}"
-BEST_DIR="${RUNS_BASE}/best_ckpt_${PARTITION}_${STAMP}"
+mkdir -p "${LOG_DIR}" "${CKPT_DIR}" "${EVAL_DIR}" "${BEST_DIR}"
 
-mkdir -p "${CKPT_DIR}" "${EVAL_DIR}" "${BEST_DIR}"
+CONSOLE_LOG="${LOG_DIR}/console.log"
 
-RUN_INFO="${RUNS_BASE}/run_info_${PARTITION}_${STAMP}.txt"
+# Capture all stdout/stderr into the run directory log while still showing it.
+# This covers the entire script and all child processes.
+exec > >(tee -a "${CONSOLE_LOG}") 2>&1
+
+RUN_INFO="${RUN_DIR}/run_info.txt"
+
 echo "=== RUN INFO ==="
 {
   echo "timestamp=${STAMP}"
@@ -512,7 +536,10 @@ echo "=== RUN INFO ==="
   echo "eval_fsync_every=${EVAL_FSYNC_EVERY}"
   echo "eval_print_every_tracks=${EVAL_PRINT_EVERY_TRACKS}"
   echo
-  echo "ckpt_dir=${CKPT_DIR}"
+  echo "run_dir=${RUN_DIR}"
+  echo "log_dir=${LOG_DIR}"
+  echo "console_log=${CONSOLE_LOG}"
+  echo "checkpoints_dir=${CKPT_DIR}"
   echo "eval_dir=${EVAL_DIR}"
   echo "best_dir=${BEST_DIR}"
 } | tee "${RUN_INFO}"
@@ -622,7 +649,7 @@ python -m stemmy.tool.select_best_checkpoint \
   --top-k 10 \
   --copy-to "${BEST_PTH}"
 
-echo "=== Phase 4/4: Export TorchScript ==="
+echo "=== Phase 4/4: Export TorchScript (.pt) ==="
 BEST_PT="${BEST_DIR}/unet_best_${PARTITION}_${STAMP}.pt"
 
 python - <<PY
@@ -638,10 +665,15 @@ export_torchscript(out_path, model)
 print(out_path)
 PY
 
+# --------------------------
+# Stable pointers in RUNS_BASE
+# --------------------------
+LATEST_RUN="${RUNS_BASE}/latest_run_${PARTITION}"
 LATEST_PTH="${RUNS_BASE}/latest_best_${PARTITION}.pth"
 LATEST_PT="${RUNS_BASE}/latest_best_${PARTITION}.pt"
 LATEST_ENV="${RUNS_BASE}/latest_${PARTITION}.env"
 
+ln -sfn "${RUN_DIR}" "${LATEST_RUN}"
 ln -sfn "${BEST_PTH}" "${LATEST_PTH}"
 ln -sfn "${BEST_PT}" "${LATEST_PT}"
 
@@ -649,19 +681,28 @@ ln -sfn "${BEST_PT}" "${LATEST_PT}"
   echo "PARTITION=${PARTITION}"
   echo "STAMP=${STAMP}"
   echo "RUNS_BASE=${RUNS_BASE}"
+  echo "RUN_DIR=${RUN_DIR}"
+  echo "LOG_DIR=${LOG_DIR}"
+  echo "CONSOLE_LOG=${CONSOLE_LOG}"
+  echo "RUN_INFO=${RUN_INFO}"
   echo "CKPT_DIR=${CKPT_DIR}"
   echo "EVAL_DIR=${EVAL_DIR}"
   echo "BEST_DIR=${BEST_DIR}"
   echo "BEST_PTH=${BEST_PTH}"
   echo "BEST_PT=${BEST_PT}"
+  echo "LATEST_RUN=${LATEST_RUN}"
   echo "LATEST_PTH=${LATEST_PTH}"
   echo "LATEST_PT=${LATEST_PT}"
 } > "${LATEST_ENV}"
 
 echo "Done."
+echo "Run dir:      ${RUN_DIR}"
+echo "Console log:  ${CONSOLE_LOG}"
 echo "Run info:     ${RUN_INFO}"
 echo "Best .pth:    ${BEST_PTH}"
 echo "Best .pt:     ${BEST_PT}"
+echo "Latest run:   ${LATEST_RUN}"
 echo "Latest .pth:  ${LATEST_PTH}"
 echo "Latest .pt:   ${LATEST_PT}"
 echo "Latest env:   ${LATEST_ENV}"
+
