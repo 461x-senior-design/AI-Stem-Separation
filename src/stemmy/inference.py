@@ -605,7 +605,13 @@ def _run_model_forward(
     device: torch.device,
     cfg: InferenceConfig,
 ) -> torch.Tensor:
-    """Run model forward, optionally with chunking and AMP."""
+    """Run model forward, optionally with chunking and AMP.
+
+    Correct chunking behavior:
+    - If overlap_frames == 0, we concatenate non-overlapping chunk outputs.
+    - If overlap_frames > 0, we use overlap-add with a linear crossfade so overlapped
+      regions are blended instead of duplicated.
+    """
     t_frames = int(input_tensor.shape[-1])
     chunk, overlap = _validate_chunk_settings(cfg, t_frames)
 
@@ -621,26 +627,71 @@ def _run_model_forward(
             if step <= 0:
                 raise InferenceException("Invalid chunk/overlap configuration.")
 
-            outs: list[torch.Tensor] = []
+            out_full: Optional[torch.Tensor] = None
+            weight_full: Optional[torch.Tensor] = None
+
             for start in range(0, t_frames, step):
                 end = min(start + chunk, t_frames)
                 x_chunk = input_tensor[..., start:end]
                 out_chunk = model(x_chunk)
                 if not isinstance(out_chunk, torch.Tensor):
                     raise InferenceException("Model did not return a torch.Tensor.")
-                outs.append(out_chunk)
 
-            out_full = torch.cat(outs, dim=-1)
+                # Allocate accumulation buffers on first chunk, matching dtype/device.
+                if out_full is None:
+                    out_full = torch.zeros(
+                        (out_chunk.shape[0], out_chunk.shape[1], out_chunk.shape[2], t_frames),
+                        device=out_chunk.device,
+                        dtype=out_chunk.dtype,
+                    )
+                    weight_full = torch.zeros(
+                        (t_frames,),
+                        device=out_chunk.device,
+                        dtype=out_chunk.dtype,
+                    )
+
+                # Build per-chunk blend weights for overlap-add.
+                L = int(end - start)
+                if overlap <= 0:
+                    w = torch.ones((L,), device=out_chunk.device, dtype=out_chunk.dtype)
+                else:
+                    w = torch.ones((L,), device=out_chunk.device, dtype=out_chunk.dtype)
+
+                    # Fade-in for chunks that are not the first chunk.
+                    if start > 0:
+                        n = min(overlap, L)
+                        ramp = torch.linspace(
+                            0.0, 1.0, steps=n, device=out_chunk.device, dtype=out_chunk.dtype
+                        )
+                        w[:n] = ramp
+
+                    # Fade-out for chunks that are not the last chunk.
+                    if end < t_frames:
+                        n = min(overlap, L)
+                        ramp = torch.linspace(
+                            1.0, 0.0, steps=n, device=out_chunk.device, dtype=out_chunk.dtype
+                        )
+                        w[L - n : L] = torch.minimum(w[L - n : L], ramp)
+
+                # Accumulate with broadcast to [B, S, F, L]
+                out_full[..., start:end] += out_chunk * w.view(1, 1, 1, -1)
+                weight_full[start:end] += w
+
+            if out_full is None or weight_full is None:
+                raise InferenceException("Chunked inference produced no output.")
+
+            # Normalize by accumulated weights (avoid divide-by-zero)
+            denom = weight_full.clamp_min(float(cfg.eps)).view(1, 1, 1, -1)
+            out_full = out_full / denom
 
             expected = t_frames
             got = int(out_full.shape[-1])
-            if got < expected:
+            if got != expected:
                 raise InferenceException(
-                    "Chunked inference produced too few frames: expected %d got %d."
+                    "Chunked inference produced unexpected frame count: expected %d got %d."
                     % (expected, got)
                 )
-            if got > expected:
-                out_full = out_full[..., :expected]
+
             return out_full
 
 
