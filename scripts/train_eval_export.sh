@@ -36,6 +36,8 @@ Common overrides:
   --n-eval-tracks N
   --max-seconds N
   --waveform-norm peak|rms|none
+  --spectrogram-norm freq_minmax|none
+  --amp 0|1
 
 Optional training retry behavior (OFF by default):
   --lr-backoff 0|1
@@ -77,6 +79,8 @@ LR_PATIENCE=""
 MIN_LR=""
 SAVE_EVERY_EPOCHS=""
 WAVEFORM_NORM=""
+SPECTROGRAM_NORM=""
+AMP=""
 DEVICE=""
 
 N_EVAL_TRACKS=""
@@ -135,6 +139,8 @@ while [[ $# -gt 0 ]]; do
     --min-lr) MIN_LR="${2:-}"; shift 2 ;;
     --save-every-epochs) SAVE_EVERY_EPOCHS="${2:-}"; shift 2 ;;
     --waveform-norm) WAVEFORM_NORM="${2:-}"; shift 2 ;;
+    --spectrogram-norm) SPECTROGRAM_NORM="${2:-}"; shift 2 ;;
+    --amp) AMP="${2:-}"; shift 2 ;;
     --device) DEVICE="${2:-}"; shift 2 ;;
 
     --n-eval-tracks) N_EVAL_TRACKS="${2:-}"; shift 2 ;;
@@ -232,6 +238,8 @@ LR_PATIENCE="${LR_PATIENCE:-10}"
 MIN_LR="${MIN_LR:-1e-6}"
 SAVE_EVERY_EPOCHS="${SAVE_EVERY_EPOCHS:-1}"
 WAVEFORM_NORM="${WAVEFORM_NORM:-peak}"
+SPECTROGRAM_NORM="${SPECTROGRAM_NORM:-freq_minmax}"
+AMP="${AMP:-0}"
 
 N_EVAL_TRACKS="${N_EVAL_TRACKS:-30}"
 MAX_SECONDS="${MAX_SECONDS:-30}"
@@ -304,6 +312,16 @@ case "${WAVEFORM_NORM}" in
   peak|rms|none) ;;
   *) echo "ERROR: WAVEFORM_NORM must be peak|rms|none (got: ${WAVEFORM_NORM})" >&2; exit 2 ;;
 esac
+
+case "${SPECTROGRAM_NORM}" in
+  freq_minmax|none) ;;
+  *) echo "ERROR: SPECTROGRAM_NORM must be freq_minmax|none (got: ${SPECTROGRAM_NORM})" >&2; exit 2 ;;
+esac
+
+if ! [[ "${AMP}" =~ ^[01]$ ]]; then
+  echo "ERROR: AMP must be 0 or 1 (got: ${AMP})" >&2
+  exit 2
+fi
 
 for vname in EVAL_PROGRESS EVAL_PRINT_METRICS; do
   val="${!vname}"
@@ -476,6 +494,8 @@ RUN_INFO="${RUNS_BASE}/run_info_${PARTITION}_${STAMP}.txt"
   echo "min_lr=${MIN_LR}"
   echo "save_every_epochs=${SAVE_EVERY_EPOCHS}"
   echo "waveform_norm=${WAVEFORM_NORM}"
+  echo "spectrogram_norm=${SPECTROGRAM_NORM}"
+  echo "amp=${AMP}"
   echo "device=${DEVICE}"
   echo
   echo "n_eval_tracks=${N_EVAL_TRACKS}"
@@ -500,23 +520,31 @@ echo "=== Phase 1/4: Train ==="
 
 run_train_once() {
   local lr_val="$1"
-  python -m stemmy.train \
-    --data-root "${DATA_ROOT}" \
-    --epochs "${EPOCHS}" \
-    --batch-size "${BATCH_SIZE}" \
-    --lr "${lr_val}" \
-    --weight-decay "${WEIGHT_DECAY}" \
-    --num-workers "${NUM_WORKERS}" \
-    --time-frames "${TIME_FRAMES}" \
-    --max-tracks "${MAX_TRACKS}" \
-    --base-channels "${BASE_CHANNELS}" \
-    --lr-factor "${LR_FACTOR}" \
-    --lr-patience "${LR_PATIENCE}" \
-    --min-lr "${MIN_LR}" \
-    --waveform-norm "${WAVEFORM_NORM}" \
-    --checkpoint-dir "${CKPT_DIR}" \
-    --save-every-epochs "${SAVE_EVERY_EPOCHS}" \
+  local -a train_args=(
+    --data-root "${DATA_ROOT}"
+    --epochs "${EPOCHS}"
+    --batch-size "${BATCH_SIZE}"
+    --lr "${lr_val}"
+    --weight-decay "${WEIGHT_DECAY}"
+    --num-workers "${NUM_WORKERS}"
+    --time-frames "${TIME_FRAMES}"
+    --max-tracks "${MAX_TRACKS}"
+    --base-channels "${BASE_CHANNELS}"
+    --lr-factor "${LR_FACTOR}"
+    --lr-patience "${LR_PATIENCE}"
+    --min-lr "${MIN_LR}"
+    --waveform-norm "${WAVEFORM_NORM}"
+    --spectrogram-norm "${SPECTROGRAM_NORM}"
+    --checkpoint-dir "${CKPT_DIR}"
+    --save-every-epochs "${SAVE_EVERY_EPOCHS}"
     --device "${DEVICE}"
+  )
+
+  if [[ "${AMP}" == "1" ]]; then
+    train_args+=(--amp)
+  fi
+
+  python -m stemmy.train "${train_args[@]}"
 }
 
 TRAIN_LR="${LR}"
@@ -635,4 +663,3 @@ echo "Best .pt:     ${BEST_PT}"
 echo "Latest .pth:  ${LATEST_PTH}"
 echo "Latest .pt:   ${LATEST_PT}"
 echo "Latest env:   ${LATEST_ENV}"
-
