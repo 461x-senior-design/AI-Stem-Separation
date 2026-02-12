@@ -140,11 +140,11 @@ def split_magnitude_phase(stft_complex: np.ndarray):
     # Reason:
     # Fail fast with clear error messages when a caller passes an unexpected type/shape.
     # What it does:
-    # Validates that the input is a numpy array and has shape [F, T] or [2, F, T].
+    # Validates that the input is a numpy array and has shape [N], [F, T], or [2, F, T].
     if not isinstance(stft_complex, np.ndarray):
         raise TypeError("stft_complex must be a numpy.ndarray.")
-    if stft_complex.ndim not in (2, 3):
-        raise ValueError("stft_complex must have shape [F, T] or [2, F, T].")
+    if stft_complex.ndim not in (1, 2, 3):
+        raise ValueError("stft_complex must have shape [N], [F, T] (mono), or [2, F, T] (stereo).")
     #########################
 
     magnitude = np.abs(stft_complex)
