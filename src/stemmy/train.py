@@ -24,7 +24,9 @@ Training changes in this version:
 import argparse
 import random
 import time
+from contextlib import nullcontext
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -379,13 +381,52 @@ def kl_div_loss_from_logits(logits: torch.Tensor, target: torch.Tensor, eps: flo
     return loss
 
 
+def _make_grad_scaler(device: torch.device, use_amp: bool) -> Any:
+    """Create an AMP GradScaler without triggering deprecation warnings on new PyTorch."""
+    if not use_amp:
+        try:
+            if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
+                return torch.amp.GradScaler("cuda", enabled=False)
+        except Exception:
+            return torch.cuda.amp.GradScaler(enabled=False)
+        return torch.cuda.amp.GradScaler(enabled=False)
+
+    if device.type != "cuda":
+        return torch.cuda.amp.GradScaler(enabled=False)
+
+    if hasattr(torch, "amp") and hasattr(torch.amp, "GradScaler"):
+        try:
+            return torch.amp.GradScaler("cuda", enabled=True)
+        except TypeError:
+            return torch.amp.GradScaler(enabled=True)
+
+    return torch.cuda.amp.GradScaler(enabled=True)
+
+
+def _autocast_context(device: torch.device, use_amp: bool):
+    """Return an autocast context manager without triggering deprecation warnings."""
+    if not use_amp or device.type != "cuda":
+        return nullcontext()
+
+    if hasattr(torch, "amp") and hasattr(torch.amp, "autocast"):
+        try:
+            return torch.amp.autocast("cuda", dtype=torch.float16)
+        except TypeError:
+            try:
+                return torch.amp.autocast(device_type="cuda", dtype=torch.float16)
+            except TypeError:
+                return torch.cuda.amp.autocast(dtype=torch.float16)
+
+    return torch.cuda.amp.autocast(dtype=torch.float16)
+
+
 def train_one_epoch(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     train_loader: DataLoader,
     device: torch.device,
     use_amp: bool,
-    scaler: torch.cuda.amp.GradScaler,
+    scaler: Any,
 ) -> tuple[float, int]:
     """Run one training epoch and return (mean_loss, num_batches)."""
     model.train()
@@ -399,7 +440,7 @@ def train_one_epoch(
         optimizer.zero_grad(set_to_none=True)
 
         if use_amp:
-            with torch.cuda.amp.autocast(dtype=torch.float16):
+            with _autocast_context(device, use_amp):
                 logits = model(mix_norm)
                 loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
             scaler.scale(loss).backward()
@@ -485,7 +526,7 @@ def main() -> None:
     )
 
     use_amp = bool(args.amp) and (device.type == "cuda")
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    scaler = _make_grad_scaler(device, use_amp)
 
     start_epoch = 0
     global_step = 0
