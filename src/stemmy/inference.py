@@ -172,6 +172,7 @@ def load_pth_model(
     checkpoint_path: Union[str, Path],
     device: str = "cpu",
     stems: int = 4,
+    base_channels: Optional[int] = None,
 ) -> tuple[torch.nn.Module, dict[str, Any]]:
     """Load a training checkpoint dict (.pth) containing 'model_state'."""
     if not isinstance(stems, int) or stems <= 0:
@@ -189,8 +190,19 @@ def load_pth_model(
     if "model_state" not in ckpt:
         raise InferenceException("Checkpoint dict missing 'model_state'.")
 
+    ckpt_cfg = _parse_checkpoint_config(ckpt)
+    if base_channels is None:
+        cfg_base_channels = ckpt_cfg.get("base_channels", None)
+        if isinstance(cfg_base_channels, int) and cfg_base_channels > 0:
+            base_channels = int(cfg_base_channels)
+        else:
+            base_channels = 64
+
+    if not isinstance(base_channels, int) or base_channels <= 0:
+        raise ValueError("base_channels must be a positive int")
+
     dev = torch.device(str(device))
-    model = UNet2D(stems=int(stems)).to(dev)
+    model = UNet2D(stems=int(stems), base_channels=int(base_channels)).to(dev)
 
     missing, unexpected = model.load_state_dict(ckpt["model_state"], strict=False)
     if missing or unexpected:
@@ -697,6 +709,7 @@ def separate_audio_file(
             % (int(model_output.shape[1]), int(len(stem_list)))
         )
 
+    # Training optimizes KL(target || softmax(logits)); inference must mirror that.
     model_output = torch.softmax(model_output, dim=1)
     model_output = torch.clamp(model_output, 0.0, 1.0)
     if cfg.renorm_masks:

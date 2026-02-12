@@ -128,8 +128,23 @@ class Preprocessor:
         # Ensure Stereo
         waveform = ensure_stereo(waveform)
 
-        # Normalize waveform
-        waveform, waveform_params = normalize_waveform(waveform, method=self.waveform_norm)
+        #########################
+        # Change by Ryan:
+        # Reason:
+        # Normalize waveform in a training-aligned way.
+        #
+        # Training computes mono first, then normalizes that mono waveform and applies
+        # the same scalar to stems. To keep inference input distribution aligned with
+        # training, we derive normalization parameters from the mono mixture and then
+        # apply that same scalar to both stereo channels.
+        mono_waveform = waveform.mean(axis=0)
+        _mono_norm, waveform_params = normalize_waveform(mono_waveform, method=self.waveform_norm)
+
+        scale = float(waveform_params.get("scale_factor", 1.0))
+        if scale == 0.0:
+            scale = 1.0
+        waveform = waveform / scale
+        #########################
         processed_length = waveform.shape[-1]
 
         # Compute STFT
