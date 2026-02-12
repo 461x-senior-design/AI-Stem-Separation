@@ -697,6 +697,7 @@ def separate_audio_file(
             % (int(model_output.shape[1]), int(len(stem_list)))
         )
 
+    model_output = torch.softmax(model_output, dim=1)
     model_output = torch.clamp(model_output, 0.0, 1.0)
     if cfg.renorm_masks:
         model_output = _renorm_sum_to_one(model_output, eps=cfg.eps)

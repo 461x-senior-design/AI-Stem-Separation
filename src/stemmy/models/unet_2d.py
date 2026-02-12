@@ -1,17 +1,17 @@
 # src/stemmy/models/unet_2d.py
-"""2D U-Net for spectrogram mask prediction.
+"""2D U-Net for spectrogram mask-logit prediction.
 
 Input:
   x: [B, 1, F, T]  (mono magnitude spectrogram)
 
 Output:
-  masks: [B, S, F, T] in [0, 1] (sigmoid per stem channel)
+  logits: [B, S, F, T] (unnormalized stem logits)
 
 Notes:
 - Spatial padding is applied so the encoder/decoder pooling hierarchy works for
   arbitrary (F, T) sizes. Padding is removed before returning.
-- This model does not enforce sum-to-one across stems. Training/inference code
-  may optionally renormalize masks across the stem dimension.
+- This model intentionally returns raw logits. Training/inference are responsible
+  for applying softmax over stems when probability masks are required.
 """
 
 import torch
@@ -160,7 +160,7 @@ def _upsample_to(x: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
 
 
 class UNet2D(nn.Module):
-    """U-Net for spectrogram mask prediction."""
+    """U-Net for spectrogram mask-logit prediction."""
 
     def __init__(self, stems: int = 4, base_channels: int = 64) -> None:
         """Initialize the U-Net.
@@ -214,7 +214,6 @@ class UNet2D(nn.Module):
         self.dec1 = ConvBlock(c2, c1)
 
         self.out_conv = nn.Conv2d(c1, self.stems, kernel_size=1)
-        self.out_act = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run the U-Net forward.
@@ -223,7 +222,7 @@ class UNet2D(nn.Module):
             x: Input tensor [B, 1, F, T].
 
         Returns:
-            Output masks [B, S, F, T] in [0, 1].
+            Output logits [B, S, F, T] (unnormalized).
 
         Raises:
             ValueError: If x does not have expected shape.
@@ -266,6 +265,6 @@ class UNet2D(nn.Module):
         u1 = _upsample_to(u1, e1)
         d1 = self.dec1(torch.cat([u1, e1], dim=1))
 
-        out = self.out_act(self.out_conv(d1))
+        out = self.out_conv(d1)
         out = unpad(out, pad)
         return out
