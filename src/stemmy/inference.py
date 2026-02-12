@@ -37,7 +37,6 @@ from stemmy.logging_config import get_logger
 from stemmy.models.unet_2d import UNet2D
 from stemmy.postprocessing.pipeline import Postprocessor
 from stemmy.preprocessing.pipeline import Preprocessor
-from stemmy.preprocessing.utility.audio_file_validator import AudioFileValidator
 
 logger = get_logger(__name__)
 
@@ -356,14 +355,6 @@ def _validate_checkpoint_alignment(
             )
 
 
-def _validate_input_audio(audio_path: Path) -> None:
-    """Run audio validation before preprocessing."""
-    validator = AudioFileValidator(str(audio_path))
-    is_valid, message = validator.validate()
-    if not is_valid:
-        raise InferenceException(message)
-
-
 def _renorm_sum_to_one(masks: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """Normalize masks so they sum to 1 across the stem dimension."""
     denom = masks.sum(dim=1, keepdim=True).clamp_min(float(eps))
@@ -667,8 +658,6 @@ def separate_audio_file(
 
     audio_path_p = Path(audio_path).expanduser().resolve()
     output_dir_p = Path(output_dir).expanduser().resolve()
-
-    _validate_input_audio(audio_path_p)
 
     stem_list = stems if stems is not None else list(cfg.stems or [])
     if len(stem_list) == 0:
