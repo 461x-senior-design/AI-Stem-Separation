@@ -14,13 +14,21 @@ Outputs:
 - Checkpoints (*.pth) written to --checkpoint-dir, containing model+optimizer state
   and a small config dict for reproducibility.
 - Optional TorchScript export (*.pt) via --export-ts.
+
+Training changes in this version:
+- Model outputs are treated as logits over stems.
+- Predicted masks are computed with softmax across stems (sum-to-one, differentiable).
+- Loss is KL divergence between target distribution and predicted distribution.
 """
 
 import argparse
+import random
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from stemmy.constants import (
@@ -34,14 +42,15 @@ from stemmy.constants import (
     WIN_LENGTH,
     WINDOW,
 )
-from stemmy.logging_config import setup_logging
+from stemmy.logging_config import get_logger, setup_logging
 from stemmy.models.unet_2d import UNet2D
 from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset
 from stemmy.training.stft import StftConfig
 
-# Local constant: used only by this training entry point unless you choose to share it.
-_MASK_RENORM_EPS: float = 1e-8
+logger = get_logger(__name__)
+
+_LOSS_EPS: float = 1e-8
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,7 +61,7 @@ def parse_args() -> argparse.Namespace:
         "--data-root",
         type=str,
         default="/home/ryan/shared/46x/stems/musdb18hq",
-        help="MUSDB18-HQ root directory containing train/ and test/.",
+        help="Root directory containing the dataset splits used by the dataset class.",
     )
 
     p.add_argument("--epochs", type=int, default=1, help="Number of training epochs.")
@@ -148,6 +157,19 @@ def parse_args() -> argparse.Namespace:
         help="cpu, cuda, or leave empty for auto selection.",
     )
 
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=-1,
+        help="If >= 0, seed RNGs for reproducible training behavior.",
+    )
+
+    p.add_argument(
+        "--amp",
+        action="store_true",
+        help="Enable AMP (only applies on CUDA).",
+    )
+
     return p.parse_args()
 
 
@@ -162,11 +184,6 @@ def pick_device(arg: str) -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
-
-
-def l1_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    """L1 loss used for mask regression."""
-    return torch.mean(torch.abs(pred - target))
 
 
 def validate_args(args: argparse.Namespace) -> None:
@@ -202,6 +219,17 @@ def validate_args(args: argparse.Namespace) -> None:
     if not isinstance(args.checkpoint_dir, str) or args.checkpoint_dir.strip() == "":
         raise ValueError("--checkpoint-dir must be a non-empty string")
 
+    data_root_p = Path(args.data_root.strip()).expanduser()
+    if not data_root_p.exists():
+        raise FileNotFoundError(f"--data-root not found: {data_root_p}")
+    if not data_root_p.is_dir():
+        raise NotADirectoryError(f"--data-root must be a directory: {data_root_p}")
+
+    ckpt_dir_p = Path(args.checkpoint_dir.strip()).expanduser()
+    ckpt_dir_p.mkdir(parents=True, exist_ok=True)
+    if not ckpt_dir_p.is_dir():
+        raise NotADirectoryError(f"--checkpoint-dir must be a directory: {ckpt_dir_p}")
+
     if args.resume.strip():
         resume_p = Path(args.resume.strip()).expanduser()
         if not resume_p.exists():
@@ -210,6 +238,23 @@ def validate_args(args: argparse.Namespace) -> None:
             raise IsADirectoryError(
                 f"--resume must point to a .pth file, got directory: {resume_p}"
             )
+
+    if not isinstance(args.seed, int):
+        raise ValueError("--seed must be an int")
+    if args.seed < -1:
+        raise ValueError("--seed must be -1 (disabled) or >= 0")
+
+
+def set_seed(seed: int) -> None:
+    """Seed RNGs for reproducible behavior (without forcing full determinism)."""
+    if seed < 0:
+        return
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def build_dataloaders(
@@ -248,9 +293,11 @@ def build_dataloaders(
 
     train_drop_last = len(train_ds) >= args.batch_size
     if not train_drop_last:
-        print(
-            f"WARNING: train dataset size ({len(train_ds)}) is smaller than batch_size "
-            f"({args.batch_size}); disabling drop_last to avoid zero training batches."
+        logger.warning(
+            "Train dataset size (%d) is smaller than batch_size (%d); disabling drop_last "
+            "to avoid zero training batches.",
+            int(len(train_ds)),
+            int(args.batch_size),
         )
 
     train_loader = DataLoader(
@@ -300,14 +347,36 @@ def build_run_config(
         "max_tracks": args.max_tracks,
         "waveform_norm": args.waveform_norm,
         "spectrogram_norm": args.spectrogram_norm,
-        "mask_renorm_eps": _MASK_RENORM_EPS,
+        "loss": "kl_div(target||pred)",
+        "pred_activation": "softmax_over_stems",
+        "target_mask_mode": "stem_mag / sum_stem_mags",
+        "seed": int(args.seed),
+        "amp": bool(args.amp),
     }
 
 
-def _renorm_sum_to_one(pred_norm: torch.Tensor, eps: float) -> torch.Tensor:
-    """Normalize predicted masks so they sum to one across the stem dimension."""
-    denom = pred_norm.sum(dim=1, keepdim=True) + float(eps)
-    return pred_norm / denom
+def kl_div_loss_from_logits(logits: torch.Tensor, target: torch.Tensor, eps: float) -> torch.Tensor:
+    """KL divergence KL(target || pred) with pred derived from logits via softmax.
+
+    Args:
+        logits: [B, S, F, T]
+        target: [B, S, F, T] distribution over stems (sum-to-one across S)
+        eps: small positive float for numerical stability
+
+    Returns:
+        Scalar loss (mean over B,F,T; sum over S).
+    """
+    if logits.shape != target.shape:
+        raise ValueError(
+            f"logits and target must have same shape, got {logits.shape} vs {target.shape}"
+        )
+
+    log_pred = F.log_softmax(logits, dim=1)
+    target_safe = torch.clamp(target, min=float(eps))
+
+    loss_map = target_safe * (torch.log(target_safe) - log_pred)
+    loss = torch.sum(loss_map, dim=1).mean()
+    return loss
 
 
 def train_one_epoch(
@@ -315,6 +384,8 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     train_loader: DataLoader,
     device: torch.device,
+    use_amp: bool,
+    scaler: torch.cuda.amp.GradScaler,
 ) -> tuple[float, int]:
     """Run one training epoch and return (mean_loss, num_batches)."""
     model.train()
@@ -327,13 +398,18 @@ def train_one_epoch(
 
         optimizer.zero_grad(set_to_none=True)
 
-        pred_norm = model(mix_norm)
-        pred_norm = torch.clamp(pred_norm, 0.0, 1.0)
-        pred_norm = _renorm_sum_to_one(pred_norm, eps=_MASK_RENORM_EPS)
-
-        loss = l1_loss(pred_norm, targets_norm)
-        loss.backward()
-        optimizer.step()
+        if use_amp:
+            with torch.cuda.amp.autocast(dtype=torch.float16):
+                logits = model(mix_norm)
+                loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            logits = model(mix_norm)
+            loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+            loss.backward()
+            optimizer.step()
 
         running += float(loss.detach().cpu().item())
         batches += 1
@@ -357,11 +433,9 @@ def eval_one_epoch(
             mix_norm = mix_norm.to(device, non_blocking=True)
             targets_norm = targets_norm.to(device, non_blocking=True)
 
-            pred_norm = model(mix_norm)
-            pred_norm = torch.clamp(pred_norm, 0.0, 1.0)
-            pred_norm = _renorm_sum_to_one(pred_norm, eps=_MASK_RENORM_EPS)
+            logits = model(mix_norm)
+            v_loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
 
-            v_loss = l1_loss(pred_norm, targets_norm)
             running += float(v_loss.cpu().item())
             batches += 1
 
@@ -375,6 +449,8 @@ def main() -> None:
 
     args = parse_args()
     validate_args(args)
+
+    set_seed(args.seed)
 
     device = pick_device(args.device)
 
@@ -408,6 +484,9 @@ def main() -> None:
         min_lr=args.min_lr,
     )
 
+    use_amp = bool(args.amp) and (device.type == "cuda")
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+
     start_epoch = 0
     global_step = 0
 
@@ -419,9 +498,12 @@ def main() -> None:
             optimizer,
             map_location=device,
         )
-        print(
-            f"Resumed from {ckpt_path}: epoch={start_epoch}, step={global_step}, "
-            f"extra_keys={list(extra.keys())}"
+        logger.info(
+            "Resumed from %s: epoch=%d step=%d extra_keys=%s",
+            ckpt_path,
+            int(start_epoch),
+            int(global_step),
+            list(extra.keys()),
         )
 
     config = build_run_config(args, device, stft_cfg, crop_cfg)
@@ -432,7 +514,14 @@ def main() -> None:
     for epoch in range(start_epoch, args.epochs):
         t0 = time.time()
 
-        train_loss, train_batches = train_one_epoch(model, optimizer, train_loader, device)
+        train_loss, train_batches = train_one_epoch(
+            model=model,
+            optimizer=optimizer,
+            train_loader=train_loader,
+            device=device,
+            use_amp=use_amp,
+            scaler=scaler,
+        )
         global_step += train_batches
 
         val_loss, _val_batches = eval_one_epoch(model, val_loader, device)
@@ -441,10 +530,14 @@ def main() -> None:
 
         dt = time.time() - t0
         lr_now = float(optimizer.param_groups[0].get("lr", args.lr))
-        print(
-            f"Epoch {epoch + 1}/{args.epochs} - "
-            f"lr={lr_now:.6e} train_loss={train_loss:.6f} val_loss={val_loss:.6f} - "
-            f"time={dt:.1f}s"
+        logger.info(
+            "Epoch %d/%d - lr=%.6e train_loss=%.6f val_loss=%.6f - time=%.1fs",
+            int(epoch + 1),
+            int(args.epochs),
+            float(lr_now),
+            float(train_loss),
+            float(val_loss),
+            float(dt),
         )
 
         do_save = ((epoch + 1) % args.save_every_epochs) == 0
@@ -459,13 +552,13 @@ def main() -> None:
                 step=global_step,
                 extra=extra,
             )
-            print(f"Saved checkpoint: {ckpt_path}")
+            logger.info("Saved checkpoint: %s", str(ckpt_path))
 
             if args.export_ts:
                 ts_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt"
                 export_torchscript(str(ts_path), model)
-                print(f"Exported TorchScript: {ts_path}")
+                logger.info("Exported TorchScript: %s", str(ts_path))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

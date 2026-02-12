@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
+# scripts/separate_one.sh
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage:
   scripts/separate_one.sh [--env PATH]
-                          [--partition dgx2|dgxh]
+                          [--partition dgx2|dgxh|gpu|ampere]
                           [--checkpoint PATH]
                           [--input-wav PATH] [--data-root PATH --input-rel RELPATH]
                           [--output-base DIR]
                           [--device cpu|cuda|cuda:N]
 
-Defaults are loaded from scripts/stemmy.env if present.
+Defaults are loaded from scripts/stemmy.env if present. Flags override env.
 
 Checkpoint resolution (in order):
   1) --checkpoint PATH (explicit)
@@ -23,7 +24,7 @@ Input resolution:
 
 Examples:
   scripts/separate_one.sh --partition dgxh
-  scripts/separate_one.sh --partition dgxh --input-wav "/path/to/song.wav"
+  scripts/separate_one.sh --partition ampere --input-wav "/path/to/song.wav"
   scripts/separate_one.sh --checkpoint "/path/to/model.pth" --input-wav "/path/to/song.wav"
 EOF
 }
@@ -38,9 +39,30 @@ INPUT_REL=""
 OUTPUT_BASE=""
 DEVICE=""
 
+# Parse --env first (so we can load the right env file before reading other defaults)
+ARGS=("$@")
+i=0
+while [[ $i -lt ${#ARGS[@]} ]]; do
+  case "${ARGS[$i]}" in
+    --env)
+      ENV_FILE="${ARGS[$((i+1))]:-}"
+      break
+      ;;
+  esac
+  i=$((i+1))
+done
+
+# Load defaults early so flags override env
+if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+fi
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --env) ENV_FILE="${2:-}"; shift 2 ;;
+    --env) ENV_FILE="${2:-}"; shift 2 ;; # already loaded above; keep for UX symmetry
     --partition) PARTITION="${2:-}"; shift 2 ;;
     --checkpoint) CHECKPOINT="${2:-}"; shift 2 ;;
     --input-wav) INPUT_WAV="${2:-}"; shift 2 ;;
@@ -53,24 +75,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Load defaults
-if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-fi
-
 # Partition: used only for resolving latest checkpoint name
 if [[ -z "${PARTITION}" ]]; then
   PARTITION="${DEFAULT_PARTITION:-}"
 fi
 if [[ -z "${PARTITION}" ]]; then
-  echo "ERROR: --partition required (dgx2|dgxh), or set DEFAULT_PARTITION in scripts/stemmy.env" >&2
+  echo "ERROR: --partition required (dgx2|dgxh|gpu|ampere), or set DEFAULT_PARTITION in scripts/stemmy.env" >&2
   exit 2
 fi
-if [[ "${PARTITION}" != "dgx2" && "${PARTITION}" != "dgxh" ]]; then
-  echo "ERROR: --partition must be dgx2 or dgxh" >&2
+if [[ "${PARTITION}" != "dgx2" && "${PARTITION}" != "dgxh" && "${PARTITION}" != "gpu" && "${PARTITION}" != "ampere" ]]; then
+  echo "ERROR: --partition must be dgx2 or dgxh or gpu or ampere" >&2
   exit 2
 fi
 

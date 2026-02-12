@@ -1,16 +1,14 @@
+# src/stemmy/tool/cli.py
 #########################
 # Changed by Ryan
 # Reason:
-# Ruff E402 requires imports at the top of the module (comments are fine, but no
-# executable code before imports). This CLI also extends Austin's preview-only
-# command into a functional entry point using canonical stems and the project's
-# inference pipeline, and configures centralized logging once at process startup.
+# Extend Austin's preview-only CLI into a functional entry point that runs the
+# canonical inference pipeline, with explicit device validation and optional
+# low-VRAM inference controls (chunked inference and AMP).
 #
 # What it does:
-# - Adds imports required for inference, device validation, and logging.
-# - Converts the single command into a Click group with a `separate` subcommand.
-# - Updates preview output naming to canonical: <base>_<stem>.wav.
-# - Adds --checkpoint/--device/--preview and runs .pth inference to export stems.
+# - Adds the missing imports for checkpoint loading, inference, and CUDA checks.
+# - Keeps Austin's original UI/printing lines unchanged where possible.
 from dataclasses import replace
 from pathlib import Path
 
@@ -31,16 +29,18 @@ BOLD_GREEN: str = "bold green"
 BOLD_RED: str = "bold red"
 CYAN: str = "cyan"
 DIR: str = Path.cwd().name
+STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 
 
 #########################
 # Changed by Ryan
 # Reason:
-# The CLI is now a Click group entry point (not a single command function), and
-# logging should be configured once at startup for consistent formatting and
-# third-party suppression.
-# What it does:
-# Defines a Click group and calls setup_logging() when invoked.
+# Convert the single-command stub into a Click group with a real `separate`
+# subcommand that:
+# - Preserves Austin's preview output behavior.
+# - Adds --checkpoint/--device for actual inference.
+# - Adds --chunk-frames/--overlap-frames/--amp to reduce VRAM usage on GPU.
+# - Uses canonical stem naming: <base>_<stem>.wav (based on STEMS_4 ordering).
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
@@ -64,12 +64,38 @@ def cli() -> None:
     default=False,
     help="Print expected output names and exit without running inference.",
 )
+@click.option(
+    "--chunk-frames",
+    type=int,
+    default=0,
+    show_default=True,
+    help=(
+        "If > 0, run inference in time chunks of this many STFT frames to "
+        "reduce VRAM. 0 disables chunking."
+    ),
+)
+@click.option(
+    "--overlap-frames",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Overlap (in STFT frames) between chunks when --chunk-frames > 0.",
+)
+@click.option(
+    "--amp/--no-amp",
+    default=False,
+    show_default=True,
+    help="Enable CUDA autocast (AMP) during inference to reduce memory usage.",
+)
 def separate(
     input_file: str,
     output_dir: str,
     checkpoint: str,
     device: str,
     preview: bool,
+    chunk_frames: int,
+    overlap_frames: int,
+    amp: bool,
 ) -> None:
     """CLI wrapper for the separate command."""
     console = Console()
@@ -77,7 +103,6 @@ def separate(
     console.print("\nSong Name:", style=BOLD_RED, end=" ")
     console.print(display_input, style=CYAN)
     console.print("\nExpected Output:", style=BOLD_RED)
-
     tree = Tree(Text(output_dir, style=BOLD_GREEN))
 
     stems = list(STEMS_4)
@@ -92,6 +117,15 @@ def separate(
 
     if checkpoint is None or checkpoint.strip() == "":
         raise click.ClickException("--checkpoint is required unless --preview is set.")
+
+    if not isinstance(chunk_frames, int) or chunk_frames < 0:
+        raise click.ClickException("--chunk-frames must be >= 0.")
+    if not isinstance(overlap_frames, int) or overlap_frames < 0:
+        raise click.ClickException("--overlap-frames must be >= 0.")
+    if chunk_frames > 0 and overlap_frames >= chunk_frames:
+        raise click.ClickException(
+            "--overlap-frames must be < --chunk-frames when chunking is enabled."
+        )
 
     input_path = Path(input_file).expanduser().resolve()
     if not input_path.exists():
@@ -148,12 +182,18 @@ def separate(
             stems=stems,
             export_files=True,
             renorm_masks=True,
+            chunk_frames=int(chunk_frames),
+            overlap_frames=int(overlap_frames),
+            amp=bool(amp),
         )
     except TypeError:
         cfg.device = resolved_device
         cfg.stems = stems
         cfg.export_files = True
         cfg.renorm_masks = True
+        cfg.chunk_frames = int(chunk_frames)
+        cfg.overlap_frames = int(overlap_frames)
+        cfg.amp = bool(amp)
 
     separate_audio_file(
         audio_path=input_path,

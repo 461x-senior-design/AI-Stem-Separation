@@ -14,6 +14,7 @@ Critical project invariant:
   In particular, the `center` setting must be consistent with `stemmy.constants.STFT_CENTER`.
 """
 
+import contextlib
 import inspect
 from dataclasses import dataclass
 from pathlib import Path
@@ -82,6 +83,13 @@ class InferenceConfig:
     renorm_masks: bool = True
     validate_outputs: bool = True
 
+    # Optional low-memory inference controls (time-chunked model execution)
+    chunk_frames: int = 0
+    overlap_frames: int = 0
+
+    # Optional mixed precision inference control (only applicable on CUDA)
+    amp: bool = False
+
 
 @dataclass(frozen=True)
 class StemOutputs:
@@ -139,6 +147,9 @@ def _ensure_cfg_stems(cfg: InferenceConfig) -> InferenceConfig:
             export_files=cfg.export_files,
             renorm_masks=cfg.renorm_masks,
             validate_outputs=cfg.validate_outputs,
+            chunk_frames=cfg.chunk_frames,
+            overlap_frames=cfg.overlap_frames,
+            amp=cfg.amp,
         )
     return cfg
 
@@ -260,6 +271,9 @@ def config_from_checkpoint(ckpt: Mapping[str, Any]) -> InferenceConfig:
         export_files=_coerce_bool(cfg.get("export_files", True), True),
         renorm_masks=_coerce_bool(cfg.get("renorm_masks", True), True),
         validate_outputs=_coerce_bool(cfg.get("validate_outputs", True), True),
+        chunk_frames=_coerce_int(cfg.get("chunk_frames", 0), 0),
+        overlap_frames=_coerce_int(cfg.get("overlap_frames", 0), 0),
+        amp=_coerce_bool(cfg.get("amp", False), False),
     )
     inferred = _ensure_cfg_stems(inferred)
 
@@ -546,6 +560,87 @@ def _validate_stem_outputs(outputs: StemOutputs, stems: Sequence[str], export_fi
             raise InferenceException("export_files=False but outputs.paths is not empty.")
 
 
+def _infer_autocast_context(device: torch.device, amp: bool) -> Any:
+    """Return an autocast context appropriate for the device."""
+    if not amp:
+        return contextlib.nullcontext()
+
+    if device.type != "cuda":
+        return contextlib.nullcontext()
+
+    try:
+        return torch.amp.autocast(device_type="cuda")
+    except AttributeError:
+        return torch.cuda.amp.autocast()
+
+
+def _validate_chunk_settings(cfg: InferenceConfig, t_frames: int) -> tuple[int, int]:
+    """Validate and normalize chunking settings for model execution."""
+    chunk = int(cfg.chunk_frames)
+    overlap = int(cfg.overlap_frames)
+
+    if chunk <= 0:
+        return 0, 0
+
+    if t_frames <= 0:
+        raise InferenceException("Invalid input tensor time dimension (T <= 0).")
+
+    if chunk < 1:
+        raise InferenceException("chunk_frames must be >= 1 when enabled.")
+    if overlap < 0:
+        raise InferenceException("overlap_frames must be >= 0.")
+    if overlap >= chunk:
+        raise InferenceException("overlap_frames must be < chunk_frames.")
+    if chunk > t_frames:
+        chunk = t_frames
+    return chunk, overlap
+
+
+def _run_model_forward(
+    model: torch.nn.Module,
+    input_tensor: torch.Tensor,
+    device: torch.device,
+    cfg: InferenceConfig,
+) -> torch.Tensor:
+    """Run model forward, optionally with chunking and AMP."""
+    t_frames = int(input_tensor.shape[-1])
+    chunk, overlap = _validate_chunk_settings(cfg, t_frames)
+
+    with torch.inference_mode():
+        with _infer_autocast_context(device, bool(cfg.amp)):
+            if chunk <= 0:
+                out = model(input_tensor)
+                if not isinstance(out, torch.Tensor):
+                    raise InferenceException("Model did not return a torch.Tensor.")
+                return out
+
+            step = chunk - overlap
+            if step <= 0:
+                raise InferenceException("Invalid chunk/overlap configuration.")
+
+            outs: list[torch.Tensor] = []
+            for start in range(0, t_frames, step):
+                end = min(start + chunk, t_frames)
+                x_chunk = input_tensor[..., start:end]
+                out_chunk = model(x_chunk)
+                if not isinstance(out_chunk, torch.Tensor):
+                    raise InferenceException("Model did not return a torch.Tensor.")
+                outs.append(out_chunk)
+
+            out_full = torch.cat(outs, dim=-1)
+
+            expected = t_frames
+            got = int(out_full.shape[-1])
+            if got < expected:
+                raise InferenceException(
+                    "Chunked inference produced too few frames: expected %d got %d."
+                    % (expected, got)
+                )
+            if got > expected:
+                out_full = out_full[..., :expected]
+            return out_full
+
+
 def separate_audio_file(
     audio_path: Union[str, Path],
     model: torch.nn.Module,
@@ -585,11 +680,8 @@ def separate_audio_file(
     model = model.to(device)
     input_tensor = input_tensor.to(device)
 
-    with torch.no_grad():
-        model_output = model(input_tensor)
+    model_output = _run_model_forward(model, input_tensor, device, cfg)
 
-    if not isinstance(model_output, torch.Tensor):
-        raise InferenceException("Model did not return a torch.Tensor.")
     if model_output.ndim != 4:
         raise InferenceException("Model output must have shape [B, S, F, T].")
     if model_output.shape[0] != input_tensor.shape[0]:

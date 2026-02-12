@@ -5,7 +5,10 @@ This dataset:
 - loads aligned mixture + stem audio from the MUSDB18-HQ folder layout
 - extracts a fixed-length mono waveform segment
 - computes mono STFT magnitude (using StftConfig, including `center`)
-- computes per-stem ratio masks and renormalizes them to sum-to-one
+- computes per-stem ratio masks as:
+      target_s = stem_mag_s / (sum_s(stem_mag_s) + eps)
+  which yields a per-(F,T) distribution over stems (sum-to-one across stems)
+- optionally normalizes the mixture magnitude spectrogram for model input
 
 Returned tensors:
 - mix_norm:     [1, F, T] float32 normalized mixture magnitude
@@ -214,7 +217,6 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 f"Sample rate mismatch for {wav_path}: got {sr}, expected {expected_sr}"
             )
 
-        # soundfile with always_2d=True returns shape [frames, channels]
         mono = audio.mean(axis=1)
         mono_t = torch.from_numpy(mono).to(torch.float32)
 
@@ -276,7 +278,6 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         mix_wav = self._read_mono_segment(mix_path, start, self.segment_samples)
 
-        # Waveform normalization uses the shared preprocessing function for consistent behavior.
         mix_wav_np = mix_wav.detach().cpu().numpy()
         mix_wav_np, mix_norm_params = normalize_waveform(mix_wav_np, method=self.waveform_norm)
         mix_scale = float(mix_norm_params.get("scale_factor", 1.0))
@@ -289,33 +290,38 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 f"{self.crop_cfg.time_frames}"
             )
 
-        eps_mag = self._dtype_eps(mix_mag)
-        mix_mag_safe = mix_mag + eps_mag
-
         if self.spectrogram_norm == "none":
             mix_norm = mix_mag
         else:
             mix_norm, _f_min, _f_max = freq_minmax_normalize(mix_mag)
 
-        target_masks: List[torch.Tensor] = []
+        stem_mags: List[torch.Tensor] = []
         for stem in self.stems:
             stem_path = track_dir / f"{stem}.wav"
             stem_wav = self._read_mono_segment(stem_path, start, self.segment_samples)
 
-            # Apply the same mixture scale factor to stems to keep mask math consistent.
             if mix_scale != 0.0:
                 stem_wav = stem_wav / mix_scale
 
             stem_mag, _ = stft_mag_phase_mono(stem_wav, self.stft_cfg)
+            stem_mags.append(stem_mag)
 
-            stem_mask = stem_mag / mix_mag_safe
-            stem_mask = torch.clamp(stem_mask, 0.0, 1.0)
-            target_masks.append(stem_mask)
+        denom = torch.zeros_like(stem_mags[0])
+        for sm in stem_mags:
+            denom = denom + sm
+
+        eps = max(self._dtype_eps(denom), 1e-8)
+        denom_safe = denom + float(eps)
+
+        target_masks: List[torch.Tensor] = []
+        for sm in stem_mags:
+            target_masks.append(sm / denom_safe)
 
         mix_norm = mix_norm.unsqueeze(0)  # [1, F, T]
         targets_norm = torch.stack(target_masks, dim=0)  # [S, F, T]
 
-        eps_targets = max(eps_mag, 1e-8)
-        targets_norm = targets_norm / (targets_norm.sum(dim=0, keepdim=True) + eps_targets)
+        targets_sum = targets_norm.sum(dim=0, keepdim=False)
+        if not torch.isfinite(targets_sum).all():
+            raise RuntimeError("Non-finite target masks encountered.")
 
         return mix_norm, targets_norm

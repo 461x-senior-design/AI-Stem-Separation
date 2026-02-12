@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
+# scripts/train_eval_export.sh
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/train_eval_export.sh [--env PATH] --partition dgx2|dgxh [overrides...]
+  scripts/train_eval_export.sh [--env PATH] --partition dgx2|dgxh|gpu|ampere [overrides...]
 
 This runs:
   1) training
@@ -36,10 +37,24 @@ Common overrides:
   --max-seconds N
   --waveform-norm peak|rms|none
 
+Optional training retry behavior (OFF by default):
+  --lr-backoff 0|1
+  --lr-backoff-factor FLOAT      (multiplier in (0,1); default 0.5)
+  --lr-backoff-max-tries N       (default 3)
+
+Eval progress + durability overrides (passed into stemmy.tool.fullsong_eval_masked.py):
+  --eval-progress 0|1
+  --eval-print-metrics 0|1
+  --eval-flush-every N
+  --eval-fsync-every N     (0 disables)
+  --eval-print-every-tracks N
+
 Example (fast smoke test):
-  PYTHONUNBUFFERED=1 scripts/train_eval_export.sh --partition dgx2 \
+  PYTHONUNBUFFERED=1 scripts/train_eval_export.sh --partition gpu \
     --epochs 1 --max-tracks 1 --time-frames 256 --batch-size 1 --num-workers 0 \
-    --save-every-epochs 1 --n-eval-tracks 1 --max-seconds 5 --device cuda
+    --save-every-epochs 1 --n-eval-tracks 1 --max-seconds 5 --device cuda \
+    --eval-progress 1 --eval-print-metrics 0 --eval-flush-every 1 --eval-fsync-every 0 \
+    --lr-backoff 0
 EOF
 }
 
@@ -70,7 +85,19 @@ MAX_SECONDS=""
 NUM_WORKERS=""
 BATCH_SIZE=""   # if set, skip probing
 
-# Load env defaults FIRST so CLI flags can override.
+# Optional LR backoff / retry (default OFF)
+LR_BACKOFF=""
+LR_BACKOFF_FACTOR=""
+LR_BACKOFF_MAX_TRIES=""
+
+# Eval controls (forwarded as env vars to stemmy.tool.fullsong_eval_masked.py)
+EVAL_PROGRESS=""
+EVAL_PRINT_METRICS=""
+EVAL_FLUSH_EVERY=""
+EVAL_FSYNC_EVERY=""
+EVAL_PRINT_EVERY_TRACKS=""
+
+# Load env defaults FIRST so CLI flags override.
 if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -83,7 +110,6 @@ while [[ $# -gt 0 ]]; do
     --env)
       ENV_FILE="${2:-}"
       shift 2
-      # If caller specified a different env file, load it now.
       if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
         set -a
         # shellcheck disable=SC1090
@@ -91,7 +117,9 @@ while [[ $# -gt 0 ]]; do
         set +a
       fi
       ;;
+
     --partition) PARTITION="${2:-}"; shift 2 ;;
+
     --onid) ONID="${2:-}"; shift 2 ;;
     --data-root) DATA_ROOT="${2:-}"; shift 2 ;;
     --runs-base) RUNS_BASE="${2:-}"; shift 2 ;;
@@ -115,6 +143,16 @@ while [[ $# -gt 0 ]]; do
     --num-workers) NUM_WORKERS="${2:-}"; shift 2 ;;
     --batch-size) BATCH_SIZE="${2:-}"; shift 2 ;;
 
+    --lr-backoff) LR_BACKOFF="${2:-}"; shift 2 ;;
+    --lr-backoff-factor) LR_BACKOFF_FACTOR="${2:-}"; shift 2 ;;
+    --lr-backoff-max-tries) LR_BACKOFF_MAX_TRIES="${2:-}"; shift 2 ;;
+
+    --eval-progress) EVAL_PROGRESS="${2:-}"; shift 2 ;;
+    --eval-print-metrics) EVAL_PRINT_METRICS="${2:-}"; shift 2 ;;
+    --eval-flush-every) EVAL_FLUSH_EVERY="${2:-}"; shift 2 ;;
+    --eval-fsync-every) EVAL_FSYNC_EVERY="${2:-}"; shift 2 ;;
+    --eval-print-every-tracks) EVAL_PRINT_EVERY_TRACKS="${2:-}"; shift 2 ;;
+
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -122,11 +160,11 @@ done
 
 # Partition required
 if [[ -z "${PARTITION}" ]]; then
-  echo "ERROR: --partition required (dgx2|dgxh)" >&2
+  echo "ERROR: --partition required (dgx2|dgxh|gpu|ampere)" >&2
   exit 2
 fi
-if [[ "${PARTITION}" != "dgx2" && "${PARTITION}" != "dgxh" ]]; then
-  echo "ERROR: --partition must be dgx2 or dgxh" >&2
+if [[ "${PARTITION}" != "dgx2" && "${PARTITION}" != "dgxh" && "${PARTITION}" != "gpu" && "${PARTITION}" != "ampere" ]]; then
+  echo "ERROR: --partition must be dgx2 or dgxh or gpu or ampere" >&2
   exit 2
 fi
 
@@ -182,7 +220,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
   GPU_MEM_MIB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n 1 | tr -d '\r')"
 fi
 
-# Defaults (env can override, CLI overrides env already because we source first)
+# Defaults (env can override, CLI overrides env already)
 EPOCHS="${EPOCHS:-300}"
 LR="${LR:-1e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-1e-6}"
@@ -198,19 +236,48 @@ WAVEFORM_NORM="${WAVEFORM_NORM:-peak}"
 N_EVAL_TRACKS="${N_EVAL_TRACKS:-30}"
 MAX_SECONDS="${MAX_SECONDS:-30}"
 
+# Optional LR backoff defaults (OFF)
+LR_BACKOFF="${LR_BACKOFF:-0}"
+LR_BACKOFF_FACTOR="${LR_BACKOFF_FACTOR:-0.5}"
+LR_BACKOFF_MAX_TRIES="${LR_BACKOFF_MAX_TRIES:-3}"
+
+# Eval controls default from env (or fallback)
+EVAL_PROGRESS="${EVAL_PROGRESS:-1}"
+EVAL_PRINT_METRICS="${EVAL_PRINT_METRICS:-0}"
+EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY:-1}"
+EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY:-0}"
+EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS:-1}"
+
 # Validate key ints
 if [[ "${TIME_FRAMES}" != "256" && "${TIME_FRAMES}" != "512" ]]; then
   echo "ERROR: TIME_FRAMES must be 256 or 512" >&2
   exit 2
 fi
 
-for vname in EPOCHS BASE_CHANNELS LR_PATIENCE SAVE_EVERY_EPOCHS N_EVAL_TRACKS MAX_SECONDS MAX_TRACKS; do
+for vname in EPOCHS BASE_CHANNELS LR_PATIENCE SAVE_EVERY_EPOCHS N_EVAL_TRACKS MAX_SECONDS MAX_TRACKS LR_BACKOFF_MAX_TRIES; do
   val="${!vname}"
   if ! [[ "${val}" =~ ^[0-9]+$ ]]; then
     echo "ERROR: ${vname} must be an integer (got: ${val})" >&2
     exit 2
   fi
 done
+
+if ! [[ "${LR_BACKOFF}" =~ ^[01]$ ]]; then
+  echo "ERROR: LR_BACKOFF must be 0 or 1 (got: ${LR_BACKOFF})" >&2
+  exit 2
+fi
+
+python - <<PY
+import sys
+try:
+    f = float("${LR_BACKOFF_FACTOR}")
+except Exception:
+    print("ERROR: LR_BACKOFF_FACTOR must be a float (got: ${LR_BACKOFF_FACTOR})", file=sys.stderr)
+    sys.exit(2)
+if not (0.0 < f < 1.0):
+    print("ERROR: LR_BACKOFF_FACTOR must be in (0,1) (got: %s)" % "${LR_BACKOFF_FACTOR}", file=sys.stderr)
+    sys.exit(2)
+PY
 
 if [[ "${EPOCHS}" -le 0 ]]; then
   echo "ERROR: EPOCHS must be > 0" >&2
@@ -228,19 +295,58 @@ if [[ "${SAVE_EVERY_EPOCHS}" -le 0 ]]; then
   echo "ERROR: SAVE_EVERY_EPOCHS must be > 0" >&2
   exit 2
 fi
+if [[ "${LR_BACKOFF_MAX_TRIES}" -le 0 ]]; then
+  echo "ERROR: LR_BACKOFF_MAX_TRIES must be > 0" >&2
+  exit 2
+fi
 
 case "${WAVEFORM_NORM}" in
   peak|rms|none) ;;
   *) echo "ERROR: WAVEFORM_NORM must be peak|rms|none (got: ${WAVEFORM_NORM})" >&2; exit 2 ;;
 esac
 
+for vname in EVAL_PROGRESS EVAL_PRINT_METRICS; do
+  val="${!vname}"
+  if ! [[ "${val}" =~ ^[01]$ ]]; then
+    echo "ERROR: ${vname} must be 0 or 1 (got: ${val})" >&2
+    exit 2
+  fi
+done
+
+for vname in EVAL_FLUSH_EVERY EVAL_FSYNC_EVERY EVAL_PRINT_EVERY_TRACKS; do
+  val="${!vname}"
+  if ! [[ "${val}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: ${vname} must be an integer (got: ${val})" >&2
+    exit 2
+  fi
+done
+if [[ "${EVAL_FLUSH_EVERY}" -le 0 ]]; then
+  echo "ERROR: EVAL_FLUSH_EVERY must be > 0" >&2
+  exit 2
+fi
+if [[ "${EVAL_PRINT_EVERY_TRACKS}" -le 0 ]]; then
+  echo "ERROR: EVAL_PRINT_EVERY_TRACKS must be > 0" >&2
+  exit 2
+fi
+
 # Derive NUM_WORKERS if not explicitly set
+NUM_WORKERS_MAX="${NUM_WORKERS_MAX:-24}"
+if ! [[ "${NUM_WORKERS_MAX}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: NUM_WORKERS_MAX must be an integer (got: ${NUM_WORKERS_MAX})" >&2
+  exit 2
+fi
+
 if [[ -z "${NUM_WORKERS:-}" ]]; then
   if [[ "${PARTITION}" == "dgxh" ]]; then
     NUM_WORKERS="24"
   else
     NUM_WORKERS="16"
   fi
+
+  if [[ "${NUM_WORKERS}" -gt "${NUM_WORKERS_MAX}" ]]; then
+    NUM_WORKERS="${NUM_WORKERS_MAX}"
+  fi
+
   if [[ -n "${SLURM_CPUS_PER_TASK:-}" && "${SLURM_CPUS_PER_TASK}" =~ ^[0-9]+$ ]]; then
     cap=$(( SLURM_CPUS_PER_TASK - 2 ))
     if [[ "${cap}" -lt 0 ]]; then cap=0; fi
@@ -275,7 +381,6 @@ else
     fi
   fi
 
-  # Derive F from n_fft to avoid importing repo constants in the probe.
   N_FFT="${N_FFT:-4096}"
   if ! [[ "${N_FFT}" =~ ^[0-9]+$ ]] || [[ "${N_FFT}" -le 0 ]]; then
     echo "ERROR: N_FFT must be a positive integer if set (got: ${N_FFT})" >&2
@@ -376,38 +481,100 @@ RUN_INFO="${RUNS_BASE}/run_info_${PARTITION}_${STAMP}.txt"
   echo "n_eval_tracks=${N_EVAL_TRACKS}"
   echo "max_seconds=${MAX_SECONDS}"
   echo
+  echo "lr_backoff=${LR_BACKOFF}"
+  echo "lr_backoff_factor=${LR_BACKOFF_FACTOR}"
+  echo "lr_backoff_max_tries=${LR_BACKOFF_MAX_TRIES}"
+  echo
+  echo "eval_progress=${EVAL_PROGRESS}"
+  echo "eval_print_metrics=${EVAL_PRINT_METRICS}"
+  echo "eval_flush_every=${EVAL_FLUSH_EVERY}"
+  echo "eval_fsync_every=${EVAL_FSYNC_EVERY}"
+  echo "eval_print_every_tracks=${EVAL_PRINT_EVERY_TRACKS}"
+  echo
   echo "ckpt_dir=${CKPT_DIR}"
   echo "eval_dir=${EVAL_DIR}"
   echo "best_dir=${BEST_DIR}"
 } | tee "${RUN_INFO}" >/dev/null
 
 echo "=== Phase 1/4: Train ==="
-python -m stemmy.train \
-  --data-root "${DATA_ROOT}" \
-  --epochs "${EPOCHS}" \
-  --batch-size "${BATCH_SIZE}" \
-  --lr "${LR}" \
-  --weight-decay "${WEIGHT_DECAY}" \
-  --num-workers "${NUM_WORKERS}" \
-  --time-frames "${TIME_FRAMES}" \
-  --max-tracks "${MAX_TRACKS}" \
-  --base-channels "${BASE_CHANNELS}" \
-  --lr-factor "${LR_FACTOR}" \
-  --lr-patience "${LR_PATIENCE}" \
-  --min-lr "${MIN_LR}" \
-  --waveform-norm "${WAVEFORM_NORM}" \
-  --checkpoint-dir "${CKPT_DIR}" \
-  --save-every-epochs "${SAVE_EVERY_EPOCHS}" \
-  --device "${DEVICE}"
+
+run_train_once() {
+  local lr_val="$1"
+  python -m stemmy.train \
+    --data-root "${DATA_ROOT}" \
+    --epochs "${EPOCHS}" \
+    --batch-size "${BATCH_SIZE}" \
+    --lr "${lr_val}" \
+    --weight-decay "${WEIGHT_DECAY}" \
+    --num-workers "${NUM_WORKERS}" \
+    --time-frames "${TIME_FRAMES}" \
+    --max-tracks "${MAX_TRACKS}" \
+    --base-channels "${BASE_CHANNELS}" \
+    --lr-factor "${LR_FACTOR}" \
+    --lr-patience "${LR_PATIENCE}" \
+    --min-lr "${MIN_LR}" \
+    --waveform-norm "${WAVEFORM_NORM}" \
+    --checkpoint-dir "${CKPT_DIR}" \
+    --save-every-epochs "${SAVE_EVERY_EPOCHS}" \
+    --device "${DEVICE}"
+}
+
+TRAIN_LR="${LR}"
+
+if [[ "${LR_BACKOFF}" == "0" ]]; then
+  run_train_once "${TRAIN_LR}"
+else
+  attempt=1
+  while [[ "${attempt}" -le "${LR_BACKOFF_MAX_TRIES}" ]]; do
+    echo "Train attempt ${attempt}/${LR_BACKOFF_MAX_TRIES} with lr=${TRAIN_LR}"
+    set +e
+    run_train_once "${TRAIN_LR}"
+    rc=$?
+    set -e
+    if [[ "${rc}" -eq 0 ]]; then
+      break
+    fi
+
+    if [[ "${attempt}" -ge "${LR_BACKOFF_MAX_TRIES}" ]]; then
+      echo "ERROR: Training failed after ${LR_BACKOFF_MAX_TRIES} attempt(s)." >&2
+      exit "${rc}"
+    fi
+
+    next_lr="$(python - <<PY
+lr = float("${TRAIN_LR}")
+factor = float("${LR_BACKOFF_FACTOR}")
+print(lr * factor)
+PY
+)"
+    below_min="$(python - <<PY
+lr = float("${next_lr}")
+min_lr = float("${MIN_LR}")
+print("1" if lr < min_lr else "0")
+PY
+)"
+    if [[ "${below_min}" == "1" ]]; then
+      echo "ERROR: Next lr (${next_lr}) would fall below min_lr (${MIN_LR})." >&2
+      exit 2
+    fi
+
+    TRAIN_LR="${next_lr}"
+    attempt=$(( attempt + 1 ))
+  done
+fi
 
 echo "=== Phase 2/4: Evaluate checkpoints ==="
+EVAL_PROGRESS="${EVAL_PROGRESS}" \
+EVAL_PRINT_METRICS="${EVAL_PRINT_METRICS}" \
+EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY}" \
+EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY}" \
+EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS}" \
 DATA="${DATA_ROOT}" \
 CKPT_DIR="${CKPT_DIR}" \
 EVAL_DIR="${EVAL_DIR}" \
 DEVICE="${DEVICE}" \
 N_EVAL_TRACKS="${N_EVAL_TRACKS}" \
 MAX_SECONDS="${MAX_SECONDS}" \
-python -m stemmy.tool.fullsong_eval_masked
+PYTHONUNBUFFERED=1 python -u -m stemmy.tool.fullsong_eval_masked
 
 echo "=== Phase 3/4: Select best checkpoint ==="
 SUMMARY_CSV="${EVAL_DIR}/fullsong_eval_summary.csv"

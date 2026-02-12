@@ -12,7 +12,12 @@ import numpy as np
 # The canonical separation contract requires consistent STFT framing defaults across
 # preprocessing/training/inference/postprocessing; importing STFT_CENTER here keeps iSTFT
 # center behavior aligned with the shared project-wide setting.
-from stemmy.constants import STFT_CENTER
+# What it does:
+# - Imports STFT_CENTER and WINDOW from stemmy.constants to keep iSTFT aligned with STFT.
+# - Standardizes freq_minmax epsilon floor to 1e-8 so invert math matches forward normalization.
+from stemmy.constants import STFT_CENTER, WINDOW
+
+_FREQ_MINMAX_EPS = 1e-8
 
 #########################
 
@@ -74,7 +79,7 @@ def denormalize_spectrogram(normalized: np.ndarray, params: dict) -> np.ndarray:
     if method == "freq_minmax":
         f_min = params["f_min"]
         f_max = params["f_max"]
-        denom = np.maximum(f_max - f_min, np.finfo(normalized.dtype).eps)
+        denom = np.maximum(f_max - f_min, _FREQ_MINMAX_EPS)
         return normalized * denom + f_min
     #########################
 
@@ -94,6 +99,7 @@ def compute_istft(
     # end-to-end.
     center: bool = STFT_CENTER,
     #########################
+    window: str = WINDOW,
 ) -> np.ndarray:
     """
     Compute Inverse Short-Time Fourier Transform.
@@ -103,10 +109,19 @@ def compute_istft(
         hop_length: Hop length (must match forward STFT)
         win_length: Window length (must match forward STFT)
         length: Output length in samples (trims/pads to match)
+        center: Whether framing is centered (must match forward STFT)
+        window: Window function name (must match stemmy.constants.WINDOW)
 
     Returns:
         Time-domain waveform, shape [2, N] for stereo
     """
+    if not isinstance(window, str) or window.strip() == "":
+        raise ValueError("window must be a non-empty string.")
+    window = window.strip().lower()
+    expected_window = str(WINDOW).strip().lower()
+    if window != expected_window:
+        raise ValueError("window must match stemmy.constants.WINDOW (%s)." % (str(WINDOW),))
+
     #########################
     # Change by Ryan:
     # Reason:
@@ -119,6 +134,7 @@ def compute_istft(
             win_length=win_length,
             length=length,
             center=center,
+            window=window,
         )
         right = librosa.istft(
             stft_complex[1],
@@ -126,6 +142,7 @@ def compute_istft(
             win_length=win_length,
             length=length,
             center=center,
+            window=window,
         )
     except TypeError:
         left = librosa.istft(
@@ -133,12 +150,14 @@ def compute_istft(
             hop_length=hop_length,
             win_length=win_length,
             length=length,
+            window=window,
         )
         right = librosa.istft(
             stft_complex[1],
             hop_length=hop_length,
             win_length=win_length,
             length=length,
+            window=window,
         )
     #########################
 

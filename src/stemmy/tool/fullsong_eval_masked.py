@@ -15,11 +15,19 @@ EVAL_DIR:      Output directory for CSV results
 DEVICE:        Torch device string (default: "cuda")
 N_EVAL_TRACKS: Number of test tracks to evaluate (default: "30")
 MAX_SECONDS:   Max seconds per track to evaluate (default: "30", 0 = full track)
+
+Optional environment variables (output/progress controls):
+EVAL_PROGRESS:            1 to print checkpoint/track progress to stdout (default: "1")
+EVAL_PRINT_METRICS:       1 to print per-track metrics lines (default: "0")
+EVAL_FLUSH_EVERY:         Flush CSV files every N per-track rows (default: "1")
+EVAL_FSYNC_EVERY:         fsync CSV files every N per-track rows (0 disables, default: "0")
+EVAL_PRINT_EVERY_TRACKS:  Print a progress line every N tracks (default: "1")
 """
 
 import csv
 import math
 import os
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -34,7 +42,7 @@ from stemmy.inference import (
     load_pth_model,
     separate_audio_file,
 )
-from stemmy.logging_config import get_logger
+from stemmy.logging_config import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
@@ -66,6 +74,25 @@ def _get_env_int(name: str, default: int) -> int:
         raise EvaluationException(
             "Environment variable %s must be an int, got: %s" % (name, raw)
         ) from exc
+
+
+def _get_env_bool(name: str, default: bool) -> bool:
+    """Read a boolean-ish environment variable."""
+    raw = os.environ.get(name, "").strip().lower()
+    if raw == "":
+        return bool(default)
+
+    truthy = {"1", "true", "t", "yes", "y", "on"}
+    falsy = {"0", "false", "f", "no", "n", "off"}
+
+    if raw in truthy:
+        return True
+    if raw in falsy:
+        return False
+
+    raise EvaluationException(
+        "Environment variable %s must be bool-like (1/0/true/false/yes/no), got: %s" % (name, raw)
+    )
 
 
 def _validate_device(device: str) -> str:
@@ -225,7 +252,8 @@ def _ckpt_sort_key(p: Path) -> tuple[int, int, str]:
 
 
 def _truncate_outputs_to_mix_len(
-    pred: dict[str, np.ndarray], mix_len: int
+    pred: dict[str, np.ndarray],
+    mix_len: int,
 ) -> dict[str, np.ndarray]:
     """Trim or pad predicted stems to match the mixture length (N)."""
     if mix_len < 0:
@@ -296,8 +324,47 @@ def _build_eval_inference_config(
     return cfg
 
 
+def _print_progress(enabled: bool, msg: str) -> None:
+    """Print progress to stdout with immediate flush."""
+    if not enabled:
+        return
+    print(msg, flush=True)
+
+
+def _flush_outputs(
+    f_track,
+    f_sum,
+    do_fsync: bool,
+) -> None:
+    """Flush CSV file buffers (and optionally fsync)."""
+    f_track.flush()
+    f_sum.flush()
+    if do_fsync:
+        os.fsync(f_track.fileno())
+        os.fsync(f_sum.fileno())
+
+
 def main() -> None:
     """Entry point for full-song evaluation."""
+    setup_logging()
+
+    progress_enabled = _get_env_bool("EVAL_PROGRESS", True)
+    print_metrics = _get_env_bool("EVAL_PRINT_METRICS", False)
+
+    flush_every = _get_env_int("EVAL_FLUSH_EVERY", 1)
+    if flush_every <= 0:
+        raise EvaluationException("EVAL_FLUSH_EVERY must be > 0, got %d" % int(flush_every))
+
+    fsync_every = _get_env_int("EVAL_FSYNC_EVERY", 0)
+    if fsync_every < 0:
+        raise EvaluationException("EVAL_FSYNC_EVERY must be >= 0, got %d" % int(fsync_every))
+
+    print_every_tracks = _get_env_int("EVAL_PRINT_EVERY_TRACKS", 1)
+    if print_every_tracks <= 0:
+        raise EvaluationException(
+            "EVAL_PRINT_EVERY_TRACKS must be > 0, got %d" % int(print_every_tracks)
+        )
+
     data_root = _get_env_path("DATA")
     ckpt_dir = _get_env_path("CKPT_DIR")
     eval_dir = _get_env_path("EVAL_DIR")
@@ -326,6 +393,26 @@ def main() -> None:
     per_track_csv = eval_dir / "fullsong_eval_per_track.csv"
     summary_csv = eval_dir / "fullsong_eval_summary.csv"
 
+    _print_progress(
+        progress_enabled,
+        "=== Phase 2/4: Evaluate checkpoints ===",
+    )
+    _print_progress(
+        progress_enabled,
+        "Eval config: device=%s  tracks=%d  max_seconds=%d  ckpts=%d"
+        % (device, int(len(tracks)), int(max_seconds), int(len(ckpts))),
+    )
+    _print_progress(
+        progress_enabled,
+        "CSV outputs: %s  %s" % (str(per_track_csv), str(summary_csv)),
+    )
+    _print_progress(
+        progress_enabled,
+        "Progress: EVAL_PROGRESS=%s EVAL_PRINT_METRICS=%s EVAL_FLUSH_EVERY=%d "
+        "EVAL_FSYNC_EVERY=%d"
+        % (str(progress_enabled), str(print_metrics), int(flush_every), int(fsync_every)),
+    )
+
     with per_track_csv.open("w", newline="") as f_track, summary_csv.open("w", newline="") as f_sum:
         track_writer = csv.writer(f_track)
         sum_writer = csv.writer(f_sum)
@@ -342,10 +429,26 @@ def main() -> None:
         sum_header += ["mean_recon_snr_db", "mean_interstem_corr"]
         sum_writer.writerow(sum_header)
 
-        for ckpt_path in ckpts:
-            logger.info("Evaluating checkpoint: %s", str(ckpt_path))
+        _flush_outputs(f_track, f_sum, do_fsync=False)
 
-            model, ckpt_obj = load_pth_model(str(ckpt_path), device=device, stems=len(STEMS))
+        total_tracks = int(len(tracks))
+        total_ckpts = int(len(ckpts))
+
+        per_track_rows_written = 0
+
+        for ckpt_idx, ckpt_path in enumerate(ckpts, start=1):
+            ckpt_label = str(ckpt_path)
+            logger.info("Evaluating checkpoint: %s", ckpt_label)
+            _print_progress(
+                progress_enabled,
+                "--- ckpt %d/%d: %s ---" % (int(ckpt_idx), int(total_ckpts), ckpt_label),
+            )
+
+            model, ckpt_obj = load_pth_model(
+                str(ckpt_path),
+                device=device,
+                stems=len(STEMS),
+            )
             model.eval()
 
             cfg = _build_eval_inference_config(ckpt_obj, device=device)
@@ -354,11 +457,27 @@ def main() -> None:
             recon_accum: list[float] = []
             corr_accum: list[float] = []
 
-            for track_dir in tracks:
+            max_samples = 0 if max_seconds <= 0 else int(max_seconds * int(cfg.sample_rate))
+
+            for track_idx, track_dir in enumerate(tracks, start=1):
+                if (int(track_idx) == 1) or (int(track_idx) % int(print_every_tracks) == 0):
+                    _print_progress(
+                        progress_enabled,
+                        "ckpt %d/%d  track %d/%d  %s"
+                        % (
+                            int(ckpt_idx),
+                            int(total_ckpts),
+                            int(track_idx),
+                            int(total_tracks),
+                            track_dir.name,
+                        ),
+                    )
+
+                t0 = time.time()
+
                 track_name = track_dir.name
                 mix_path = track_dir / "mixture.wav"
 
-                max_samples = 0 if max_seconds <= 0 else int(max_seconds * int(cfg.sample_rate))
                 mix, sr = _read_slice(mix_path, max_samples=max_samples)
 
                 if sr != int(cfg.sample_rate):
@@ -445,14 +564,46 @@ def main() -> None:
                 corr_val = _mean_interstem_corr(pred_stems)
                 corr_accum.append(corr_val)
 
-                track_row = [str(ckpt_path), track_name]
+                track_row = [ckpt_label, track_name]
                 for stem in STEMS:
-                    track_row.append("%.6f" % sisdr_row[stem])
-                track_row.append("%.6f" % recon)
-                track_row.append("%.6f" % corr_val)
+                    track_row.append("%.6f" % float(sisdr_row[stem]))
+                track_row.append("%.6f" % float(recon))
+                track_row.append("%.6f" % float(corr_val))
                 track_writer.writerow(track_row)
 
-            mean_row = [str(ckpt_path)]
+                per_track_rows_written += 1
+
+                do_flush = (int(per_track_rows_written) % int(flush_every)) == 0
+                do_fsync = (int(fsync_every) > 0) and (
+                    (int(per_track_rows_written) % int(fsync_every)) == 0
+                )
+                if do_flush or do_fsync:
+                    _flush_outputs(f_track, f_sum, do_fsync=bool(do_fsync))
+
+                if print_metrics:
+                    dt = time.time() - t0
+                    parts = [
+                        "done",
+                        "dt=%.2fs" % float(dt),
+                        "recon=%.3f" % float(recon),
+                        "corr=%.4f" % float(corr_val),
+                    ]
+                    for stem in STEMS:
+                        parts.append("%s=%.3f" % (stem, float(sisdr_row[stem])))
+                    _print_progress(
+                        progress_enabled,
+                        "ckpt %d/%d  track %d/%d  %s  %s"
+                        % (
+                            int(ckpt_idx),
+                            int(total_ckpts),
+                            int(track_idx),
+                            int(total_tracks),
+                            track_name,
+                            " ".join(parts),
+                        ),
+                    )
+
+            mean_row = [ckpt_label]
             for stem in STEMS:
                 mean_row.append(
                     "%.6f" % float(np.mean(sisdr_accum[stem]) if sisdr_accum[stem] else 0.0)
@@ -461,8 +612,20 @@ def main() -> None:
             mean_row.append("%.6f" % float(np.mean(corr_accum) if corr_accum else 0.0))
             sum_writer.writerow(mean_row)
 
+            _flush_outputs(
+                f_track,
+                f_sum,
+                do_fsync=bool(
+                    (int(fsync_every) > 0)
+                    and ((int(per_track_rows_written) % int(fsync_every)) == 0)
+                ),
+            )
+
+        _flush_outputs(f_track, f_sum, do_fsync=bool(int(fsync_every) > 0))
+
     logger.info("Wrote per-track CSV: %s", str(per_track_csv))
     logger.info("Wrote summary CSV: %s", str(summary_csv))
+    _print_progress(progress_enabled, "Evaluation complete.")
 
 
 if __name__ == "__main__":
