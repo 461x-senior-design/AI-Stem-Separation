@@ -395,13 +395,10 @@ def main() -> None:
 
     _print_progress(
         progress_enabled,
-        "=== Phase 2/4: Evaluate checkpoints ===",
-    )
-    _print_progress(
-        progress_enabled,
         "Eval config: device=%s  tracks=%d  max_seconds=%d  ckpts=%d"
         % (device, int(len(tracks)), int(max_seconds), int(len(ckpts))),
     )
+
     _print_progress(
         progress_enabled,
         "CSV outputs: %s  %s" % (str(per_track_csv), str(summary_csv)),

@@ -466,6 +466,7 @@ BEST_DIR="${RUNS_BASE}/best_ckpt_${PARTITION}_${STAMP}"
 mkdir -p "${CKPT_DIR}" "${EVAL_DIR}" "${BEST_DIR}"
 
 RUN_INFO="${RUNS_BASE}/run_info_${PARTITION}_${STAMP}.txt"
+echo "=== RUN INFO ==="
 {
   echo "timestamp=${STAMP}"
   echo "onid=${ONID}"
@@ -514,7 +515,8 @@ RUN_INFO="${RUNS_BASE}/run_info_${PARTITION}_${STAMP}.txt"
   echo "ckpt_dir=${CKPT_DIR}"
   echo "eval_dir=${EVAL_DIR}"
   echo "best_dir=${BEST_DIR}"
-} | tee "${RUN_INFO}" >/dev/null
+} | tee "${RUN_INFO}"
+echo
 
 echo "=== Phase 1/4: Train ==="
 
