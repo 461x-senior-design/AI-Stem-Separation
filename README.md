@@ -32,6 +32,7 @@ AI-Stem-Separation/
 ├── src                          # Source package root
 │   ├── __init__.py              # Marks src as a package (exports, version, etc.)
 │   ├── check_cross_sisdr.py     # Metric/eval script (cross SI-SDR checks)
+│   ├── constants.py             # Centralized project-wide constants
 │   ├── inference.py             # Inference entry/utilities for separation
 │   ├── logging_config.py        # Logging setup/helpers
 │   ├── models                   # Model architectures
@@ -44,19 +45,16 @@ AI-Stem-Separation/
 │   │   ├── spectral.py          # STFT/ISTFT + spectral-domain ops (post)
 │   │   └── utility              # Postprocessing helpers
 │   │       ├── __init__.py      # Utility exports
-│   │       ├── constants.py     # Postprocessing constants/config values
 │   │       └── output_validator.py # Validates outputs (paths/waveforms/etc.)
 │   ├── preprocessing            # Pre-separation audio processing
 │   │   ├── __init__.py          # Preprocessing exports
 │   │   ├── audio.py             # Audio loading + waveform ops (pre)
-│   │   ├── constants.py         # Preprocessing constants/config values
 │   │   ├── pipeline.py          # Preprocessing pipeline orchestration
 │   │   ├── spectral.py          # STFT/feature prep (pre)
 │   │   └── utility              # Preprocessing helpers
 │   │       ├── __init__.py      # Utility exports
 │   │       ├── audio_file_validator.py # Validates input audio files
-│   │       ├── audio_metadata_extractor.py # Reads SR/channels/duration/etc.
-│   │       └── constants.py     # Utility constants/config values
+│   │       └── audio_metadata_extractor.py # Reads SR/channels/duration/etc.
 │   ├── tool                     # CLI/tools/scripts
 │   │   ├── __init__.py          # Tool module exports
 │   │   ├── cli.py               # CLI entry point (commands/options)
