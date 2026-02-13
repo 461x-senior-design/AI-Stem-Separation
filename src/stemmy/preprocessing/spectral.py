@@ -9,9 +9,7 @@ import numpy as np
 # What it does:
 # - Imports STFT defaults (N_FFT/HOP_LENGTH/WIN_LENGTH/STFT_CENTER/WINDOW) from stemmy.constants.
 # - Standardizes freq_minmax epsilon floor to 1e-8 to match training (avoids distribution shift).
-from stemmy.constants import HOP_LENGTH, N_FFT, STFT_CENTER, WIN_LENGTH, WINDOW
-
-_FREQ_MINMAX_EPS = 1e-8
+from stemmy.constants import FREQ_MINMAX_EPS, HOP_LENGTH, N_FFT, STFT_CENTER, WIN_LENGTH, WINDOW
 
 #########################
 
@@ -212,7 +210,7 @@ def normalize_spectrogram(magnitude: np.ndarray, method: str = "minmax"):
         f_min = magnitude.min(axis=1, keepdims=True)  # [F, 1]
         f_max = magnitude.max(axis=1, keepdims=True)  # [F, 1]
 
-        denom = np.maximum(f_max - f_min, _FREQ_MINMAX_EPS)
+        denom = np.maximum(f_max - f_min, FREQ_MINMAX_EPS)
         normalized = np.clip((magnitude - f_min) / denom, 0.0, 1.0)
         return normalized, {"method": "freq_minmax", "f_min": f_min, "f_max": f_max}
 

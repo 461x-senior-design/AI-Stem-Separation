@@ -5,8 +5,8 @@ import os
 import librosa
 import soundfile as sf
 
+from stemmy import constants as c
 from stemmy.logging_config import get_logger
-from stemmy.preprocessing.utility import constants as c
 
 logger = get_logger(__name__)
 

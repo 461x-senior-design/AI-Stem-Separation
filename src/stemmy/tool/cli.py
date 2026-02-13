@@ -8,14 +8,10 @@ from rich.padding import Padding
 from rich.text import Text
 from rich.tree import Tree
 
-from stemmy.constants import STEMS_4
+from stemmy.constants import CLI_COLOR_ERROR, CLI_COLOR_INFO, CLI_COLOR_SUCCESS, STEMS_4
 from stemmy.inference import config_from_checkpoint, load_pth_model, separate_audio_file
 
-BOLD_GREEN: str = "bold green"
-BOLD_RED: str = "bold red"
-CYAN: str = "cyan"
 DIR: str = Path.cwd().name
-STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 
 
 #########################
@@ -69,11 +65,11 @@ def separate(
     """CLI wrapper for the separate command."""
     console = Console()
     display_input = input_file
-    console.print("\nSong Name:", style=BOLD_RED, end=" ")
-    console.print(display_input, style=CYAN)
-    console.print("\nExpected Output:", style=BOLD_RED)
+    console.print("\nSong Name:", style=CLI_COLOR_ERROR, end=" ")
+    console.print(display_input, style=CLI_COLOR_INFO)
+    console.print("\nExpected Output:", style=CLI_COLOR_ERROR)
 
-    tree = Tree(Text(output_dir, style=BOLD_GREEN))
+    tree = Tree(Text(output_dir, style=CLI_COLOR_SUCCESS))
 
     #########################
     # Changed by Ryan
@@ -84,7 +80,7 @@ def separate(
     stems = list(STEMS_4)
     base = Path(display_input).stem
     for stem in stems:
-        tree.add(Text(f"{base}_{stem}.wav", style=CYAN))
+        tree.add(Text(f"{base}_{stem}.wav", style=CLI_COLOR_INFO))
 
     console.print(Padding(tree, (0, 0, 0, 2)))
 
