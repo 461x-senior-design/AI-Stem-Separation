@@ -107,6 +107,12 @@ def _load_model_and_cfg(
 ) -> tuple[torch.nn.Module, InferenceConfig, object]:
     """Load a model and construct an InferenceConfig.
 
+    Args:
+        checkpoint: Path to a .pth checkpoint (optional).
+        torchscript: Path to a .pt TorchScript model (optional).
+        device: A validated/normalized device string: cpu | cuda | cuda:N.
+        stems: List of stem names (used to size certain model heads for .pth loading).
+
     Returns:
         (model, cfg, checkpoint_obj)
 
@@ -124,8 +130,6 @@ def _load_model_and_cfg(
     if ckpt_in != "" and ts_in != "":
         raise click.ClickException("Use only one: --checkpoint or --torchscript (not both).")
 
-    resolved_device = _resolve_device(device)
-
     if ckpt_in != "":
         ckpt_path = Path(ckpt_in).expanduser().resolve()
         if not ckpt_path.exists():
@@ -135,7 +139,7 @@ def _load_model_and_cfg(
                 "Expected a checkpoint file, got a directory: %s" % str(ckpt_path)
             )
 
-        model, ckpt_obj = load_pth_model(str(ckpt_path), device=resolved_device, stems=len(stems))
+        model, ckpt_obj = load_pth_model(str(ckpt_path), device=device, stems=len(stems))
         cfg = config_from_checkpoint(ckpt_obj)
         return model, cfg, ckpt_obj
 
@@ -145,7 +149,7 @@ def _load_model_and_cfg(
     if not ts_path.is_file():
         raise IsADirectoryError("Expected a TorchScript file, got a directory: %s" % str(ts_path))
 
-    model = load_torchscript_model(str(ts_path), device=resolved_device)
+    model = load_torchscript_model(str(ts_path), device=device)
     cfg = InferenceConfig()
     return model, cfg, None
 
@@ -257,14 +261,14 @@ def separate(
     input_path = _validate_input_file(input_file)
     out_dir_path = _prepare_output_dir(output_dir)
 
+    resolved_device = _resolve_device(device)
+
     model, cfg, ckpt_obj = _load_model_and_cfg(
         checkpoint=checkpoint,
         torchscript=torchscript,
-        device=device,
+        device=resolved_device,
         stems=stems,
     )
-
-    resolved_device = _resolve_device(device)
 
     try:
         cfg = replace(
