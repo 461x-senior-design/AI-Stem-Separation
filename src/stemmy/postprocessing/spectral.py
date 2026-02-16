@@ -3,23 +3,14 @@
 # - Mask application
 # - Spectogram denormalizaiton
 
+from typing import Optional
+
 import librosa
 import numpy as np
 
-#########################
-# Change by Ryan:
-# Reason:
-# The canonical separation contract requires consistent STFT framing defaults across
-# preprocessing/training/inference/postprocessing; importing STFT_CENTER here keeps iSTFT
-# center behavior aligned with the shared project-wide setting.
-# What it does:
-# - Imports STFT_CENTER and WINDOW from stemmy.constants to keep iSTFT aligned with STFT.
-# - Standardizes freq_minmax epsilon floor to 1e-8 so invert math matches forward normalization.
 from stemmy.constants import STFT_CENTER, WINDOW
 
 _FREQ_MINMAX_EPS = 1e-8
-
-#########################
 
 
 def apply_mask(magnitude: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -71,17 +62,11 @@ def denormalize_spectrogram(normalized: np.ndarray, params: dict) -> np.ndarray:
         max_val = params["max"]
         return normalized * (max_val - min_val) + min_val
 
-    #########################
-    # Change by Ryan:
-    # Reason:
-    # The canonical pipeline uses freq_minmax normalization by default for model input;
-    # postprocessing must be able to invert that normalization to recover correct magnitudes.
     if method == "freq_minmax":
         f_min = params["f_min"]
         f_max = params["f_max"]
         denom = np.maximum(f_max - f_min, _FREQ_MINMAX_EPS)
         return normalized * denom + f_min
-    #########################
 
     raise ValueError(f"Unknown normalization method: {method}")
 
@@ -90,15 +75,8 @@ def compute_istft(
     stft_complex: np.ndarray,
     hop_length: int,
     win_length: int,
-    length: int = None,
-    #########################
-    # Change by Ryan:
-    # Reason:
-    # The canonical separation contract requires iSTFT framing to match the forward STFT framing.
-    # Exposing center here (defaulting from shared constants) keeps reconstruction aligned
-    # end-to-end.
+    length: Optional[int] = None,
     center: bool = STFT_CENTER,
-    #########################
     window: str = WINDOW,
 ) -> np.ndarray:
     """
@@ -122,43 +100,24 @@ def compute_istft(
     if window != expected_window:
         raise ValueError("window must match stemmy.constants.WINDOW (%s)." % (str(WINDOW),))
 
-    #########################
-    # Change by Ryan:
-    # Reason:
-    # Preserve the canonical center behavior when supported by librosa, but avoid runtime failure
-    # on older librosa versions that do not accept center= in istft.
-    try:
-        left = librosa.istft(
-            stft_complex[0],
-            hop_length=hop_length,
-            win_length=win_length,
-            length=length,
-            center=center,
-            window=window,
-        )
-        right = librosa.istft(
-            stft_complex[1],
-            hop_length=hop_length,
-            win_length=win_length,
-            length=length,
-            center=center,
-            window=window,
-        )
-    except TypeError:
-        left = librosa.istft(
-            stft_complex[0],
-            hop_length=hop_length,
-            win_length=win_length,
-            length=length,
-            window=window,
-        )
-        right = librosa.istft(
-            stft_complex[1],
-            hop_length=hop_length,
-            win_length=win_length,
-            length=length,
-            window=window,
-        )
-    #########################
+    if stft_complex.ndim != 3 or stft_complex.shape[0] != 2:
+        raise ValueError("stft_complex must have shape [2, F, T]. Got %s." % (stft_complex.shape,))
+
+    left = librosa.istft(
+        stft_complex[0],
+        hop_length=hop_length,
+        win_length=win_length,
+        length=length,
+        center=center,
+        window=window,
+    )
+    right = librosa.istft(
+        stft_complex[1],
+        hop_length=hop_length,
+        win_length=win_length,
+        length=length,
+        center=center,
+        window=window,
+    )
 
     return np.stack([left, right])
