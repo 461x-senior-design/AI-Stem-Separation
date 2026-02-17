@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.preprocessing.audio import ensure_stereo
+from stemmy.preprocessing.audio import ensure_stereo
 
 
 def test_ensure_stereo_from_mono():

@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.preprocessing.audio import normalize_waveform
+from stemmy.preprocessing import normalize_waveform
 
 
 def test_normalize_none_returns_copy():

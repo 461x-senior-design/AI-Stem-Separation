@@ -4,23 +4,23 @@ from pathlib import Path
 import torch
 from rich.console import Console
 from rich.table import Table
-
 from torch.utils.data import DataLoader
 
-from src.constants import (
+from src.ui.progress_theme import create_setup_progress, create_themed_progress, start_eq_animator
+from stemmy.constants import (
     BAR_FINISHED_STYLE,
     DEFAULT_WAVEFORM_NORM,
     HOP_LENGTH,
     LOSS_STYLE,
     N_FFT,
+    STEMS_4,
     STFT_CENTER,
     TARGET_SAMPLE_RATE,
     WIN_LENGTH,
 )
-from src.models.unet_2d import UNet2D
-from src.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
-from src.training.musdb18hq_dataset import STEMS_4, CropConfig, Musdb18HQDataset, StftConfig
-from src.ui.progress_theme import create_setup_progress, create_themed_progress, start_eq_animator
+from stemmy.models.unet_2d import UNet2D
+from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
+from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset, StftConfig
 
 
 def parse_args():

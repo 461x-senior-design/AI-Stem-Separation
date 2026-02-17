@@ -6,7 +6,7 @@ from typing import List, Optional
 import soundfile as sf
 import torch
 
-from src.constants import (
+from stemmy.constants import (
     DEFAULT_WAVEFORM_NORM,
     HOP_LENGTH,
     N_FFT,
@@ -14,8 +14,8 @@ from src.constants import (
     TARGET_SAMPLE_RATE,
     WIN_LENGTH,
 )
-from src.preprocessing.audio import normalize_waveform
-from src.training.stft import freq_minmax_normalize, stft_mag_phase_mono
+from stemmy.preprocessing import normalize_waveform
+from stemmy.training.stft import freq_minmax_normalize, stft_mag_phase_mono
 
 
 @dataclass(frozen=True)

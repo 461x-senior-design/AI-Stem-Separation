@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 import torch
 
-from src.postprocessing.pipeline import Postprocessor, SeparationResult
-from src.preprocessing.pipeline import Preprocessor
+from stemmy.postprocessing.pipeline import Postprocessor, SeparationResult
+from stemmy.preprocessing.pipeline import Preprocessor
 
 
 @pytest.fixture

@@ -6,9 +6,9 @@ from typing import Union
 import numpy as np
 import soundfile as sf
 
-from src.logging_config import get_logger
-from src.postprocessing.utility import constants as c
-from src.preprocessing.constants import TARGET_SAMPLE_RATE
+from stemmy.logging_config import get_logger
+from stemmy.postprocessing.utility import constants as c
+from stemmy.preprocessing.constants import TARGET_SAMPLE_RATE
 
 logger = get_logger(__name__)
 

@@ -1,13 +1,13 @@
 import numpy as np
 import pytest
 
-from src.postprocessing.spectral import (
+from stemmy.postprocessing.spectral import (
     apply_mask,
     combine_magnitude_phase,
     compute_istft,
     denormalize_spectrogram,
 )
-from src.preprocessing.spectral import compute_stft, normalize_spectrogram
+from stemmy.preprocessing.spectral import compute_stft, normalize_spectrogram
 
 
 def test_apply_mask_basic():
@@ -99,7 +99,7 @@ def test_combine_magnitude_phase_preserves_magnitude():
 def test_combine_is_inverse_of_split():
     """Test that combine reverses split_magnitude_phase."""
     # Arrange - create a complex STFT
-    from src.preprocessing.spectral import split_magnitude_phase
+    from stemmy.preprocessing.spectral import split_magnitude_phase
 
     original_stft = np.random.rand(2, 100, 50) * np.exp(
         1j * np.random.uniform(-np.pi, np.pi, (2, 100, 50))
