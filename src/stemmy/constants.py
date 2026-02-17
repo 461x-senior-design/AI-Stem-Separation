@@ -1,6 +1,17 @@
+"""Project-wide centralized constants.
+
+This module defines the single authoritative defaults for audio I/O, STFT parameters,
+model input normalization, and canonical stem ordering.
+
+All other constants modules should import or re-export values from here to keep
+preprocessing, training, inference, postprocessing, evaluation, and CLI tools aligned.
+"""
+
 # Audio format
-TARGET_SAMPLE_RATE: int = 44100  # Hz
-TARGET_CHANNELS: int = 2  # Stereo
+TARGET_SAMPLE_RATE: int = 44100
+# Hz
+TARGET_CHANNELS: int = 2
+# Stereo
 
 # STFT parameters
 N_FFT: int = 4096

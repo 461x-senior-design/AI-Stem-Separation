@@ -1,4 +1,4 @@
-# src/postprocessing/constants.py
+# src/stemmy/postprocessing/utility/constants.py
 """
 Output validation constants for postprocessing pipeline - Sprint 1 MVP.
 
@@ -6,7 +6,7 @@ Sprint 1 Scope: Basic validation only (NaN/Inf, shape, sample rate, file I/O)
 TODO: Advanced quality checks in future sprints (frequency analysis, perceptual metrics)
 """
 
-from stemmy.preprocessing.constants import TARGET_CHANNELS
+from stemmy.constants import TARGET_CHANNELS
 
 # Expected number of channels (stereo)
 EXPECTED_CHANNELS: int = TARGET_CHANNELS  # 2 (stereo)

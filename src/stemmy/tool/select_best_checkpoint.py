@@ -1,3 +1,21 @@
+# src/stemmy/tool/select_best_checkpoint.py
+"""Utility to rank checkpoints using an evaluation summary CSV.
+
+This script reads a summary CSV produced by the evaluation pipeline, computes a
+scalar score per epoch using a chosen metric, prints a ranked list, and can
+optionally copy the best checkpoint to a destination path.
+
+Expected inputs:
+- --summary-csv: CSV produced by evaluation (for example fullsong_eval_summary.csv).
+- --ckpt-dir: Optional directory containing checkpoints named with epoch numbers.
+
+Ranking:
+- Each CSV row is converted into a RowScore when an epoch can be extracted and the
+  chosen metric can be computed.
+- Rows are sorted by score (descending). The top-k are printed.
+- If --copy-to is provided, the best checkpoint is copied to that destination.
+"""
+
 import argparse
 import csv
 import re
@@ -5,22 +23,34 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
-STEMS_4: list[str] = ["drums", "bass", "vocals", "other"]
+from stemmy.constants import STEMS_4
 
 
 @dataclass(frozen=True)
 class RowScore:
+    """Represents a scored checkpoint row for ranking.
+
+    Attributes:
+        epoch: Training epoch associated with this row.
+        score: Scalar score used for sorting.
+        recon_snr: Reconstruction SNR value if available.
+        corr: Correlation value if available.
+        sisdr_values: Per-stem SI-SDR values in STEMS_4 order.
+        ckpt_path: Resolved checkpoint path if known.
+    """
+
     epoch: int
     score: float
     recon_snr: Optional[float]
     corr: Optional[float]
-    sisdr_values: List[float]
+    sisdr_values: list[float]
     ckpt_path: Optional[Path]
 
 
 def _parse_float(value: Any) -> Optional[float]:
+    """Parse a float from a possibly-empty CSV cell."""
     if value is None:
         return None
     s = str(value).strip()
@@ -33,6 +63,7 @@ def _parse_float(value: Any) -> Optional[float]:
 
 
 def _parse_int(value: Any) -> Optional[int]:
+    """Parse an int from a possibly-empty CSV cell."""
     if value is None:
         return None
     s = str(value).strip()
@@ -44,8 +75,13 @@ def _parse_int(value: Any) -> Optional[int]:
         return None
 
 
-def _parse_sisdr_list(value: Any) -> List[float]:
-    """Parse SI-SDR values from a comma-separated string representation."""
+def _parse_sisdr_list(value: Any) -> list[float]:
+    """Parse SI-SDR values from a comma-separated list-like string.
+
+    Accepted formats include:
+        - "1.0,2.0,3.0,4.0"
+        - "[1.0, 2.0, 3.0, 4.0]"
+    """
     if value is None:
         return []
     s = str(value).strip()
@@ -56,7 +92,7 @@ def _parse_sisdr_list(value: Any) -> List[float]:
     if s == "":
         return []
 
-    out: List[float] = []
+    out: list[float] = []
     for part in [p.strip() for p in s.split(",") if p.strip() != ""]:
         try:
             out.append(float(part))
@@ -65,7 +101,13 @@ def _parse_sisdr_list(value: Any) -> List[float]:
     return out
 
 
-def _extract_epoch(row: Dict[str, Any]) -> Optional[int]:
+def _extract_epoch(row: dict[str, Any]) -> Optional[int]:
+    """Extract epoch from a CSV row.
+
+    Supported sources:
+    - Direct integer fields: epoch / Epoch / ckpt_epoch
+    - Epoch embedded in a checkpoint path field (searching for 'epochNNN')
+    """
     for k in ("epoch", "Epoch", "ckpt_epoch"):
         if k in row:
             v = _parse_int(row.get(k))
@@ -80,21 +122,33 @@ def _extract_epoch(row: Dict[str, Any]) -> Optional[int]:
                 try:
                     return int(m.group(1))
                 except ValueError:
-                    pass
+                    return None
 
     return None
 
 
-def _extract_sisdr(row: Dict[str, Any]) -> List[float]:
-    # Format A: single list-like column
+def _extract_sisdr(row: dict[str, Any]) -> list[float]:
+    """Extract per-stem SI-SDR values from a CSV row.
+
+    Supported CSV layouts:
+        - Single list-like column: "sisdr" / "SI-SDR" / "si_sdr"
+        - Indexed columns: "sisdr_0".."sisdr_3"
+        - Named columns in STEMS_4 order:
+            "sisdr_drums".."sisdr_other"
+            "mean_sisdr_drums".."mean_sisdr_other"
+            "drums_sisdr".."other_sisdr"
+            "mean_drums_sisdr".."mean_other_sisdr"
+
+    Returns:
+        List of SI-SDR values in STEMS_4 order, or an empty list if not found/parseable.
+    """
     for k in ("sisdr", "SI-SDR", "si_sdr"):
         if k in row:
             values = _parse_sisdr_list(row.get(k))
             if values:
                 return values
 
-    # Format B: indexed columns expected for 4 stems
-    indexed_values: List[float] = []
+    indexed_values: list[float] = []
     found_indexed = False
     for i in range(len(STEMS_4)):
         key = f"sisdr_{i}"
@@ -107,14 +161,15 @@ def _extract_sisdr(row: Dict[str, Any]) -> List[float]:
     if found_indexed and indexed_values:
         return indexed_values
 
-    # Format C: named columns for MUSDB18-HQ stems
-    named_key_orders = [
+    key_orders = [
         [f"sisdr_{stem}" for stem in STEMS_4],
         [f"{stem}_sisdr" for stem in STEMS_4],
+        [f"mean_sisdr_{stem}" for stem in STEMS_4],
+        [f"mean_{stem}_sisdr" for stem in STEMS_4],
     ]
-    for key_order in named_key_orders:
+    for key_order in key_orders:
         if all(k in row for k in key_order):
-            values: List[float] = []
+            values: list[float] = []
             for k in key_order:
                 value = _parse_float(row.get(k))
                 if value is None:
@@ -125,8 +180,16 @@ def _extract_sisdr(row: Dict[str, Any]) -> List[float]:
     return []
 
 
-def _extract_recon_snr(row: Dict[str, Any]) -> Optional[float]:
-    for k in ("recon_snr", "recon_snr_db", "reconstruction_snr", "snr", "snr_db"):
+def _extract_recon_snr(row: dict[str, Any]) -> Optional[float]:
+    """Extract reconstruction SNR from a CSV row."""
+    for k in (
+        "recon_snr",
+        "recon_snr_db",
+        "mean_recon_snr_db",
+        "reconstruction_snr",
+        "snr",
+        "snr_db",
+    ):
         if k in row:
             v = _parse_float(row.get(k))
             if v is not None:
@@ -134,8 +197,9 @@ def _extract_recon_snr(row: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _extract_corr(row: Dict[str, Any]) -> Optional[float]:
-    for k in ("corr", "correlation", "mix_corr", "corrcoef"):
+def _extract_corr(row: dict[str, Any]) -> Optional[float]:
+    """Extract correlation metric from a CSV row."""
+    for k in ("corr", "correlation", "mix_corr", "corrcoef", "mean_interstem_corr"):
         if k in row:
             v = _parse_float(row.get(k))
             if v is not None:
@@ -143,34 +207,44 @@ def _extract_corr(row: Dict[str, Any]) -> Optional[float]:
     return None
 
 
-def _mean(values: List[float]) -> Optional[float]:
+def _mean(values: list[float]) -> Optional[float]:
+    """Compute mean of a list."""
     if not values:
         return None
     return sum(values) / float(len(values))
 
 
 def _select_scalar_score(
-    sisdr_values: List[float],
+    sisdr_values: list[float],
     recon_snr: Optional[float],
     corr: Optional[float],
     metric: str,
 ) -> Optional[float]:
-    """
-    Metric options:
-      - mean_sisdr
-      - vocals_sisdr
-      - sisdr_index_N
-      - recon_snr
-      - corr
-      - weighted
+    """Compute a scalar score from extracted metrics.
+
+    Supported metric strings:
+        - "mean_sisdr"
+        - "vocals_sisdr"
+        - "sisdr_index_N"
+        - "recon_snr"
+        - "corr"
+        - "weighted"
+
+    Notes:
+        - "weighted" requires all three: mean_sisdr, recon_snr, corr.
+        - "vocals_sisdr" depends on STEMS_4 containing "vocals".
     """
     metric = metric.strip().lower()
+    if metric == "":
+        return None
 
     if metric == "mean_sisdr":
         return _mean(sisdr_values)
 
     if metric == "vocals_sisdr":
-        vocals_index = STEMS_4.index("vocals")
+        if "vocals" not in STEMS_4:
+            return None
+        vocals_index = list(STEMS_4).index("vocals")
         if vocals_index < len(sisdr_values):
             return sisdr_values[vocals_index]
         return None
@@ -188,8 +262,11 @@ def _select_scalar_score(
         return m + 0.05 * recon_snr + 2.0 * corr
 
     if metric.startswith("sisdr_index_"):
+        parts = metric.split("_")
+        if not parts or parts[-1].strip() == "":
+            return None
         try:
-            idx = int(metric.split("_")[-1])
+            idx = int(parts[-1])
         except ValueError:
             return None
         if idx < 0 or idx >= len(sisdr_values):
@@ -200,6 +277,7 @@ def _select_scalar_score(
 
 
 def _find_checkpoint_for_epoch(ckpt_dir: Path, epoch: int) -> Optional[Path]:
+    """Find a checkpoint file within a directory for a given epoch."""
     pattern = f"unet_phase1_epoch{epoch:03d}.pth"
     path = ckpt_dir / pattern
     if path.is_file():
@@ -216,19 +294,47 @@ def _find_checkpoint_for_epoch(ckpt_dir: Path, epoch: int) -> Optional[Path]:
     return None
 
 
+def _resolve_ckpt_path_from_row(row: dict[str, Any]) -> Optional[Path]:
+    """Resolve checkpoint path from a summary CSV row if present."""
+    for k in ("ckpt", "ckpt_path", "checkpoint", "checkpoint_path"):
+        if k in row:
+            raw = str(row.get(k) or "").strip()
+            if raw == "":
+                continue
+            p = Path(raw).expanduser()
+            try:
+                p = p.resolve()
+            except OSError:
+                p = p.absolute()
+            if p.is_file():
+                return p
+    return None
+
+
 def load_scores(
     summary_csv: Path,
     ckpt_dir: Optional[Path],
     metric: str,
-) -> List[RowScore]:
-    if not summary_csv.is_file():
-        raise FileNotFoundError(f"Summary CSV not found: {summary_csv}")
+) -> list[RowScore]:
+    """Load and score rows from an evaluation summary CSV.
 
-    rows: List[RowScore] = []
+    Rows that cannot produce:
+      - an epoch, or
+      - a scalar score for the chosen metric
+    are skipped.
+
+    Raises:
+        FileNotFoundError: If summary_csv does not exist.
+        RuntimeError: If the CSV has no header row.
+    """
+    if not summary_csv.is_file():
+        raise FileNotFoundError("Summary CSV not found: %s" % str(summary_csv))
+
+    rows: list[RowScore] = []
     with summary_csv.open("r", newline="") as f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None:
-            raise RuntimeError(f"CSV has no header row: {summary_csv}")
+            raise RuntimeError("CSV has no header row: %s" % str(summary_csv))
 
         for row in reader:
             epoch = _extract_epoch(row)
@@ -243,13 +349,13 @@ def load_scores(
             if score is None:
                 continue
 
-            ckpt_path: Optional[Path] = None
-            if ckpt_dir is not None:
+            ckpt_path = _resolve_ckpt_path_from_row(row)
+            if ckpt_path is None and ckpt_dir is not None:
                 ckpt_path = _find_checkpoint_for_epoch(ckpt_dir, epoch)
 
             rows.append(
                 RowScore(
-                    epoch=epoch,
+                    epoch=int(epoch),
                     score=float(score),
                     recon_snr=recon_snr,
                     corr=corr,
@@ -261,25 +367,31 @@ def load_scores(
     return rows
 
 
-def print_top(scores: List[RowScore], top_k: int) -> None:
+def print_top(scores: list[RowScore], top_k: int) -> None:
+    """Print a ranked list of top scores."""
     scores_sorted = sorted(scores, key=lambda r: r.score, reverse=True)
     print(f"Ranked checkpoints (top {top_k}):")
     print("rank,epoch,score,recon_snr,corr,sisdr_values,ckpt_path")
     for i, row in enumerate(scores_sorted[:top_k], start=1):
+        recon_snr_s = "" if row.recon_snr is None else f"{row.recon_snr:.6f}"
+        corr_s = "" if row.corr is None else f"{row.corr:.6f}"
+        ckpt_s = "" if row.ckpt_path is None else str(row.ckpt_path)
         print(
-            f"{i},{row.epoch},{row.score:.6f},"
-            f"{'' if row.recon_snr is None else f'{row.recon_snr:.6f}'},"
-            f"{'' if row.corr is None else f'{row.corr:.6f}'},"
-            f'"{row.sisdr_values}",'
-            f"{'' if row.ckpt_path is None else str(row.ckpt_path)}"
+            f'{i},{row.epoch},{row.score:.6f},{recon_snr_s},{corr_s},"{row.sisdr_values}",{ckpt_s}'
         )
 
 
 def copy_best(best: RowScore, dest_path: Path) -> None:
+    """Copy the best checkpoint to a destination path.
+
+    Raises:
+        RuntimeError: If best.ckpt_path is not available.
+        FileNotFoundError: If the checkpoint file does not exist.
+    """
     if best.ckpt_path is None:
-        raise RuntimeError("Best checkpoint path is unknown (provide --ckpt-dir).")
+        raise RuntimeError("Best checkpoint path is unknown (provide --ckpt-dir or CSV ckpt path).")
     if not best.ckpt_path.is_file():
-        raise FileNotFoundError(f"Checkpoint file not found: {best.ckpt_path}")
+        raise FileNotFoundError("Checkpoint file not found: %s" % str(best.ckpt_path))
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(str(best.ckpt_path), str(dest_path))
@@ -288,7 +400,8 @@ def copy_best(best: RowScore, dest_path: Path) -> None:
     print(f"TO:   {dest_path}")
 
 
-def parse_args(argv: List[str]) -> argparse.Namespace:
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
         description="Select and optionally copy the best checkpoint based on an eval summary CSV."
     )
@@ -304,7 +417,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         default="",
         help=(
             "Directory containing checkpoints, for example .../checkpoints. "
-            "If provided, the script can auto-copy the winner."
+            "If provided, the script can auto-resolve the checkpoint path for each epoch."
         ),
     )
     parser.add_argument(
@@ -312,8 +425,8 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         type=str,
         default="mean_sisdr",
         help=(
-            "Ranking metric: mean_sisdr | vocals_sisdr | recon_snr | "
-            "corr | weighted | sisdr_index_N"
+            "Ranking metric: mean_sisdr | vocals_sisdr | recon_snr | corr | weighted "
+            "| sisdr_index_N"
         ),
     )
     parser.add_argument(
@@ -334,15 +447,17 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: List[str]) -> int:
+def main(argv: list[str]) -> int:
+    """CLI entry point."""
     args = parse_args(argv)
 
     summary_csv = Path(args.summary_csv).expanduser().resolve()
+
     ckpt_dir: Optional[Path] = None
     if str(args.ckpt_dir).strip() != "":
         ckpt_dir = Path(args.ckpt_dir).expanduser().resolve()
         if not ckpt_dir.is_dir():
-            print(f"ERROR: --ckpt-dir is not a directory: {ckpt_dir}", file=sys.stderr)
+            print("ERROR: --ckpt-dir is not a directory: %s" % str(ckpt_dir), file=sys.stderr)
             return 2
 
     metric = str(args.metric).strip()

@@ -66,5 +66,8 @@ local_ckpts/
 .claude/
 /local/
 
-Training checkpoints and torchscript output
+# Training checkpoints and torchscript output
 /runs/
+
+# Script .env
+scripts/stemmy.env
