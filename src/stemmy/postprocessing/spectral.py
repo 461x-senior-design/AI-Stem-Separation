@@ -1,10 +1,14 @@
-# postprocessing/spectral.py
+# src/stemmy/postprocessing/spectral.py
 # Frequency domain operations including
 # - Mask application
 # - Spectogram denormalizaiton
 
+from typing import Optional
+
 import librosa
 import numpy as np
+
+from stemmy.constants import FREQ_MINMAX_EPS, STFT_CENTER, WINDOW
 
 
 def apply_mask(magnitude: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -56,11 +60,22 @@ def denormalize_spectrogram(normalized: np.ndarray, params: dict) -> np.ndarray:
         max_val = params["max"]
         return normalized * (max_val - min_val) + min_val
 
+    if method == "freq_minmax":
+        f_min = params["f_min"]
+        f_max = params["f_max"]
+        denom = np.maximum(f_max - f_min, FREQ_MINMAX_EPS)
+        return normalized * denom + f_min
+
     raise ValueError(f"Unknown normalization method: {method}")
 
 
 def compute_istft(
-    stft_complex: np.ndarray, hop_length: int, win_length: int, length: int = None
+    stft_complex: np.ndarray,
+    hop_length: int,
+    win_length: int,
+    length: Optional[int] = None,
+    center: bool = STFT_CENTER,
+    window: str = WINDOW,
 ) -> np.ndarray:
     """
     Compute Inverse Short-Time Fourier Transform.
@@ -70,16 +85,37 @@ def compute_istft(
         hop_length: Hop length (must match forward STFT)
         win_length: Window length (must match forward STFT)
         length: Output length in samples (trims/pads to match)
+        center: Whether framing is centered (must match forward STFT)
+        window: Window function name (must match stemmy.constants.WINDOW)
 
     Returns:
         Time-domain waveform, shape [2, N] for stereo
     """
-    # Process each channel
+    if not isinstance(window, str) or window.strip() == "":
+        raise ValueError("window must be a non-empty string.")
+    window = window.strip().lower()
+    expected_window = str(WINDOW).strip().lower()
+    if window != expected_window:
+        raise ValueError("window must match stemmy.constants.WINDOW (%s)." % (str(WINDOW),))
+
+    if stft_complex.ndim != 3 or stft_complex.shape[0] != 2:
+        raise ValueError("stft_complex must have shape [2, F, T]. Got %s." % (stft_complex.shape,))
+
     left = librosa.istft(
-        stft_complex[0], hop_length=hop_length, win_length=win_length, length=length
+        stft_complex[0],
+        hop_length=hop_length,
+        win_length=win_length,
+        length=length,
+        center=center,
+        window=window,
     )
     right = librosa.istft(
-        stft_complex[1], hop_length=hop_length, win_length=win_length, length=length
+        stft_complex[1],
+        hop_length=hop_length,
+        win_length=win_length,
+        length=length,
+        center=center,
+        window=window,
     )
 
     return np.stack([left, right])

@@ -1,4 +1,18 @@
-from typing import Tuple
+# src/stemmy/models/unet_2d.py
+"""2D U-Net for spectrogram mask-logit prediction.
+
+Input:
+  x: [B, 1, F, T]  (mono magnitude spectrogram)
+
+Output:
+  logits: [B, S, F, T] (unnormalized stem logits)
+
+Notes:
+- Spatial padding is applied so the encoder/decoder pooling hierarchy works for
+  arbitrary (F, T) sizes. Padding is removed before returning.
+- This model intentionally returns raw logits. Training/inference are responsible
+  for applying softmax over stems when probability masks are required.
+"""
 
 import torch
 import torch.nn as nn
@@ -6,15 +20,44 @@ import torch.nn.functional as F
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_ch, out_ch):
+    """Two-layer convolutional block used throughout the U-Net.
+
+    Each block applies:
+      Conv2d -> BatchNorm2d -> LeakyReLU
+      Conv2d -> BatchNorm2d -> LeakyReLU
+    """
+
+    def __init__(self, in_ch: int, out_ch: int) -> None:
+        """Initialize the block.
+
+        Args:
+            in_ch: Input channels.
+            out_ch: Output channels.
+
+        Raises:
+            ValueError: If in_ch or out_ch is non-positive.
+        """
         super().__init__()
+        if in_ch <= 0:
+            raise ValueError("in_ch must be positive.")
+        if out_ch <= 0:
+            raise ValueError("out_ch must be positive.")
+
         self.conv1 = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_ch)
         self.conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(out_ch)
         self.act = nn.LeakyReLU(0.1, inplace=True)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Run the block forward.
+
+        Args:
+            x: Input tensor [B, C, H, W].
+
+        Returns:
+            Output tensor [B, out_ch, H, W].
+        """
         x = self.act(self.bn1(self.conv1(x)))
         x = self.act(self.bn2(self.conv2(x)))
         return x
@@ -24,19 +67,37 @@ def pad_to_multiple(
     x: torch.Tensor,
     multiple_h: int,
     multiple_w: int,
-) -> Tuple[torch.Tensor, Tuple[int, int, int, int]]:
-    """
-    Pads (H,W) so that H % multiple_h == 0 and W % multiple_w == 0.
-    Pads only on bottom/right. Returns (x_padded, (left,right,top,bottom)).
+) -> tuple[torch.Tensor, tuple[int, int, int, int]]:
+    """Pad spatial dimensions so H and W are divisible by given multiples.
+
+    Padding is applied only on the bottom and right to avoid shifting the origin.
+
+    Args:
+        x: Tensor [B, C, H, W].
+        multiple_h: Height multiple (> 0).
+        multiple_w: Width multiple (> 0).
+
+    Returns:
+        Tuple of:
+          - x_padded: padded tensor
+          - pad: (left, right, top, bottom)
+
+    Raises:
+        ValueError: If x does not have 4 dimensions or multiples are invalid.
     """
     if x.ndim != 4:
-        raise ValueError("Expected x to have shape [B,C,H,W].")
+        raise ValueError("Expected x to have shape [B, C, H, W].")
+    if multiple_h <= 0:
+        raise ValueError("multiple_h must be > 0.")
+    if multiple_w <= 0:
+        raise ValueError("multiple_w must be > 0.")
 
     _, _, h, w = x.shape
-    h = int(h)
-    w = int(w)
-    pad_h = int((multiple_h - (h % multiple_h)) % multiple_h)
-    pad_w = int((multiple_w - (w % multiple_w)) % multiple_w)
+    h_i = int(h)
+    w_i = int(w)
+
+    pad_h = int((multiple_h - (h_i % multiple_h)) % multiple_h)
+    pad_w = int((multiple_w - (w_i % multiple_w)) % multiple_w)
 
     left = 0
     right = pad_w
@@ -51,33 +112,76 @@ def pad_to_multiple(
     return x_pad, (left, right, top, bottom)
 
 
-def unpad(x: torch.Tensor, pad: Tuple[int, int, int, int]) -> torch.Tensor:
+def unpad(x: torch.Tensor, pad: tuple[int, int, int, int]) -> torch.Tensor:
+    """Remove padding applied by pad_to_multiple.
+
+    Args:
+        x: Tensor [B, C, H, W].
+        pad: (left, right, top, bottom).
+
+    Returns:
+        Unpadded tensor.
+
+    Raises:
+        ValueError: If x is not 4D or pad values are invalid.
+    """
+    if x.ndim != 4:
+        raise ValueError("Expected x to have shape [B, C, H, W].")
+
     left, right, top, bottom = pad
+    if any(int(v) < 0 for v in (left, right, top, bottom)):
+        raise ValueError("pad values must be >= 0.")
+
     if left == 0 and right == 0 and top == 0 and bottom == 0:
         return x
+
     _, _, h, w = x.shape
-    new_h = h - top - bottom
-    new_w = w - left - right
-    return x[:, :, top : top + new_h, left : left + new_w]
+    h_i = int(h)
+    w_i = int(w)
+
+    new_h = h_i - int(top) - int(bottom)
+    new_w = w_i - int(left) - int(right)
+
+    if new_h <= 0 or new_w <= 0:
+        raise ValueError(
+            "Invalid unpad resulting shape: new_h=%d new_w=%d (from h=%d w=%d pad=%s)"
+            % (int(new_h), int(new_w), int(h_i), int(w_i), str(pad))
+        )
+
+    return x[:, :, int(top) : int(top) + int(new_h), int(left) : int(left) + int(new_w)]
+
+
+def _upsample_to(x: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
+    """Upsample x spatially to match ref (H, W)."""
+    if x.ndim != 4 or ref.ndim != 4:
+        raise ValueError("Expected 4D tensors for upsampling.")
+    _, _, h, w = ref.shape
+    return F.interpolate(x, size=(int(h), int(w)), mode="bilinear", align_corners=False)
 
 
 class UNet2D(nn.Module):
-    """
-    U-Net for spectrogram masks.
-    Input:  [B, 1, F, T]
-    Output: [B, S, F, T] with sigmoid (0..1)
-    """
+    """U-Net for spectrogram mask-logit prediction."""
 
-    def __init__(self, stems: int = 4, base_channels: int = 64):
+    def __init__(self, stems: int = 4, base_channels: int = 64) -> None:
+        """Initialize the U-Net.
+
+        Args:
+            stems: Number of output mask channels (stems).
+            base_channels: Base channel width for the first encoder level.
+
+        Raises:
+            ValueError: If stems or base_channels is non-positive.
+        """
         super().__init__()
         if stems <= 0:
-            raise ValueError("stems must be positive")
+            raise ValueError("stems must be positive.")
         if base_channels <= 0:
-            raise ValueError("base_channels must be positive")
-        self.stems = stems
-        self.base_channels = base_channels
+            raise ValueError("base_channels must be positive.")
 
-        c1 = base_channels
+        self.stems = int(stems)
+        self.base_channels = int(base_channels)
+
+        c1 = self.base_channels
         c2 = c1 * 2
         c3 = c2 * 2
         c4 = c3 * 2
@@ -109,16 +213,27 @@ class UNet2D(nn.Module):
         self.up1 = nn.Conv2d(c2, c1, kernel_size=1)
         self.dec1 = ConvBlock(c2, c1)
 
-        self.out_conv = nn.Conv2d(c1, stems, kernel_size=1)
-        self.out_act = nn.Sigmoid()
+        self.out_conv = nn.Conv2d(c1, self.stems, kernel_size=1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Run the U-Net forward.
+
+        Args:
+            x: Input tensor [B, 1, F, T].
+
+        Returns:
+            Output logits [B, S, F, T] (unnormalized).
+
+        Raises:
+            ValueError: If x does not have expected shape.
+        """
         if x.ndim != 4:
-            raise ValueError("Input must have shape [B, 1, F, T]")
+            raise ValueError("Expected input x to be 4D [B, 1, F, T].")
         if x.shape[1] != 1:
-            raise ValueError("Channel dimension must be 1 (mono spectrogram)")
+            raise ValueError("Expected channel dimension to be 1 (mono).")
 
-        x_pad, pad = pad_to_multiple(x, 16, 16)
+        # Pad so repeated /2 pooling works cleanly. 4 pools -> multiple of 16.
+        x_pad, pad = pad_to_multiple(x, multiple_h=16, multiple_w=16)
 
         e1 = self.enc1(x_pad)
         p1 = self.pool1(e1)
@@ -134,22 +249,22 @@ class UNet2D(nn.Module):
 
         b = self.bottleneck(p4)
 
-        u4 = F.interpolate(b, scale_factor=2.0, mode="bilinear", align_corners=False)
-        u4 = self.up4(u4)
+        u4 = self.up4(b)
+        u4 = _upsample_to(u4, e4)
         d4 = self.dec4(torch.cat([u4, e4], dim=1))
 
-        u3 = F.interpolate(d4, scale_factor=2.0, mode="bilinear", align_corners=False)
-        u3 = self.up3(u3)
+        u3 = self.up3(d4)
+        u3 = _upsample_to(u3, e3)
         d3 = self.dec3(torch.cat([u3, e3], dim=1))
 
-        u2 = F.interpolate(d3, scale_factor=2.0, mode="bilinear", align_corners=False)
-        u2 = self.up2(u2)
+        u2 = self.up2(d3)
+        u2 = _upsample_to(u2, e2)
         d2 = self.dec2(torch.cat([u2, e2], dim=1))
 
-        u1 = F.interpolate(d2, scale_factor=2.0, mode="bilinear", align_corners=False)
-        u1 = self.up1(u1)
+        u1 = self.up1(d2)
+        u1 = _upsample_to(u1, e1)
         d1 = self.dec1(torch.cat([u1, e1], dim=1))
 
-        out = self.out_act(self.out_conv(d1))
+        out = self.out_conv(d1)
         out = unpad(out, pad)
         return out
