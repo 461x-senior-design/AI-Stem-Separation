@@ -8,11 +8,6 @@ from typing import Union
 import numpy as np
 import torch
 
-#########################
-# Change by Ryan:
-# Reason:
-# Import shared defaults from the project-wide constants module so preprocessing
-# stays aligned with training/inference.
 from stemmy.constants import (
     DEFAULT_SPECTROGRAM_NORM,
     DEFAULT_WAVEFORM_NORM,
@@ -23,7 +18,6 @@ from stemmy.constants import (
     WIN_LENGTH,
 )
 
-#########################
 from .audio import ensure_stereo, load_audio, normalize_waveform
 from .spectral import compute_stft, normalize_spectrogram, split_magnitude_phase
 from .utility.audio_file_validator import AudioFileValidator, AudioValidationException
@@ -34,7 +28,13 @@ class PreprocessingMetadata:
     """
     Stores all info needed to reconstruct audio after separation.
 
-    We are preserving phase (split_magnitude_phase) for ISTFT reconstruction.
+    Notes on sample rates:
+      - original_sr: The sample rate returned by load_audio(). In this pipeline, load_audio()
+        is called with sr=self.sample_rate, so audio is resampled on load and original_sr will
+        typically equal processed_sr. (The native file sample rate is not preserved.)
+      - processed_sr: The target sample rate used throughout preprocessing/inference.
+
+    We preserve phase (split_magnitude_phase) for ISTFT reconstruction.
     """
 
     original_path: str
@@ -44,24 +44,13 @@ class PreprocessingMetadata:
     processed_length: int
     n_fft: int
     hop_length: int
-    #########################
-    # Change by Ryan:
-    # Reason:
-    # Persist STFT framing fields and stereo mixture magnitude so downstream
-    # reconstruction uses the same framing and can apply mono masks to both channels.
     win_length: int
     center: bool
-    #########################
     n_frames: int
     phase: np.ndarray
     waveform_norm_params: dict
     spectrogram_norm_params: dict
-    #########################
-    # Change by Ryan:
-    # Reason:
-    # Preserve stereo mixture magnitude for later reconstruction.
     mix_magnitude: np.ndarray
-    #########################
 
 
 class Preprocessor:
@@ -78,27 +67,16 @@ class Preprocessor:
         sample_rate: int = TARGET_SAMPLE_RATE,
         n_fft: int = N_FFT,
         hop_length: int = HOP_LENGTH,
-        #########################
-        # Change by Ryan:
-        # Reason:
-        # Carry framing fields + default norms from centralized constants to keep
-        # preprocessing aligned with training/inference.
         win_length: int = WIN_LENGTH,
         center: bool = STFT_CENTER,
         waveform_norm: str = DEFAULT_WAVEFORM_NORM,
         spectrogram_norm: str = DEFAULT_SPECTROGRAM_NORM,
-        #########################
     ):
         self.sample_rate = sample_rate
         self.n_fft = n_fft
         self.hop_length = hop_length
-        #########################
-        # Change by Ryan:
-        # Reason:
-        # Persist framing fields for compute_stft and metadata.
         self.win_length = win_length
         self.center = center
-        #########################
         self.waveform_norm = waveform_norm
         self.spectrogram_norm = spectrogram_norm
 
@@ -121,22 +99,13 @@ class Preprocessor:
         if not is_valid:
             raise AudioValidationException(message)
 
-        # Load audio
+        # load_audio resamples to self.sample_rate
         waveform, sr = load_audio(audio_path, sr=self.sample_rate)
         original_length = waveform.shape[-1]
 
         # Ensure Stereo
         waveform = ensure_stereo(waveform)
 
-        #########################
-        # Change by Ryan:
-        # Reason:
-        # Normalize waveform in a training-aligned way.
-        #
-        # Training computes mono first, then normalizes that mono waveform and applies
-        # the same scalar to stems. To keep inference input distribution aligned with
-        # training, we derive normalization parameters from the mono mixture and then
-        # apply that same scalar to both stereo channels.
         mono_waveform = waveform.mean(axis=0)
         _mono_norm, waveform_params = normalize_waveform(mono_waveform, method=self.waveform_norm)
 
@@ -144,14 +113,9 @@ class Preprocessor:
         if scale == 0.0:
             scale = 1.0
         waveform = waveform / scale
-        #########################
         processed_length = waveform.shape[-1]
 
         # Compute STFT
-        #########################
-        # Change by Ryan:
-        # Reason:
-        # Pass win_length/center explicitly so framing matches training/inference.
         stft = compute_stft(
             waveform,
             n_fft=self.n_fft,
@@ -159,16 +123,10 @@ class Preprocessor:
             win_length=self.win_length,
             center=self.center,
         )
-        #########################
 
         # Split magnitude and phase
         magnitude, phase = split_magnitude_phase(stft)
 
-        #########################
-        # Change by Ryan:
-        # Reason:
-        # Preserve stereo mixture magnitude for reconstruction, but feed mono magnitude into the
-        # model.
         mix_magnitude = magnitude
         if mix_magnitude.ndim == 3 and mix_magnitude.shape[0] == 2:
             mono_magnitude = mix_magnitude.mean(axis=0)
@@ -176,25 +134,14 @@ class Preprocessor:
             mono_magnitude = mix_magnitude
         else:
             raise ValueError(f"Unexpected magnitude shape {mix_magnitude.shape}")
-        #########################
 
         # Normalize spectrogram
-        #########################
-        # Change by Ryan:
-        # Reason:
-        # Normalize the mono magnitude that is used as model input.
         mono_magnitude, spec_params = normalize_spectrogram(
             mono_magnitude, method=self.spectrogram_norm
         )
-        #########################
 
         # Convert to tensor
-        #########################
-        # Change by Ryan:
-        # Reason:
-        # Model input is mono magnitude with shape [1, 1, F, T].
         tensor = torch.from_numpy(mono_magnitude).float().unsqueeze(0).unsqueeze(0)
-        #########################
 
         # Build metadata
         metadata = PreprocessingMetadata(
@@ -205,23 +152,13 @@ class Preprocessor:
             processed_length=processed_length,
             n_fft=self.n_fft,
             hop_length=self.hop_length,
-            #########################
-            # Change by Ryan:
-            # Reason:
-            # Persist framing fields used for downstream reconstruction.
             win_length=self.win_length,
             center=self.center,
-            #########################
             n_frames=int(mono_magnitude.shape[-1]),
             phase=phase,
             waveform_norm_params=waveform_params,
             spectrogram_norm_params=spec_params,
-            #########################
-            # Change by Ryan:
-            # Reason:
-            # Provide stereo mixture magnitude for postprocessing reconstruction.
             mix_magnitude=mix_magnitude,
-            #########################
         )
 
         return tensor, metadata

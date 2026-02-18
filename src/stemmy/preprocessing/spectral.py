@@ -1,17 +1,9 @@
 import librosa
 import numpy as np
 
-#########################
-# Change by Ryan:
-# Reason:
-# Shared STFT defaults live in the project-wide constants module so preprocessing
-# stays aligned with training/inference framing and defaults.
-# What it does:
-# - Imports STFT defaults (N_FFT/HOP_LENGTH/WIN_LENGTH/STFT_CENTER/WINDOW) from stemmy.constants.
-# - Standardizes freq_minmax epsilon floor to 1e-8 to match training (avoids distribution shift).
-from stemmy.constants import FREQ_MINMAX_EPS, HOP_LENGTH, N_FFT, STFT_CENTER, WIN_LENGTH, WINDOW
+from stemmy.constants import HOP_LENGTH, N_FFT, STFT_CENTER, WIN_LENGTH, WINDOW
 
-#########################
+_FREQ_MINMAX_EPS = 1e-8
 
 
 def compute_stft(
@@ -38,15 +30,6 @@ def compute_stft(
         Complex STFT array, shape [F, T] for mono or [2, F, T] for stereo where
         F = n_fft // 2 + 1 = 2049
     """
-    #########################
-    # Change by Ryan:
-    # Reason:
-    # Tighten input validation and explicitly expose/pass `center` so STFT framing matches
-    # the canonical training/inference contract.
-    # What it does:
-    # - Validates waveform is a numpy array.
-    # - Validates n_fft/hop_length/win_length are positive ints.
-    # - Validates center is a bool.
     if not isinstance(waveform, np.ndarray):
         raise TypeError("waveform must be a numpy.ndarray.")
     if not isinstance(n_fft, int) or n_fft <= 0:
@@ -59,7 +42,6 @@ def compute_stft(
         raise TypeError("center must be a bool.")
     if not isinstance(window, str) or window.strip() == "":
         raise ValueError("window must be a non-empty string.")
-    #########################
 
     window = window.strip().lower()
     expected_window = str(WINDOW).strip().lower()
@@ -126,24 +108,17 @@ def split_magnitude_phase(stft_complex: np.ndarray):
     Split complex STFT into magnitude and phase components.
 
     Args:
-        stft_complex: Complex STFT array, shape [F, T] or [2, F, T]
+        stft_complex: Complex STFT array, shape [N], [F, T], or [2, F, T]
 
     Returns:
         Tuple of (magnitude, phase)
         - magnitude: Non-negative real values (same shape as input)
         - phase: Values in range [-pi, pi] (same shape as input)
     """
-    #########################
-    # Change by Ryan:
-    # Reason:
-    # Fail fast with clear error messages when a caller passes an unexpected type/shape.
-    # What it does:
-    # Validates that the input is a numpy array and has shape [N], [F, T], or [2, F, T].
     if not isinstance(stft_complex, np.ndarray):
         raise TypeError("stft_complex must be a numpy.ndarray.")
     if stft_complex.ndim not in (1, 2, 3):
         raise ValueError("stft_complex must have shape [N], [F, T] (mono), or [2, F, T] (stereo).")
-    #########################
 
     magnitude = np.abs(stft_complex)
     phase = np.angle(stft_complex)
@@ -162,15 +137,6 @@ def normalize_spectrogram(magnitude: np.ndarray, method: str = "minmax"):
         Tuple of (normalized_magnitude, params)
         params contains everything needed to reverse normalization
     """
-    #########################
-    # Change by Ryan:
-    # Reason:
-    # Normalize method strings and validate inputs to avoid silent mismatch from
-    # whitespace/casing or unexpected shapes. Also keeps min/max params serializable.
-    # What it does:
-    # - Validates magnitude is a numpy array with expected dimensionality.
-    # - Validates method is a non-empty string.
-    # - Normalizes method via strip().lower().
     if not isinstance(magnitude, np.ndarray):
         raise TypeError("magnitude must be a numpy.ndarray.")
     if magnitude.ndim not in (2, 3):
@@ -179,7 +145,6 @@ def normalize_spectrogram(magnitude: np.ndarray, method: str = "minmax"):
         raise ValueError("method must be a non-empty string.")
 
     method = method.strip().lower()
-    #########################
 
     normalized = magnitude.copy()
 
@@ -187,18 +152,11 @@ def normalize_spectrogram(magnitude: np.ndarray, method: str = "minmax"):
         return normalized, {"method": "none"}
 
     if method == "minmax":
-        #########################
-        # Change by Ryan:
-        # Reason:
-        # Ensure returned min/max params are plain floats and comparisons are stable.
-        # What it does:
-        # Casts min/max to float and uses an explicit 0.0 comparison.
         min_val = float(magnitude.min())
         max_val = float(magnitude.max())
 
         if max_val - min_val == 0.0:
             return normalized, {"method": "minmax", "min": min_val, "max": max_val}
-        #########################
 
         normalized = (magnitude - min_val) / (max_val - min_val)
         return normalized, {"method": "minmax", "min": min_val, "max": max_val}

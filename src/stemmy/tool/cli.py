@@ -12,23 +12,120 @@ from stemmy.constants import CLI_COLOR_ERROR, CLI_COLOR_INFO, CLI_COLOR_SUCCESS,
 from stemmy.inference import config_from_checkpoint, load_pth_model, separate_audio_file
 
 DIR: str = Path.cwd().name
+STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 
 
-#########################
-# Changed by Ryan
-# Reason:
-#   Wrapper calls:
-#     python -m stemmy.tool.cli separate ...
-#   Austin's file was a single Click command.
-#   Define a Click group and register `separate`.
-#
-#   Use canonical stems (STEMS_4) and naming:
-#     <base>_<stem>.wav
-#
-#   Run canonical .pth inference:
-#     load_pth_model -> config_from_checkpoint
-#     override: device/stems/export_files/renorm_masks
-#     separate_audio_file
+def _resolve_device(device: str) -> str:
+    """Validate and normalize a device string into one of: cpu | cuda | cuda:N."""
+    dev_in = (device or "cpu").strip()
+    if dev_in == "":
+        dev_in = "cpu"
+
+    if dev_in == "cpu":
+        return "cpu"
+
+    if dev_in == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA requested but torch.cuda.is_available() is False.")
+        return "cuda"
+
+    if dev_in.startswith("cuda:"):
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA requested but torch.cuda.is_available() is False.")
+        idx_str = dev_in.split(":", 1)[1].strip()
+        if idx_str == "":
+            raise ValueError("Invalid --device value (expected cuda:N): %s" % dev_in)
+        try:
+            idx = int(idx_str)
+        except ValueError as exc:
+            raise ValueError("Invalid --device value (expected cuda:N): %s" % dev_in) from exc
+        if idx < 0:
+            raise ValueError("Invalid --device GPU index: %d" % idx)
+        return "cuda:%d" % idx
+
+    raise ValueError("Invalid --device (must be cpu|cuda|cuda:N): %s" % dev_in)
+
+
+def _validate_chunking(chunk_frames: int, overlap_frames: int) -> None:
+    """Validate chunking arguments used to reduce VRAM via time-chunked inference."""
+    if not isinstance(chunk_frames, int) or chunk_frames < 0:
+        raise click.ClickException("--chunk-frames must be >= 0.")
+    if not isinstance(overlap_frames, int) or overlap_frames < 0:
+        raise click.ClickException("--overlap-frames must be >= 0.")
+    if chunk_frames > 0 and overlap_frames >= chunk_frames:
+        raise click.ClickException(
+            "--overlap-frames must be < --chunk-frames when chunking is enabled."
+        )
+
+
+def _validate_input_file(path_str: str) -> Path:
+    """Validate and return the resolved input audio path."""
+    p = Path(path_str).expanduser().resolve()
+    if not p.exists():
+        raise FileNotFoundError("Input file not found: %s" % str(p))
+    if not p.is_file():
+        raise IsADirectoryError("Expected a file, got a directory: %s" % str(p))
+    return p
+
+
+def _prepare_output_dir(path_str: str) -> Path:
+    """Ensure output directory exists and return the resolved path."""
+    p = Path(path_str).expanduser().resolve()
+    if p.exists() and not p.is_dir():
+        raise NotADirectoryError("Output path exists but is not a directory: %s" % str(p))
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _load_model_and_cfg(
+    checkpoint: str,
+    torchscript: str,
+    device: str,
+    stems: list[str],
+) -> tuple[torch.nn.Module, InferenceConfig, object]:
+    """Load a model and construct an InferenceConfig.
+
+    Args:
+        checkpoint: Path to a .pth checkpoint (optional).
+        torchscript: Path to a .pt TorchScript model (optional).
+        device: A validated/normalized device string: cpu | cuda | cuda:N.
+        stems: List of stem names (used to size certain model heads for .pth loading).
+
+    Returns:
+        (model, cfg, checkpoint_obj)
+
+
+    if ckpt_in == "" and ts_in == "":
+        raise click.ClickException(
+            "Either --checkpoint (.pth) or --torchscript (.pt) is required unless --preview is set."
+        )
+    if ckpt_in != "" and ts_in != "":
+        raise click.ClickException("Use only one: --checkpoint or --torchscript (not both).")
+
+    if ckpt_in != "":
+        ckpt_path = Path(ckpt_in).expanduser().resolve()
+        if not ckpt_path.exists():
+            raise FileNotFoundError("Checkpoint not found: %s" % str(ckpt_path))
+        if not ckpt_path.is_file():
+            raise IsADirectoryError(
+                "Expected a checkpoint file, got a directory: %s" % str(ckpt_path)
+            )
+
+        model, ckpt_obj = load_pth_model(str(ckpt_path), device=device, stems=len(stems))
+        cfg = config_from_checkpoint(ckpt_obj)
+        return model, cfg, ckpt_obj
+
+    ts_path = Path(ts_in).expanduser().resolve()
+    if not ts_path.exists():
+        raise FileNotFoundError("TorchScript model not found: %s" % str(ts_path))
+    if not ts_path.is_file():
+        raise IsADirectoryError("Expected a TorchScript file, got a directory: %s" % str(ts_path))
+
+    model = load_torchscript_model(str(ts_path), device=device)
+    cfg = InferenceConfig()
+    return model, cfg, None
+
+
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
@@ -96,48 +193,14 @@ def separate(
     if not input_path.is_file():
         raise IsADirectoryError("Expected a file, got a directory: %s" % str(input_path))
 
-    out_dir_path = Path(output_dir).expanduser().resolve()
-    if out_dir_path.exists() and not out_dir_path.is_dir():
-        raise NotADirectoryError(
-            "Output path exists but is not a directory: %s" % str(out_dir_path)
-        )
-    out_dir_path.mkdir(parents=True, exist_ok=True)
+    resolved_device = _resolve_device(device)
 
-    ckpt_path = Path(checkpoint).expanduser().resolve()
-    if not ckpt_path.exists():
-        raise FileNotFoundError("Checkpoint not found: %s" % str(ckpt_path))
-    if not ckpt_path.is_file():
-        raise IsADirectoryError("Expected a checkpoint file, got a directory: %s" % str(ckpt_path))
-
-    dev_in = (device or "cpu").strip()
-    if dev_in == "":
-        dev_in = "cpu"
-
-    if dev_in == "cpu":
-        resolved_device = "cpu"
-    elif dev_in == "cuda":
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA requested but torch.cuda.is_available() is False.")
-        resolved_device = "cuda"
-    elif dev_in.startswith("cuda:"):
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA requested but torch.cuda.is_available() is False.")
-        idx_str = dev_in.split(":", 1)[1].strip()
-        if idx_str == "":
-            raise ValueError("Invalid --device value (expected cuda:N): %s" % dev_in)
-        try:
-            idx = int(idx_str)
-        except ValueError as exc:
-            raise ValueError("Invalid --device value (expected cuda:N): %s" % dev_in) from exc
-        if idx < 0:
-            raise ValueError("Invalid --device GPU index: %d" % idx)
-        resolved_device = "cuda:%d" % idx
-    else:
-        raise ValueError("Invalid --device (must be cpu|cuda|cuda:N): %s" % dev_in)
-
-    model, ckpt_obj = load_pth_model(str(ckpt_path), device=resolved_device, stems=len(stems))
-
-    cfg = config_from_checkpoint(ckpt_obj)
+    model, cfg, ckpt_obj = _load_model_and_cfg(
+        checkpoint=checkpoint,
+        torchscript=torchscript,
+        device=resolved_device,
+        stems=stems,
+    )
 
     try:
         cfg = replace(

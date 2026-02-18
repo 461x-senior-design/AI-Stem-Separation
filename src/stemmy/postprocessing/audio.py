@@ -1,4 +1,4 @@
-# postprocessing.py
+# postprocessing/audio.py
 # Time-domain operations.
 # - Denormalize waveform
 # - Export audio to WAV file
