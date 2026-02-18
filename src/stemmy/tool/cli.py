@@ -20,7 +20,7 @@ from rich.padding import Padding
 from rich.text import Text
 from rich.tree import Tree
 
-from stemmy.constants import CLI_COLOR_ERROR, CLI_COLOR_INFO, CLI_COLOR_SUCCESS, STEMS_4
+from stemmy.constants import BOLD_GREEN, BOLD_RED, CYAN, STEMS_4
 from stemmy.inference import (
     InferenceConfig,
     config_from_checkpoint,
@@ -234,15 +234,15 @@ def separate(
     """Separate an input file into stems and export the outputs."""
     console = Console()
     display_input = input_file
-    console.print("\nSong Name:", style=CLI_COLOR_ERROR, end=" ")
-    console.print(display_input, style=CLI_COLOR_INFO)
-    console.print("\nExpected Output:", style=CLI_COLOR_ERROR)
-    tree = Tree(Text(output_dir, style=CLI_COLOR_SUCCESS))
+    console.print("\nSong Name:", style=BOLD_RED, end=" ")
+    console.print(display_input, style=CYAN)
+    console.print("\nExpected Output:", style=BOLD_RED)
+    tree = Tree(Text(output_dir, style=BOLD_GREEN))
 
     stems = list(STEMS_4)
     base = Path(display_input).stem
     for stem in stems:
-        tree.add(Text(f"{base}_{stem}.wav", style=CLI_COLOR_INFO))
+        tree.add(Text(f"{base}_{stem}.wav", style=CYAN))
 
     console.print(Padding(tree, (0, 0, 0, 2)))
 
