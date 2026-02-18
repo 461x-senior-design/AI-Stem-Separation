@@ -8,9 +8,7 @@ from typing import Optional
 import librosa
 import numpy as np
 
-from stemmy.constants import STFT_CENTER, WINDOW
-
-_FREQ_MINMAX_EPS = 1e-8
+from stemmy.constants import FREQ_MINMAX_EPS, STFT_CENTER, WINDOW
 
 
 def apply_mask(magnitude: np.ndarray, mask: np.ndarray) -> np.ndarray:

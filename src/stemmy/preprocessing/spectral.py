@@ -1,9 +1,7 @@
 import librosa
 import numpy as np
 
-from stemmy.constants import HOP_LENGTH, N_FFT, STFT_CENTER, WIN_LENGTH, WINDOW
-
-_FREQ_MINMAX_EPS = 1e-8
+from stemmy.constants import FREQ_MINMAX_EPS, HOP_LENGTH, N_FFT, STFT_CENTER, WIN_LENGTH, WINDOW
 
 
 def compute_stft(
