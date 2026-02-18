@@ -6,9 +6,8 @@ from typing import Union
 import numpy as np
 import soundfile as sf
 
-from stemmy.constants import TARGET_SAMPLE_RATE
+from stemmy import constants as c
 from stemmy.logging_config import get_logger
-from stemmy.postprocessing.utility import constants as c
 
 logger = get_logger(__name__)
 
@@ -123,7 +122,7 @@ class OutputValidator:
 
     @staticmethod
     def validate_file(
-        file_path: Union[str, Path], expected_sr: int = TARGET_SAMPLE_RATE
+        file_path: Union[str, Path], expected_sr: int = c.TARGET_SAMPLE_RATE
     ) -> tuple[bool, str]:
         """Validate an exported audio file exists and is readable.
 
@@ -143,7 +142,7 @@ class OutputValidator:
         try:
             info = sf.info(file_path)
         except Exception:
-            return False, c.ERROR_FILE_NOT_READABLE.format(path=file_path)
+            return False, c.ERROR_OUTPUT_FILE_NOT_READABLE.format(path=file_path)
 
         if info.samplerate != expected_sr:
             return (

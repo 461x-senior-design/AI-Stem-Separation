@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from stemmy.postprocessing.utility import constants as const
+from stemmy import constants as const
 from stemmy.postprocessing.utility.output_validator import (
     OutputValidator,
 )

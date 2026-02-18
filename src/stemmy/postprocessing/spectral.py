@@ -8,9 +8,7 @@ from typing import Optional
 import librosa
 import numpy as np
 
-from stemmy.constants import STFT_CENTER, WINDOW
-
-_FREQ_MINMAX_EPS = 1e-8
+from stemmy.constants import FREQ_MINMAX_EPS, STFT_CENTER, WINDOW
 
 
 def apply_mask(magnitude: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -65,7 +63,7 @@ def denormalize_spectrogram(normalized: np.ndarray, params: dict) -> np.ndarray:
     if method == "freq_minmax":
         f_min = params["f_min"]
         f_max = params["f_max"]
-        denom = np.maximum(f_max - f_min, _FREQ_MINMAX_EPS)
+        denom = np.maximum(f_max - f_min, FREQ_MINMAX_EPS)
         return normalized * denom + f_min
 
     raise ValueError(f"Unknown normalization method: {method}")
