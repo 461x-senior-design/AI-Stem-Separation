@@ -10,11 +10,14 @@ This module provides a Click-based CLI that can:
 Outputs are written as <base>_<stem>.wav files under the chosen output directory.
 """
 
+import os
 from dataclasses import replace
 from pathlib import Path
+from typing import Sequence
 
 import click
 import torch
+from dotenv import dotenv_values
 from rich.console import Console
 from rich.padding import Padding
 from rich.text import Text
@@ -29,9 +32,52 @@ from stemmy.inference import (
     separate_audio_file,
 )
 from stemmy.logging_config import setup_logging
+from stemmy.tool.fullsong_eval_masked import main as fullsong_eval_masked_main
+from stemmy.train import main as train_main
 
 DIR: str = Path.cwd().name
 STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
+TRAIN_DATA_ROOT_KEY: str = "TRAIN_DATA_ROOT"
+DATA_KEY: str = "DATA"
+CKPT_DIR_KEY: str = "CKPT_DIR"
+EVAL_DIR_KEY: str = "EVAL_DIR"
+
+
+def _train_default_args() -> list[str]:
+    """Return defaults for dev train, aligned with run_train.py."""
+    env_values = dotenv_values(".env")
+    data_root = os.getenv(TRAIN_DATA_ROOT_KEY) or env_values.get(TRAIN_DATA_ROOT_KEY)
+    args = [
+        "--epochs",
+        "1",
+        "--batch-size",
+        "4",
+        "--time-frames",
+        "256",
+        "--checkpoint-dir",
+        "checkpoints",
+        "--export-ts",
+    ]
+
+    if isinstance(data_root, str) and data_root.strip():
+        args = ["--data-root", data_root, *args]
+
+    return args
+
+
+def _fullsong_eval_default_env() -> dict[str, str]:
+    """Return default environment values for dev full-song evaluation."""
+    env_values = dotenv_values(".env")
+
+    data_root = os.getenv(TRAIN_DATA_ROOT_KEY) or env_values.get(TRAIN_DATA_ROOT_KEY) or ""
+    defaults: dict[str, str] = {}
+
+    if isinstance(data_root, str) and data_root.strip():
+        defaults[DATA_KEY] = data_root.strip()
+
+    defaults[CKPT_DIR_KEY] = "checkpoints"
+    defaults[EVAL_DIR_KEY] = "eval"
+    return defaults
 
 
 def _resolve_device(device: str) -> str:
@@ -151,6 +197,60 @@ def _load_model_and_cfg(
 def cli() -> None:
     """Stemmy command-line interface."""
     setup_logging()
+
+
+@cli.group(help="Developer commands.")
+def dev() -> None:
+    """Developer command group."""
+
+
+@dev.command(
+    "train",
+    context_settings={
+        "ignore_unknown_options": True,
+        "allow_extra_args": True,
+    },
+    help="Run the training entrypoint and forward all extra args.",
+)
+@click.argument("train_args", nargs=-1, type=click.UNPROCESSED)
+def dev_train(train_args: Sequence[str]) -> None:
+    """Run training via stemmy.train with passthrough arguments."""
+    os.environ.setdefault("LOG_LEVEL", "ERROR")
+    train_main([*_train_default_args(), *list(train_args)])
+
+
+@dev.command(
+    "eval",
+    context_settings={
+        "ignore_unknown_options": True,
+        "allow_extra_args": True,
+    },
+    help=(
+        "Run full-song masked evaluation. "
+        "Pass environment overrides as KEY=VALUE arguments "
+        "(for example DATA=/path CKPT_DIR=/path EVAL_DIR=/path)."
+    ),
+)
+@click.argument("env_args", nargs=-1, type=click.UNPROCESSED)
+def dev_fullsong_eval_masked(env_args: Sequence[str]) -> None:
+    """Run full-song evaluation via stemmy.tool.fullsong_eval_masked."""
+    os.environ.setdefault("LOG_LEVEL", "ERROR")
+
+    for key, value in _fullsong_eval_default_env().items():
+        os.environ.setdefault(key, value)
+
+    for raw in env_args:
+        if "=" not in raw:
+            raise click.ClickException(
+                "Invalid argument '%s'. Expected KEY=VALUE environment override." % raw
+            )
+        key, value = raw.split("=", 1)
+        key = key.strip()
+        if key == "":
+            raise click.ClickException("Invalid argument '%s'. Empty environment key." % raw)
+        os.environ[key] = value
+
+    fullsong_eval_masked_main()
 
 
 @cli.command(

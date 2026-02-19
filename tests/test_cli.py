@@ -2,7 +2,8 @@ import re
 
 from click.testing import CliRunner
 
-from stemmy.tool.cli import separate
+import stemmy.tool.cli as cli_mod
+from stemmy.tool.cli import cli, separate
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -34,3 +35,28 @@ def test_separate_prints_expected_tree() -> None:
     assert "song_bass.wav" in output
     assert "song_vocals.wav" in output
     assert "song_other.wav" in output
+
+
+def test_dev_fullsong_eval_masked_sets_default_env(monkeypatch) -> None:
+    """Verify dev fullsong eval sets DATA/CKPT_DIR/EVAL_DIR defaults."""
+    runner = CliRunner()
+
+    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {"TRAIN_DATA_ROOT": "/tmp/musdb"})
+    monkeypatch.delenv("DATA", raising=False)
+    monkeypatch.delenv("CKPT_DIR", raising=False)
+    monkeypatch.delenv("EVAL_DIR", raising=False)
+
+    captured: dict[str, str] = {}
+
+    def _fake_eval_main() -> None:
+        captured["DATA"] = cli_mod.os.environ.get("DATA", "")
+        captured["CKPT_DIR"] = cli_mod.os.environ.get("CKPT_DIR", "")
+        captured["EVAL_DIR"] = cli_mod.os.environ.get("EVAL_DIR", "")
+
+    monkeypatch.setattr(cli_mod, "fullsong_eval_masked_main", _fake_eval_main)
+
+    result = runner.invoke(cli, ["dev", "eval"])
+    assert result.exit_code == 0
+    assert captured["DATA"] == "/tmp/musdb"
+    assert captured["CKPT_DIR"] == "checkpoints"
+    assert captured["EVAL_DIR"] == "eval"

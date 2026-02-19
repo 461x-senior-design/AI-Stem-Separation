@@ -35,7 +35,7 @@ from rich.console import Console
 from rich.table import Table
 from torch.utils.data import DataLoader
 
-from src.ui.progress_theme import create_setup_progress, create_themed_progress, start_eq_animator
+from ui.progress_theme import create_setup_progress, create_themed_progress, start_eq_animator
 from stemmy.constants import (
     BAR_FINISHED_STYLE,
     BOLD_PURPLE,
@@ -66,7 +66,7 @@ logger = get_logger(__name__)
 _LOSS_EPS: float = 1e-8
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     p = argparse.ArgumentParser(description="Train U-Net on MUSDB18-HQ (baseline).")
 
@@ -183,7 +183,7 @@ def parse_args() -> argparse.Namespace:
         help="Enable AMP (only applies on CUDA).",
     )
 
-    return p.parse_args()
+    return p.parse_args(argv)
 
 
 def pick_device(arg: str) -> torch.device:
@@ -574,11 +574,11 @@ def eval_one_epoch(
     return mean_loss, batches
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Main training loop."""
     setup_logging()
 
-    args = parse_args()
+    args = parse_args(argv)
 
     # NOTE: Could be worth extracting setup to its own function
     # Initialize summary_rows for Training Summary Table

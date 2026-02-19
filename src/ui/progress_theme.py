@@ -6,7 +6,7 @@ from rich.progress import BarColumn, Progress, ProgressColumn, TextColumn
 from rich.table import Column
 from rich.text import Text
 
-from src.stemmy.constants import (
+from stemmy.constants import (
     BAR_COMPLETE_STYLE,
     BAR_FINISHED_STYLE,
     BAR_PULSE_STYLE,
