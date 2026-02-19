@@ -92,6 +92,12 @@ METADATA_FORMAT: str = "audio_format"
 BOLD_GREEN: str = "bold green"
 BOLD_RED: str = "bold red"
 CYAN: str = "cyan"
+BOLD_PURPLE: str = "bold #B65CFF"
+BOLD_VIOLET: str = "bold #9D4EDD"
+WHITE: str = "white"
+LAVENDER: str = "#B8A9D9"
+NEON_GREEN: str = "#39FF14"
+ROSE_RED: str = "#FF4D6D"
 
 # ── Progress UI Theme (Rich Progress Bar Colors) ────────────────────────────
 BAR_COMPLETE_STYLE: str = "#FF4D6D"

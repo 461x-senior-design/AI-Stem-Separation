@@ -31,16 +31,27 @@ from typing import Any
 import numpy as np
 import torch
 import torch.nn.functional as F
+from rich.console import Console
+from rich.table import Table
 from torch.utils.data import DataLoader
 
+from src.ui.progress_theme import create_setup_progress, create_themed_progress, start_eq_animator
 from stemmy.constants import (
+    BAR_FINISHED_STYLE,
+    BOLD_PURPLE,
+    BOLD_VIOLET,
     DEFAULT_SPECTROGRAM_NORM,
     DEFAULT_WAVEFORM_NORM,
     HOP_LENGTH,
+    LAVENDER,
+    LOSS_STYLE,
     N_FFT,
+    NEON_GREEN,
+    ROSE_RED,
     STEMS_4,
     STFT_CENTER,
     TARGET_SAMPLE_RATE,
+    WHITE,
     WIN_LENGTH,
     WINDOW,
 )
@@ -420,6 +431,51 @@ def _autocast_context(device: torch.device, use_amp: bool):
     return torch.cuda.amp.autocast(dtype=torch.float16)
 
 
+def print_training_summary(rows: list[dict[str, Any]], include_torchscript: bool = False) -> None:
+    """Print an end-of-run training summary table."""
+    console = Console()
+    table = Table(title="Training Summary", header_style=BOLD_PURPLE)
+    table.add_column("Epoch", justify="right", style=WHITE)
+    table.add_column("Train Loss", justify="right", style=WHITE)
+    table.add_column("Val Loss", justify="right", style=WHITE)
+    table.add_column("Checkpoint", style=LAVENDER)
+    if include_torchscript:
+        table.add_column("TorchScript", style=LAVENDER)
+
+    best_train = min((row["train_loss"] for row in rows), default=None)
+    worst_train = max((row["train_loss"] for row in rows), default=None)
+    best_val = min((row["val_loss"] for row in rows), default=None)
+    worst_val = max((row["val_loss"] for row in rows), default=None)
+
+    def style_loss(value: float, best: float | None, worst: float | None) -> str:
+        if best is None or worst is None:
+            return f"[{WHITE}]{value:.6f}[/]"
+        if value == best:
+            return f"[{NEON_GREEN}]{value:.6f}[/]"
+        if value == worst:
+            return f"[{ROSE_RED}]{value:.6f}[/]"
+        return f"[{WHITE}]{value:.6f}[/]"
+
+    def display_path(path_value: str) -> str:
+        if path_value == "-":
+            return path_value
+        return Path(path_value).name
+
+    for row in rows:
+        cells = [
+            str(row["epoch"]),
+            style_loss(float(row["train_loss"]), best_train, worst_train),
+            style_loss(float(row["val_loss"]), best_val, worst_val),
+            display_path(str(row["checkpoint_path"])),
+        ]
+        if include_torchscript:
+            cells.append(display_path(str(row["torchscript_path"])))
+        table.add_row(*cells)
+
+    console.print()
+    console.print(table)
+
+
 def train_one_epoch(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -427,33 +483,50 @@ def train_one_epoch(
     device: torch.device,
     use_amp: bool,
     scaler: Any,
+    epoch_index: int,
 ) -> tuple[float, int]:
     """Run one training epoch and return (mean_loss, num_batches)."""
     model.train()
     running = 0.0
     batches = 0
 
-    for mix_norm, targets_norm in train_loader:
-        mix_norm = mix_norm.to(device, non_blocking=True)
-        targets_norm = targets_norm.to(device, non_blocking=True)
+    with create_themed_progress(
+        "Epoch {task.fields[epoch]} Train", title_style=BOLD_PURPLE
+    ) as progress:
+        train_task = progress.add_task(
+            "train",
+            total=len(train_loader),
+            epoch=epoch_index + 1,
+            eq="",
+        )
+        train_anim_stop, train_anim_thread = start_eq_animator(progress, train_task, fps=8)
+        try:
+            for mix_norm, targets_norm in train_loader:
+                mix_norm = mix_norm.to(device, non_blocking=True)
+                targets_norm = targets_norm.to(device, non_blocking=True)
 
-        optimizer.zero_grad(set_to_none=True)
+                optimizer.zero_grad(set_to_none=True)
 
-        if use_amp:
-            with _autocast_context(device, use_amp):
-                logits = model(mix_norm)
-                loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            logits = model(mix_norm)
-            loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
-            loss.backward()
-            optimizer.step()
+                if use_amp:
+                    with _autocast_context(device, use_amp):
+                        logits = model(mix_norm)
+                        loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    logits = model(mix_norm)
+                    loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                    loss.backward()
+                    optimizer.step()
 
-        running += float(loss.detach().cpu().item())
-        batches += 1
+                running += float(loss.detach().cpu().item())
+                batches += 1
+                progress.update(train_task, advance=1)
+        finally:
+            train_anim_stop.set()
+            train_anim_thread.join()
+            progress.update(train_task, eq="▁▁▁▁▁")
 
     mean_loss = running / max(1, batches)
     return mean_loss, batches
@@ -463,6 +536,7 @@ def eval_one_epoch(
     model: torch.nn.Module,
     val_loader: DataLoader,
     device: torch.device,
+    epoch_index: int,
 ) -> tuple[float, int]:
     """Run validation and return (mean_loss, num_batches)."""
     model.eval()
@@ -470,15 +544,31 @@ def eval_one_epoch(
     batches = 0
 
     with torch.no_grad():
-        for mix_norm, targets_norm in val_loader:
-            mix_norm = mix_norm.to(device, non_blocking=True)
-            targets_norm = targets_norm.to(device, non_blocking=True)
+        with create_themed_progress(
+            "Epoch {task.fields[epoch]} Val  ", title_style=BOLD_VIOLET
+        ) as progress:
+            val_task = progress.add_task(
+                "val",
+                total=len(val_loader),
+                epoch=epoch_index + 1,
+                eq="",
+            )
+            val_anim_stop, val_anim_thread = start_eq_animator(progress, val_task, fps=8)
+            try:
+                for mix_norm, targets_norm in val_loader:
+                    mix_norm = mix_norm.to(device, non_blocking=True)
+                    targets_norm = targets_norm.to(device, non_blocking=True)
 
-            logits = model(mix_norm)
-            v_loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                    logits = model(mix_norm)
+                    v_loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
 
-            running += float(v_loss.cpu().item())
-            batches += 1
+                    running += float(v_loss.cpu().item())
+                    batches += 1
+                    progress.update(val_task, advance=1)
+            finally:
+                val_anim_stop.set()
+                val_anim_thread.join()
+                progress.update(val_task, eq="▁▁▁▁▁")
 
     mean_loss = running / max(1, batches)
     return mean_loss, batches
@@ -489,69 +579,99 @@ def main() -> None:
     setup_logging()
 
     args = parse_args()
-    validate_args(args)
 
-    set_seed(args.seed)
-
-    device = pick_device(args.device)
-
-    stft_cfg = StftConfig(
-        sample_rate=TARGET_SAMPLE_RATE,
-        n_fft=N_FFT,
-        hop_length=HOP_LENGTH,
-        win_length=WIN_LENGTH,
-        center=STFT_CENTER,
-        window=WINDOW,
-    )
-    crop_cfg = CropConfig(time_frames=args.time_frames)
-
-    _train_ds, _val_ds, train_loader, val_loader = build_dataloaders(
-        args, stft_cfg, crop_cfg, device
-    )
-
-    model = UNet2D(stems=len(STEMS_4), base_channels=args.base_channels).to(device)
-
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-    )
-
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode="min",
-        factor=args.lr_factor,
-        patience=args.lr_patience,
-        min_lr=args.min_lr,
-    )
-
-    use_amp = bool(args.amp) and (device.type == "cuda")
-    scaler = _make_grad_scaler(device, use_amp)
-
-    start_epoch = 0
-    global_step = 0
-
-    if args.resume.strip():
-        ckpt_path = args.resume.strip()
-        start_epoch, global_step, extra = load_checkpoint(
-            ckpt_path,
-            model,
+    # NOTE: Could be worth extracting setup to its own function
+    # Initialize summary_rows for Training Summary Table
+    summary_rows: list[dict[str, Any]] = []
+    with create_setup_progress("Setup", title_style=BOLD_PURPLE) as setup_progress:
+        setup_task = setup_progress.add_task(
+            "Setup", total=11, step="Validating Args...", step_style=LOSS_STYLE
+        )
+        validate_args(args)
+        setup_progress.update(setup_task, advance=1, step="Seeding RNG...", step_style=LOSS_STYLE)
+        set_seed(args.seed)
+        setup_progress.update(
+            setup_task, advance=1, step="Picking device...", step_style=LOSS_STYLE
+        )
+        device = pick_device(args.device)
+        setup_progress.update(
+            setup_task, advance=1, step="Building STFT config...", step_style=LOSS_STYLE
+        )
+        stft_cfg = StftConfig(
+            sample_rate=TARGET_SAMPLE_RATE,
+            n_fft=N_FFT,
+            hop_length=HOP_LENGTH,
+            win_length=WIN_LENGTH,
+            center=STFT_CENTER,
+            window=WINDOW,
+        )
+        crop_cfg = CropConfig(time_frames=args.time_frames)
+        setup_progress.update(
+            setup_task, advance=1, step="Loading datasets...", step_style=LOSS_STYLE
+        )
+        _train_ds, _val_ds, train_loader, val_loader = build_dataloaders(
+            args, stft_cfg, crop_cfg, device
+        )
+        setup_progress.update(
+            setup_task, advance=1, step="Initializing model...", step_style=LOSS_STYLE
+        )
+        model = UNet2D(stems=len(STEMS_4), base_channels=args.base_channels).to(device)
+        setup_progress.update(
+            setup_task, advance=1, step="Initializing optimizer...", step_style=LOSS_STYLE
+        )
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+        )
+        setup_progress.update(
+            setup_task, advance=1, step="Initializing scheduler...", step_style=LOSS_STYLE
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            map_location=device,
+            mode="min",
+            factor=args.lr_factor,
+            patience=args.lr_patience,
+            min_lr=args.min_lr,
         )
-        logger.info(
-            "Resumed from %s: epoch=%d step=%d extra_keys=%s",
-            ckpt_path,
-            int(start_epoch),
-            int(global_step),
-            list(extra.keys()),
+        setup_progress.update(
+            setup_task, advance=1, step="Initializing amp...", step_style=LOSS_STYLE
         )
+        use_amp = bool(args.amp) and (device.type == "cuda")
+        scaler = _make_grad_scaler(device, use_amp)
 
-    config = build_run_config(args, device, stft_cfg, crop_cfg)
+        start_epoch = 0
+        global_step = 0
 
-    ckpt_dir = Path(args.checkpoint_dir).expanduser().resolve()
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
+        setup_progress.update(
+            setup_task, advance=1, step="Restoring checkpoint...", step_style=LOSS_STYLE
+        )
+        if args.resume.strip():
+            ckpt_path = args.resume.strip()
+            start_epoch, global_step, extra = load_checkpoint(
+                ckpt_path,
+                model,
+                optimizer,
+                map_location=device,
+            )
+            logger.info(
+                "Resumed from %s: epoch=%d step=%d extra_keys=%s",
+                ckpt_path,
+                int(start_epoch),
+                int(global_step),
+                list(extra.keys()),
+            )
 
+        setup_progress.update(
+            setup_task, advance=1, step="Building run config...", step_style=LOSS_STYLE
+        )
+        config = build_run_config(args, device, stft_cfg, crop_cfg)
+
+        ckpt_dir = Path(args.checkpoint_dir).expanduser().resolve()
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+        setup_progress.update(setup_task, advance=1, step="▁▁▁▁▁", step_style=BAR_FINISHED_STYLE)
+
+    # NOTE: Start of training & validation loop
     for epoch in range(start_epoch, args.epochs):
         t0 = time.time()
 
@@ -562,10 +682,11 @@ def main() -> None:
             device=device,
             use_amp=use_amp,
             scaler=scaler,
+            epoch_index=epoch,
         )
         global_step += train_batches
 
-        val_loss, _val_batches = eval_one_epoch(model, val_loader, device)
+        val_loss, _val_batches = eval_one_epoch(model, val_loader, device, epoch_index=epoch)
 
         scheduler.step(val_loss)
 
@@ -582,6 +703,8 @@ def main() -> None:
         )
 
         do_save = ((epoch + 1) % args.save_every_epochs) == 0
+        saved_ckpt = "-"
+        saved_ts = "-"
         if do_save:
             ckpt_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pth"
             extra = {"config": config}
@@ -593,12 +716,26 @@ def main() -> None:
                 step=global_step,
                 extra=extra,
             )
+            saved_ckpt = str(ckpt_path)
             logger.info("Saved checkpoint: %s", str(ckpt_path))
 
             if args.export_ts:
                 ts_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt"
                 export_torchscript(str(ts_path), model)
+                saved_ts = str(ts_path)
                 logger.info("Exported TorchScript: %s", str(ts_path))
+
+        summary_rows.append(
+            {
+                "epoch": epoch + 1,
+                "train_loss": float(train_loss),
+                "val_loss": float(val_loss),
+                "checkpoint_path": saved_ckpt,
+                "torchscript_path": saved_ts,
+            }
+        )
+
+    print_training_summary(summary_rows, include_torchscript=bool(args.export_ts))
 
 
 if __name__ == "__main__":
