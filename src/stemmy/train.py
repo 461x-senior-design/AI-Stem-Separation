@@ -26,7 +26,7 @@ import random
 import time
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 import torch
@@ -66,7 +66,7 @@ logger = get_logger(__name__)
 _LOSS_EPS: float = 1e-8
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments."""
     p = argparse.ArgumentParser(description="Train U-Net on MUSDB18-HQ (baseline).")
 
@@ -447,7 +447,7 @@ def print_training_summary(rows: list[dict[str, Any]], include_torchscript: bool
     best_val = min((row["val_loss"] for row in rows), default=None)
     worst_val = max((row["val_loss"] for row in rows), default=None)
 
-    def style_loss(value: float, best: float | None, worst: float | None) -> str:
+    def style_loss(value: float, best: Optional[float], worst: Optional[float]) -> str:
         if best is None or worst is None:
             return f"[{WHITE}]{value:.6f}[/]"
         if value == best:
@@ -574,7 +574,7 @@ def eval_one_epoch(
     return mean_loss, batches
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: Optional[list[str]] = None) -> None:
     """Main training loop."""
     setup_logging()
 

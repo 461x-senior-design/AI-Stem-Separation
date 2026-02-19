@@ -60,3 +60,40 @@ def test_dev_fullsong_eval_masked_sets_default_env(monkeypatch) -> None:
     assert captured["DATA"] == "/tmp/musdb"
     assert captured["CKPT_DIR"] == "checkpoints"
     assert captured["EVAL_DIR"] == "eval"
+
+
+def test_dev_train_sets_default_args_and_forwards_extras(monkeypatch) -> None:
+    """Verify dev train uses defaults, .env TRAIN_DATA_ROOT, and passthrough args."""
+    runner = CliRunner()
+
+    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {"TRAIN_DATA_ROOT": "/tmp/musdb"})
+    monkeypatch.delenv("TRAIN_DATA_ROOT", raising=False)
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+
+    captured: dict[str, object] = {}
+
+    def _fake_train_main(argv) -> None:
+        captured["argv"] = list(argv)
+        captured["log_level"] = cli_mod.os.environ.get("LOG_LEVEL", "")
+
+    monkeypatch.setattr(cli_mod, "train_main", _fake_train_main)
+
+    result = runner.invoke(cli, ["dev", "train", "--lr", "0.001"])
+
+    assert result.exit_code == 0
+    assert captured["log_level"] == "ERROR"
+    assert captured["argv"] == [
+        "--data-root",
+        "/tmp/musdb",
+        "--epochs",
+        "1",
+        "--batch-size",
+        "4",
+        "--time-frames",
+        "256",
+        "--checkpoint-dir",
+        "checkpoints",
+        "--export-ts",
+        "--lr",
+        "0.001",
+    ]

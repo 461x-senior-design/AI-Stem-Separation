@@ -31,6 +31,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 import soundfile as sf
@@ -355,7 +356,7 @@ def _flush_outputs(
         os.fsync(f_sum.fileno())
 
 
-def print_evaluation_summary(rows: list[dict[str, float | str]]) -> None:
+def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
     """Print an end-of-run checkpoint evaluation summary table."""
     if not rows:
         return
@@ -457,27 +458,27 @@ def main() -> None:
     per_track_csv = eval_dir / "fullsong_eval_per_track.csv"
     summary_csv = eval_dir / "fullsong_eval_summary.csv"
 
-    _print_progress(
-        progress_enabled,
-        "Eval config: device=%s  tracks=%d  max_seconds=%d  ckpts=%d"
-        % (device, int(len(tracks)), int(max_seconds), int(len(ckpts))),
-    )
-
-    _print_progress(
-        progress_enabled,
-        "CSV outputs: %s  %s" % (str(per_track_csv), str(summary_csv)),
-    )
-    _print_progress(
-        progress_enabled,
-        "Progress: EVAL_PROGRESS=%s EVAL_PRINT_METRICS=%s EVAL_FLUSH_EVERY=%d "
-        "EVAL_FSYNC_EVERY=%d"
-        % (str(progress_enabled), str(print_metrics), int(flush_every), int(fsync_every)),
-    )
+    # _print_progress(
+    #     progress_enabled,
+    #     "Eval config: device=%s  tracks=%d  max_seconds=%d  ckpts=%d"
+    #     % (device, int(len(tracks)), int(max_seconds), int(len(ckpts))),
+    # )
+    #
+    # _print_progress(
+    #     progress_enabled,
+    #     "CSV outputs: %s  %s" % (str(per_track_csv), str(summary_csv)),
+    # )
+    # _print_progress(
+    #     progress_enabled,
+    #     "Progress: EVAL_PROGRESS=%s EVAL_PRINT_METRICS=%s EVAL_FLUSH_EVERY=%d "
+    #     "EVAL_FSYNC_EVERY=%d"
+    #     % (str(progress_enabled), str(print_metrics), int(flush_every), int(fsync_every)),
+    # )
 
     with per_track_csv.open("w", newline="") as f_track, summary_csv.open("w", newline="") as f_sum:
         track_writer = csv.writer(f_track)
         sum_writer = csv.writer(f_sum)
-        summary_rows: list[dict[str, float | str]] = []
+        summary_rows: list[dict[str, Union[float, str]]] = []
 
         track_header = ["ckpt", "track"]
         for stem in STEMS:
