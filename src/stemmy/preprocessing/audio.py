@@ -1,5 +1,5 @@
 # audio.py
-# Perorm time-domain audio operations
+# Perform time-domain audio operations
 
 from pathlib import Path
 from typing import Union
@@ -7,7 +7,7 @@ from typing import Union
 import librosa
 import numpy as np
 
-from .constants import TARGET_SAMPLE_RATE
+from stemmy.constants import TARGET_SAMPLE_RATE
 
 
 def load_audio(
@@ -32,9 +32,16 @@ def load_audio(
     """
     path = Path(path)
 
-    # librosa.load returns (waveform, sample_rate)
-    # mono=False keeps stereo as (2, N), mono=True averages to (N,)
-    waveform, loaded_sr = librosa.load(path, sr=sr, mono=mono)
+    if not path.exists():
+        raise FileNotFoundError(f"Audio file not found: {path}")
+    if not path.is_file():
+        raise FileNotFoundError(f"Audio path is not a file: {path}")
+
+    if not isinstance(sr, int) or sr <= 0:
+        raise ValueError("sr must be a positive integer.")
+    if not isinstance(mono, (bool, np.bool_)):
+        raise TypeError("mono must be a bool.")
+    waveform, _ = librosa.load(str(path), sr=sr, mono=mono)
 
     return waveform, sr
 
@@ -50,6 +57,9 @@ def ensure_stereo(waveform: np.ndarray) -> np.ndarray:
         Stereo waveform with shape (2, N)
         If input is mono, duplicates to both channels.
     """
+    if not isinstance(waveform, np.ndarray):
+        raise TypeError("waveform must be a numpy.ndarray.")
+
     if waveform.ndim == 1:
         # Mono: duplicate to both channels
         return np.stack([waveform, waveform])
@@ -75,6 +85,15 @@ def normalize_waveform(waveform: np.ndarray, method: str = "peak") -> tuple[np.n
         Tuple of (normalized_waveform, params)
         params contains everything needed to reverse normalization
     """
+    if not isinstance(waveform, np.ndarray):
+        raise TypeError("waveform must be a numpy.ndarray.")
+    if waveform.ndim not in (1, 2):
+        raise ValueError("waveform must have shape [N] (mono) or [2, N] (stereo).")
+    if not isinstance(method, str) or method.strip() == "":
+        raise ValueError("method must be a non-empty string.")
+
+    method = method.strip().lower()
+
     # Because numpy arrays are mutable, we must make a copy.
     # Otherwise, and modifications to normalized would affect waveform
     normalized = waveform.copy()
@@ -83,7 +102,7 @@ def normalize_waveform(waveform: np.ndarray, method: str = "peak") -> tuple[np.n
         return normalized, {"method": "none", "scale_factor": 1.0}
 
     if method == "peak":
-        peak = np.abs(waveform).max()
+        peak = float(np.abs(waveform).max())
 
         if peak == 0.0:
             return normalized, {"method": "peak", "scale_factor": 1.0}
@@ -92,7 +111,7 @@ def normalize_waveform(waveform: np.ndarray, method: str = "peak") -> tuple[np.n
         return normalized, {"method": "peak", "scale_factor": peak}
 
     if method == "rms":
-        rms = np.sqrt(np.mean(waveform**2))
+        rms = float(np.sqrt(np.mean(waveform**2)))
 
         if rms == 0.0:
             return normalized, {"method": "rms", "scale_factor": 1.0}
@@ -100,4 +119,4 @@ def normalize_waveform(waveform: np.ndarray, method: str = "peak") -> tuple[np.n
         normalized = waveform / rms
         return normalized, {"method": "rms", "scale_factor": rms}
 
-    raise ValueError(f"Unkown normalization method: {method}")
+    raise ValueError(f"Unknown normalization method: {method}")

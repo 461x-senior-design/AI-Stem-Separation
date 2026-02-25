@@ -1,8 +1,18 @@
-# Audio format
+"""Project-wide centralized constants.
+
+This module defines the single authoritative defaults for audio I/O, STFT parameters,
+model input normalization, canonical stem ordering, validation limits, error messages,
+and display formatting.
+
+All preprocessing, training, inference, postprocessing, evaluation, and CLI tools
+import from this file to maintain consistency.
+"""
+
+# ── Audio Format ─────────────────────────────────────────────────────────────
 TARGET_SAMPLE_RATE: int = 44100  # Hz
 TARGET_CHANNELS: int = 2  # Stereo
 
-# STFT parameters
+# ── STFT Parameters ──────────────────────────────────────────────────────────
 N_FFT: int = 4096
 HOP_LENGTH: int = 1024
 WIN_LENGTH: int = N_FFT
@@ -10,9 +20,75 @@ WINDOW: str = "hann"
 N_FREQ_BINS: int = N_FFT // 2 + 1
 STFT_CENTER: bool = False
 
-# Default normalization settings
+# ── Normalization & Numerical Stability ──────────────────────────────────────
 DEFAULT_WAVEFORM_NORM: str = "peak"
 DEFAULT_SPECTROGRAM_NORM: str = "freq_minmax"
+FREQ_MINMAX_EPS: float = 1e-8
 
-# Default stem ordering
+# ── Stem Configuration ───────────────────────────────────────────────────────
 STEMS_4: list[str] = ["drums", "bass", "vocals", "other"]
+
+# ── Input Validation Limits ──────────────────────────────────────────────────
+SUPPORTED_FORMATS: list[str] = ["wav"]
+OPTIONAL_FORMATS: list[str] = ["flac", "mp3"]
+
+MIN_SAMPLE_RATE: int = 8000
+MAX_SAMPLE_RATE: int = 192000
+
+MIN_CHANNELS: int = 1
+MAX_CHANNELS: int = 2
+
+MIN_DURATION_SECONDS: float = 1.0
+MAX_DURATION_SECONDS: float = 600.0
+
+MAX_FILE_SIZE_MB: float = 500.0
+BYTES_TO_MB: int = 1024 * 1024
+
+# ── Output Validation Limits ─────────────────────────────────────────────────
+EXPECTED_CHANNELS: int = TARGET_CHANNELS
+MIN_SAMPLES: int = 441  # ~10ms at 44100Hz
+MIN_RMS_LEVEL: float = 1e-7
+
+# ── Error Messages: Input Validation ─────────────────────────────────────────
+ERROR_FILE_NOT_EXIST: str = "File does not exist."
+ERROR_FILE_NOT_READABLE: str = "File is not readable."
+ERROR_FILE_TOO_LARGE: str = "File size exceeds the maximum limit of {max_size} MB."
+ERROR_UNSUPPORTED_FORMAT: str = (
+    "Unsupported file format: {format}. Supported formats are: {supported}."
+)
+ERROR_CORRUPTED_FILE: str = "Failed to read audio file (possibly corrupted): {error}"
+ERROR_AUDIO_TOO_SHORT: str = "Audio too short: {duration:.1f}s (min {min_duration}s)"
+ERROR_AUDIO_TOO_LONG: str = "Audio too long: {duration:.1f}s (max {max_duration}s)"
+ERROR_INVALID_SAMPLE_RATE: str = (
+    "Invalid sample rate: {sample_rate}Hz (range {min_rate}-{max_rate}Hz)"
+)
+ERROR_INVALID_CHANNELS: str = (
+    "Invalid channel count: {channels} (must be {min_channels}-{max_channels})"
+)
+ERROR_METADATA_RETRIEVAL: str = "Failed to retrieve audio metadata: {error}"
+AUDIO_VALIDATION_EXCEPTION: str = "Audio validation error: {error}"
+UNKNOWN_VALIDATION_EXCEPTION: str = "Unexpected error during validation: {error}"
+SUCCESS_VALIDATION: str = "Audio file is valid"
+
+# ── Error Messages: Output Validation ────────────────────────────────────────
+ERROR_WAVEFORM_CONTAINS_NAN: str = "Waveform contains NaN values"
+ERROR_WAVEFORM_CONTAINS_INF: str = "Waveform contains infinite values"
+ERROR_WAVEFORM_WRONG_SHAPE: str = "Waveform has unexpected shape: {shape}, expected [2, N]"
+ERROR_WAVEFORM_TOO_SHORT: str = "Waveform too short: {samples} samples (min {min_samples})"
+ERROR_CHANNEL_MISMATCH: str = "Channel count mismatch: got {actual}, expected {expected}"
+ERROR_SAMPLE_RATE_MISMATCH: str = "Sample rate mismatch: got {actual}Hz, expected {expected}Hz"
+ERROR_OUTPUT_SILENT: str = "Output is silent (RMS={rms:.2e}), separation likely failed"
+ERROR_FILE_NOT_CREATED: str = "Output file was not created: {path}"
+ERROR_OUTPUT_FILE_NOT_READABLE: str = "Output file exists but cannot be read: {path}"
+
+# ── Metadata Dictionary Keys ─────────────────────────────────────────────────
+METADATA_DURATION: str = "duration_seconds"
+METADATA_SAMPLE_RATE: str = "sample_rate"
+METADATA_CHANNELS: str = "channels"
+METADATA_FILE_SIZE: str = "file_size_mb"
+METADATA_FORMAT: str = "audio_format"
+
+# ── CLI Display Formatting ───────────────────────────────────────────────────
+BOLD_GREEN: str = "bold green"
+BOLD_RED: str = "bold red"
+CYAN: str = "cyan"
