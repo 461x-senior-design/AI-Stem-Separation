@@ -88,6 +88,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train U-Net on MUSDB18-HQ (baseline).")
 
     p.add_argument(
+        # Root folder location for musdb18hq dataset
         "--data-root",
         type=str,
         default="/Users/lexapro_fiend/Projects/462/AI-Stem-Separation/musdb18hq",
