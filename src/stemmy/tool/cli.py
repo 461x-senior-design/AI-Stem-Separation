@@ -43,6 +43,16 @@ CKPT_DIR_KEY: str = "CKPT_DIR"
 EVAL_DIR_KEY: str = "EVAL_DIR"
 
 
+def _apply_potato_mode(potato: bool) -> None:
+    """Set terminal-friendly logging/progress defaults for dev workflows."""
+    if not potato:
+        return
+    os.environ["LOG_LEVEL"] = "INFO"
+    os.environ["STEMMY_DISABLE_PROGRESS"] = "1"
+    os.environ["EVAL_PROGRESS"] = "0"
+    setup_logging(level="INFO")
+
+
 def _train_default_args() -> list[str]:
     """Return defaults for dev train, aligned with run_train.py."""
     env_values = dotenv_values(".env")
@@ -212,11 +222,20 @@ def dev() -> None:
     },
     help="Run the training entrypoint and forward all extra args.",
 )
+@click.option(
+    "--potato",
+    is_flag=True,
+    default=False,
+    help="Disable progress bars and force INFO logs.",
+)
 @click.argument("train_args", nargs=-1, type=click.UNPROCESSED)
-def dev_train(train_args: Sequence[str]) -> None:
+def dev_train(potato: bool, train_args: Sequence[str]) -> None:
     """Run training via stemmy.train with passthrough arguments."""
+    train_argv = [arg for arg in train_args if arg != "--potato"]
+    potato = bool(potato or ("--potato" in train_args))
+    _apply_potato_mode(potato)
     os.environ.setdefault("LOG_LEVEL", "ERROR")
-    train_main([*_train_default_args(), *list(train_args)])
+    train_main([*_train_default_args(), *train_argv])
 
 
 @dev.command(
@@ -231,15 +250,24 @@ def dev_train(train_args: Sequence[str]) -> None:
         "(for example DATA=/path CKPT_DIR=/path EVAL_DIR=/path)."
     ),
 )
+@click.option(
+    "--potato",
+    is_flag=True,
+    default=False,
+    help="Disable progress bars and force INFO logs.",
+)
 @click.argument("env_args", nargs=-1, type=click.UNPROCESSED)
-def dev_fullsong_eval_masked(env_args: Sequence[str]) -> None:
+def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     """Run full-song evaluation via stemmy.tool.fullsong_eval_masked."""
+    env_overrides = [arg for arg in env_args if arg != "--potato"]
+    potato = bool(potato or ("--potato" in env_args))
+    _apply_potato_mode(potato)
     os.environ.setdefault("LOG_LEVEL", "ERROR")
 
     for key, value in _fullsong_eval_default_env().items():
         os.environ.setdefault(key, value)
 
-    for raw in env_args:
+    for raw in env_overrides:
         if "=" not in raw:
             raise click.ClickException(
                 "Invalid argument '%s'. Expected KEY=VALUE environment override." % raw

@@ -22,6 +22,7 @@ Training changes in this version:
 """
 
 import argparse
+import os
 import random
 import time
 from contextlib import nullcontext
@@ -35,11 +36,6 @@ from rich.console import Console
 from rich.table import Table
 from torch.utils.data import DataLoader
 
-from stemmy.tool.progress_theme import (
-    create_setup_progress,
-    create_themed_progress,
-    start_eq_animator,
-)
 from stemmy.constants import (
     BAR_FINISHED_STYLE,
     BOLD_PURPLE,
@@ -61,6 +57,11 @@ from stemmy.constants import (
 )
 from stemmy.logging_config import get_logger, setup_logging
 from stemmy.models.unet_2d import UNet2D
+from stemmy.tool.progress_theme import (
+    create_setup_progress,
+    create_themed_progress,
+    start_eq_animator,
+)
 from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset
 from stemmy.training.stft import StftConfig
@@ -68,6 +69,16 @@ from stemmy.training.stft import StftConfig
 logger = get_logger(__name__)
 
 _LOSS_EPS: float = 1e-8
+
+
+def _progress_disabled() -> bool:
+    """Return True when terminal progress rendering should be disabled."""
+    return os.getenv("STEMMY_DISABLE_PROGRESS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
@@ -494,6 +505,32 @@ def train_one_epoch(
     running = 0.0
     batches = 0
 
+    if _progress_disabled():
+        logger.info("Epoch %d train: %d batches", int(epoch_index + 1), int(len(train_loader)))
+        for mix_norm, targets_norm in train_loader:
+            mix_norm = mix_norm.to(device, non_blocking=True)
+            targets_norm = targets_norm.to(device, non_blocking=True)
+
+            optimizer.zero_grad(set_to_none=True)
+
+            if use_amp:
+                with _autocast_context(device, use_amp):
+                    logits = model(mix_norm)
+                    loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                logits = model(mix_norm)
+                loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                loss.backward()
+                optimizer.step()
+
+            running += float(loss.detach().cpu().item())
+            batches += 1
+        mean_loss = running / max(1, batches)
+        return mean_loss, batches
+
     with create_themed_progress(
         "Epoch {task.fields[epoch]} Train", title_style=BOLD_PURPLE
     ) as progress:
@@ -547,6 +584,21 @@ def eval_one_epoch(
     running = 0.0
     batches = 0
 
+    if _progress_disabled():
+        logger.info("Epoch %d val: %d batches", int(epoch_index + 1), int(len(val_loader)))
+        with torch.no_grad():
+            for mix_norm, targets_norm in val_loader:
+                mix_norm = mix_norm.to(device, non_blocking=True)
+                targets_norm = targets_norm.to(device, non_blocking=True)
+
+                logits = model(mix_norm)
+                v_loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+
+                running += float(v_loss.cpu().item())
+                batches += 1
+        mean_loss = running / max(1, batches)
+        return mean_loss, batches
+
     with torch.no_grad():
         with create_themed_progress(
             "Epoch {task.fields[epoch]} Val  ", title_style=BOLD_VIOLET
@@ -581,8 +633,11 @@ def eval_one_epoch(
 def main(argv: Optional[list[str]] = None) -> None:
     """Main training loop."""
     setup_logging()
+    progress_disabled = _progress_disabled()
 
     args = parse_args(argv)
+    if progress_disabled:
+        logger.info("Progress bars disabled (STEMMY_DISABLE_PROGRESS=1)")
 
     # NOTE: Could be worth extracting setup to its own function
     # Initialize summary_rows for Training Summary Table
@@ -591,16 +646,24 @@ def main(argv: Optional[list[str]] = None) -> None:
         setup_task = setup_progress.add_task(
             "Setup", total=11, step="Validating Args...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: validating args")
         validate_args(args)
         setup_progress.update(setup_task, advance=1, step="Seeding RNG...", step_style=LOSS_STYLE)
+        if progress_disabled:
+            logger.info("Setup: seeding RNG")
         set_seed(args.seed)
         setup_progress.update(
             setup_task, advance=1, step="Picking device...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: picking device")
         device = pick_device(args.device)
         setup_progress.update(
             setup_task, advance=1, step="Building STFT config...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: building STFT config")
         stft_cfg = StftConfig(
             sample_rate=TARGET_SAMPLE_RATE,
             n_fft=N_FFT,
@@ -613,16 +676,22 @@ def main(argv: Optional[list[str]] = None) -> None:
         setup_progress.update(
             setup_task, advance=1, step="Loading datasets...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: loading datasets")
         _train_ds, _val_ds, train_loader, val_loader = build_dataloaders(
             args, stft_cfg, crop_cfg, device
         )
         setup_progress.update(
             setup_task, advance=1, step="Initializing model...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: initializing model")
         model = UNet2D(stems=len(STEMS_4), base_channels=args.base_channels).to(device)
         setup_progress.update(
             setup_task, advance=1, step="Initializing optimizer...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: initializing optimizer")
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=args.lr,
@@ -631,6 +700,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         setup_progress.update(
             setup_task, advance=1, step="Initializing scheduler...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: initializing scheduler")
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode="min",
@@ -641,6 +712,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         setup_progress.update(
             setup_task, advance=1, step="Initializing amp...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: initializing amp")
         use_amp = bool(args.amp) and (device.type == "cuda")
         scaler = _make_grad_scaler(device, use_amp)
 
@@ -650,6 +723,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         setup_progress.update(
             setup_task, advance=1, step="Restoring checkpoint...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: restoring checkpoint (if requested)")
         if args.resume.strip():
             ckpt_path = args.resume.strip()
             start_epoch, global_step, extra = load_checkpoint(
@@ -669,6 +744,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         setup_progress.update(
             setup_task, advance=1, step="Building run config...", step_style=LOSS_STYLE
         )
+        if progress_disabled:
+            logger.info("Setup: building run config")
         config = build_run_config(args, device, stft_cfg, crop_cfg)
 
         ckpt_dir = Path(args.checkpoint_dir).expanduser().resolve()

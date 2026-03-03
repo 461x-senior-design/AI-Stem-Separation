@@ -62,6 +62,31 @@ def test_dev_fullsong_eval_masked_sets_default_env(monkeypatch) -> None:
     assert captured["EVAL_DIR"] == "eval"
 
 
+def test_dev_fullsong_eval_masked_potato_sets_info_and_disables_progress(monkeypatch) -> None:
+    """Verify --potato forces INFO logs and disables progress output."""
+    runner = CliRunner()
+
+    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {})
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    monkeypatch.delenv("EVAL_PROGRESS", raising=False)
+    monkeypatch.delenv("STEMMY_DISABLE_PROGRESS", raising=False)
+
+    captured: dict[str, str] = {}
+
+    def _fake_eval_main() -> None:
+        captured["LOG_LEVEL"] = cli_mod.os.environ.get("LOG_LEVEL", "")
+        captured["EVAL_PROGRESS"] = cli_mod.os.environ.get("EVAL_PROGRESS", "")
+        captured["STEMMY_DISABLE_PROGRESS"] = cli_mod.os.environ.get("STEMMY_DISABLE_PROGRESS", "")
+
+    monkeypatch.setattr(cli_mod, "fullsong_eval_masked_main", _fake_eval_main)
+
+    result = runner.invoke(cli, ["dev", "eval", "--potato"])
+    assert result.exit_code == 0
+    assert captured["LOG_LEVEL"] == "INFO"
+    assert captured["EVAL_PROGRESS"] == "0"
+    assert captured["STEMMY_DISABLE_PROGRESS"] == "1"
+
+
 def test_dev_train_sets_default_args_and_forwards_extras(monkeypatch) -> None:
     """Verify dev train uses defaults, .env TRAIN_DATA_ROOT, and passthrough args."""
     runner = CliRunner()
@@ -97,3 +122,46 @@ def test_dev_train_sets_default_args_and_forwards_extras(monkeypatch) -> None:
         "--lr",
         "0.001",
     ]
+
+
+def test_dev_train_potato_sets_info_and_disables_progress(monkeypatch) -> None:
+    """Verify --potato forces INFO logs and disables progress output."""
+    runner = CliRunner()
+
+    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {})
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    monkeypatch.delenv("EVAL_PROGRESS", raising=False)
+    monkeypatch.delenv("STEMMY_DISABLE_PROGRESS", raising=False)
+
+    captured: dict[str, object] = {}
+
+    def _fake_train_main(argv) -> None:
+        captured["argv"] = list(argv)
+        captured["LOG_LEVEL"] = cli_mod.os.environ.get("LOG_LEVEL", "")
+        captured["EVAL_PROGRESS"] = cli_mod.os.environ.get("EVAL_PROGRESS", "")
+        captured["STEMMY_DISABLE_PROGRESS"] = cli_mod.os.environ.get("STEMMY_DISABLE_PROGRESS", "")
+
+    monkeypatch.setattr(cli_mod, "train_main", _fake_train_main)
+
+    result = runner.invoke(cli, ["dev", "train", "--potato"])
+    assert result.exit_code == 0
+    assert captured["LOG_LEVEL"] == "INFO"
+    assert captured["EVAL_PROGRESS"] == "0"
+    assert captured["STEMMY_DISABLE_PROGRESS"] == "1"
+
+
+def test_dev_train_potato_is_removed_from_passthrough_args(monkeypatch) -> None:
+    """Verify --potato is not forwarded to the training entrypoint."""
+    runner = CliRunner()
+
+    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {})
+    captured: dict[str, object] = {}
+
+    def _fake_train_main(argv) -> None:
+        captured["argv"] = list(argv)
+
+    monkeypatch.setattr(cli_mod, "train_main", _fake_train_main)
+
+    result = runner.invoke(cli, ["dev", "train", "--potato", "--lr", "0.001"])
+    assert result.exit_code == 0
+    assert "--potato" not in captured["argv"]

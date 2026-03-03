@@ -1,3 +1,4 @@
+import os
 import threading
 from datetime import timedelta
 from itertools import cycle
@@ -80,6 +81,12 @@ def start_eq_animator(progress, task_id, fps=24):
 
 def create_themed_progress(title_template, title_style, refresh_per_second=30):
     """Create a themed progress instance shared across modules."""
+    progress_disabled = os.getenv("STEMMY_DISABLE_PROGRESS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     return Progress(
         TextColumn(title_template, style=title_style, table_column=Column(width=15)),
         BarColumn(
@@ -100,11 +107,18 @@ def create_themed_progress(title_template, title_style, refresh_per_second=30):
             table_column=Column(width=10, justify="left"),
         ),
         refresh_per_second=refresh_per_second,
+        disable=progress_disabled,
     )
 
 
 def create_setup_progress(title_template, title_style, refresh_per_second=30):
     """Create a themed setup progress instance for pre-training initialization."""
+    progress_disabled = os.getenv("STEMMY_DISABLE_PROGRESS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     return Progress(
         TextColumn(title_template, style=title_style, table_column=Column(width=15)),
         BarColumn(
@@ -121,4 +135,5 @@ def create_setup_progress(title_template, title_style, refresh_per_second=30):
         ThemedTimeRemainingColumn(style=REMAINING_STYLE, table_column=Column(width=9)),
         ThemedStepColumn(table_column=Column(width=28)),
         refresh_per_second=refresh_per_second,
+        disable=progress_disabled,
     )
