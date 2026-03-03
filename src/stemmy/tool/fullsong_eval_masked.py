@@ -28,14 +28,25 @@ import csv
 import math
 import os
 import time
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 import soundfile as sf
 import torch
+from rich.console import Console
+from rich.table import Table
 
-from stemmy.constants import STEMS_4
+from stemmy.constants import (
+    BOLD_PURPLE,
+    LAVENDER,
+    NEON_GREEN,
+    ROSE_RED,
+    STEMS_4,
+    WHITE,
+)
 from stemmy.inference import (
     InferenceConfig,
     config_from_checkpoint,
@@ -43,6 +54,7 @@ from stemmy.inference import (
     separate_audio_file,
 )
 from stemmy.logging_config import get_logger, setup_logging
+from stemmy.tool.progress_theme import create_themed_progress, start_eq_animator
 
 logger = get_logger(__name__)
 
@@ -344,6 +356,59 @@ def _flush_outputs(
         os.fsync(f_sum.fileno())
 
 
+def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
+    """Print an end-of-run checkpoint evaluation summary table."""
+    if not rows:
+        return
+
+    console = Console()
+    table = Table(title="Evaluation Summary", header_style=BOLD_PURPLE)
+    table.add_column("Checkpoint", style=LAVENDER)
+    table.add_column("Mean SI-SDR", justify="right", style=WHITE)
+    for stem in STEMS:
+        table.add_column(f"SI-SDR {stem}", justify="right", style=WHITE)
+    table.add_column("Recon SNR", justify="right", style=WHITE)
+    table.add_column("Interstem Corr", justify="right", style=WHITE)
+
+    score_keys = [
+        "mean_sisdr",
+        *[f"mean_sisdr_{stem}" for stem in STEMS],
+        "mean_recon_snr_db",
+        "mean_interstem_corr",
+    ]
+    col_best: dict[str, float] = {}
+    col_worst: dict[str, float] = {}
+    for key in score_keys:
+        values = [float(row[key]) for row in rows]
+        col_best[key] = max(values)
+        col_worst[key] = min(values)
+
+    def style_score(key: str, value: float, decimals: int = 3) -> str:
+        if value == col_best[key]:
+            return f"[{NEON_GREEN}]{value:.{decimals}f}[/]"
+        if value == col_worst[key]:
+            return f"[{ROSE_RED}]{value:.{decimals}f}[/]"
+        return f"[{WHITE}]{value:.{decimals}f}[/]"
+
+    for row in rows:
+        mean_sisdr = float(row["mean_sisdr"])
+        mean_recon = float(row["mean_recon_snr_db"])
+        mean_corr = float(row["mean_interstem_corr"])
+        table.add_row(
+            Path(str(row["ckpt"])).name,
+            style_score("mean_sisdr", mean_sisdr, decimals=3),
+            *[
+                style_score(f"mean_sisdr_{stem}", float(row[f"mean_sisdr_{stem}"]), decimals=3)
+                for stem in STEMS
+            ],
+            style_score("mean_recon_snr_db", mean_recon, decimals=3),
+            style_score("mean_interstem_corr", mean_corr, decimals=4),
+        )
+
+    console.print()
+    console.print(table)
+
+
 def main() -> None:
     """Entry point for full-song evaluation."""
     setup_logging()
@@ -393,26 +458,27 @@ def main() -> None:
     per_track_csv = eval_dir / "fullsong_eval_per_track.csv"
     summary_csv = eval_dir / "fullsong_eval_summary.csv"
 
-    _print_progress(
-        progress_enabled,
-        "Eval config: device=%s  tracks=%d  max_seconds=%d  ckpts=%d"
-        % (device, int(len(tracks)), int(max_seconds), int(len(ckpts))),
-    )
-
-    _print_progress(
-        progress_enabled,
-        "CSV outputs: %s  %s" % (str(per_track_csv), str(summary_csv)),
-    )
-    _print_progress(
-        progress_enabled,
-        "Progress: EVAL_PROGRESS=%s EVAL_PRINT_METRICS=%s EVAL_FLUSH_EVERY=%d "
-        "EVAL_FSYNC_EVERY=%d"
-        % (str(progress_enabled), str(print_metrics), int(flush_every), int(fsync_every)),
-    )
+    # _print_progress(
+    #     progress_enabled,
+    #     "Eval config: device=%s  tracks=%d  max_seconds=%d  ckpts=%d"
+    #     % (device, int(len(tracks)), int(max_seconds), int(len(ckpts))),
+    # )
+    #
+    # _print_progress(
+    #     progress_enabled,
+    #     "CSV outputs: %s  %s" % (str(per_track_csv), str(summary_csv)),
+    # )
+    # _print_progress(
+    #     progress_enabled,
+    #     "Progress: EVAL_PROGRESS=%s EVAL_PRINT_METRICS=%s EVAL_FLUSH_EVERY=%d "
+    #     "EVAL_FSYNC_EVERY=%d"
+    #     % (str(progress_enabled), str(print_metrics), int(flush_every), int(fsync_every)),
+    # )
 
     with per_track_csv.open("w", newline="") as f_track, summary_csv.open("w", newline="") as f_sum:
         track_writer = csv.writer(f_track)
         sum_writer = csv.writer(f_sum)
+        summary_rows: list[dict[str, Union[float, str]]] = []
 
         track_header = ["ckpt", "track"]
         for stem in STEMS:
@@ -430,199 +496,274 @@ def main() -> None:
 
         total_tracks = int(len(tracks))
         total_ckpts = int(len(ckpts))
-
+        use_rich_progress = bool(progress_enabled and os.isatty(1))
+        text_progress_enabled = bool(progress_enabled and not use_rich_progress)
         per_track_rows_written = 0
 
-        for ckpt_idx, ckpt_path in enumerate(ckpts, start=1):
-            ckpt_label = str(ckpt_path)
-            logger.info("Evaluating checkpoint: %s", ckpt_label)
-            _print_progress(
-                progress_enabled,
-                "--- ckpt %d/%d: %s ---" % (int(ckpt_idx), int(total_ckpts), ckpt_label),
-            )
-
-            model, ckpt_obj = load_pth_model(
-                str(ckpt_path),
-                device=device,
-                stems=len(STEMS),
-            )
-            model.eval()
-
-            cfg = _build_eval_inference_config(ckpt_obj, device=device)
-
-            sisdr_accum: dict[str, list[float]] = {s: [] for s in STEMS}
-            recon_accum: list[float] = []
-            corr_accum: list[float] = []
-
-            max_samples = 0 if max_seconds <= 0 else int(max_seconds * int(cfg.sample_rate))
-
-            for track_idx, track_dir in enumerate(tracks, start=1):
-                if (int(track_idx) == 1) or (int(track_idx) % int(print_every_tracks) == 0):
+        progress_ctx = (
+            create_themed_progress("{task.fields[group]:<11}", title_style=BOLD_PURPLE)
+            if use_rich_progress
+            else nullcontext(None)
+        )
+        with progress_ctx as progress:
+            ckpt_task_id = None
+            track_task_id = None
+            ckpt_anim_stop = None
+            ckpt_anim_thread = None
+            track_anim_stop = None
+            track_anim_thread = None
+            if progress is not None:
+                ckpt_task_id = progress.add_task(
+                    "eval_ckpt",
+                    total=total_ckpts,
+                    eq="",
+                    group="Checkpoints",
+                )
+                track_task_id = progress.add_task(
+                    "eval_track",
+                    total=(total_ckpts * total_tracks),
+                    eq="",
+                    group="Tracks",
+                )
+                ckpt_anim_stop, ckpt_anim_thread = start_eq_animator(progress, ckpt_task_id)
+                track_anim_stop, track_anim_thread = start_eq_animator(progress, track_task_id)
+            try:
+                for ckpt_idx, ckpt_path in enumerate(ckpts, start=1):
+                    ckpt_label = str(ckpt_path)
+                    logger.info("Evaluating checkpoint: %s", ckpt_label)
                     _print_progress(
-                        progress_enabled,
-                        "ckpt %d/%d  track %d/%d  %s"
-                        % (
-                            int(ckpt_idx),
-                            int(total_ckpts),
-                            int(track_idx),
-                            int(total_tracks),
-                            track_dir.name,
-                        ),
+                        text_progress_enabled,
+                        "--- ckpt %d/%d: %s ---" % (int(ckpt_idx), int(total_ckpts), ckpt_label),
                     )
 
-                t0 = time.time()
-
-                track_name = track_dir.name
-                mix_path = track_dir / "mixture.wav"
-
-                mix, sr = _read_slice(mix_path, max_samples=max_samples)
-
-                if sr != int(cfg.sample_rate):
-                    raise EvaluationException(
-                        "Track sample rate mismatch: %s sr=%d expected=%d"
-                        % (str(mix_path), int(sr), int(cfg.sample_rate))
+                    model, ckpt_obj = load_pth_model(
+                        str(ckpt_path),
+                        device=device,
+                        stems=len(STEMS),
                     )
+                    model.eval()
 
-                infer_mix_path = _maybe_truncate_mixture_wav(
-                    mix_path=mix_path,
-                    eval_dir=eval_dir,
-                    mix=mix,
-                    sr=sr,
-                    max_seconds=max_seconds,
-                )
+                    cfg = _build_eval_inference_config(ckpt_obj, device=device)
 
-                out = separate_audio_file(
-                    audio_path=infer_mix_path,
-                    model=model,
-                    cfg=cfg,
-                    output_dir=eval_dir,
-                    export_files=False,
-                    stems=list(STEMS),
-                    checkpoint=ckpt_obj,
-                )
+                    sisdr_accum: dict[str, list[float]] = {s: [] for s in STEMS}
+                    recon_accum: list[float] = []
+                    corr_accum: list[float] = []
 
-                pred_stems: dict[str, np.ndarray] = {}
-                for stem in STEMS:
-                    wav = out.stem_waveforms[stem]
-                    w = np.asarray(wav)
-                    if w.ndim != 2:
-                        raise EvaluationException(
-                            "Pred stem has unexpected ndim for %s: %s" % (stem, str(w.shape))
-                        )
+                    max_samples = 0 if max_seconds <= 0 else int(max_seconds * int(cfg.sample_rate))
 
-                    # Postprocessor returns [2, N]. Standardize to (N, 2) for scoring.
-                    if w.shape[0] == 2:
-                        pred_stems[stem] = w.T.astype(np.float32, copy=False)
-                    elif w.shape[1] == 2:
-                        pred_stems[stem] = w.astype(np.float32, copy=False)
-                    else:
-                        raise EvaluationException(
-                            "Pred stem has unexpected shape for %s: %s" % (stem, str(w.shape))
-                        )
-
-                pred_stems = _truncate_outputs_to_mix_len(pred_stems, mix.shape[0])
-
-                gt: dict[str, np.ndarray] = {}
-                for stem in STEMS:
-                    gt_path = track_dir / ("%s.wav" % stem)
-                    gt_x, gt_sr = _read_slice(gt_path, max_samples=max_samples)
-
-                    if gt_sr != int(cfg.sample_rate):
-                        raise EvaluationException(
-                            "GT sample rate mismatch: %s sr=%d expected=%d"
-                            % (str(gt_path), int(gt_sr), int(cfg.sample_rate))
-                        )
-
-                    # Align GT lengths to mixture length.
-                    if gt_x.shape[0] != mix.shape[0]:
-                        if gt_x.shape[0] > mix.shape[0]:
-                            gt_x = gt_x[: mix.shape[0], :]
-                        else:
-                            pad = np.zeros(
-                                (mix.shape[0] - gt_x.shape[0], gt_x.shape[1]),
-                                dtype=gt_x.dtype,
+                    for track_idx, track_dir in enumerate(tracks, start=1):
+                        if (int(track_idx) == 1) or (
+                            (int(track_idx) % int(print_every_tracks)) == 0
+                        ):
+                            _print_progress(
+                                text_progress_enabled,
+                                "ckpt %d/%d  track %d/%d  %s"
+                                % (
+                                    int(ckpt_idx),
+                                    int(total_ckpts),
+                                    int(track_idx),
+                                    int(total_tracks),
+                                    track_dir.name,
+                                ),
                             )
-                            gt_x = np.concatenate([gt_x, pad], axis=0)
 
-                    gt[stem] = gt_x
+                        t0 = time.time()
 
-                sisdr_row: dict[str, float] = {}
-                for stem in STEMS:
-                    v = _si_sdr(pred_stems[stem], gt[stem])
-                    sisdr_row[stem] = v
-                    sisdr_accum[stem].append(v)
+                        track_name = track_dir.name
+                        mix_path = track_dir / "mixture.wav"
 
-                stems_sum = np.zeros_like(mix)
-                for stem in STEMS:
-                    stems_sum += pred_stems[stem]
-                recon = _recon_snr_db(mix, stems_sum)
-                recon_accum.append(recon)
+                        mix, sr = _read_slice(mix_path, max_samples=max_samples)
 
-                corr_val = _mean_interstem_corr(pred_stems)
-                corr_accum.append(corr_val)
+                        if sr != int(cfg.sample_rate):
+                            raise EvaluationException(
+                                "Track sample rate mismatch: %s sr=%d expected=%d"
+                                % (str(mix_path), int(sr), int(cfg.sample_rate))
+                            )
 
-                track_row = [ckpt_label, track_name]
-                for stem in STEMS:
-                    track_row.append("%.6f" % float(sisdr_row[stem]))
-                track_row.append("%.6f" % float(recon))
-                track_row.append("%.6f" % float(corr_val))
-                track_writer.writerow(track_row)
+                        infer_mix_path = _maybe_truncate_mixture_wav(
+                            mix_path=mix_path,
+                            eval_dir=eval_dir,
+                            mix=mix,
+                            sr=sr,
+                            max_seconds=max_seconds,
+                        )
 
-                per_track_rows_written += 1
+                        out = separate_audio_file(
+                            audio_path=infer_mix_path,
+                            model=model,
+                            cfg=cfg,
+                            output_dir=eval_dir,
+                            export_files=False,
+                            stems=list(STEMS),
+                            checkpoint=ckpt_obj,
+                        )
 
-                do_flush = (int(per_track_rows_written) % int(flush_every)) == 0
-                do_fsync = (int(fsync_every) > 0) and (
-                    (int(per_track_rows_written) % int(fsync_every)) == 0
-                )
-                if do_flush or do_fsync:
-                    _flush_outputs(f_track, f_sum, do_fsync=bool(do_fsync))
+                        pred_stems: dict[str, np.ndarray] = {}
+                        for stem in STEMS:
+                            wav = out.stem_waveforms[stem]
+                            w = np.asarray(wav)
+                            if w.ndim != 2:
+                                raise EvaluationException(
+                                    "Pred stem has unexpected ndim for %s: %s"
+                                    % (stem, str(w.shape))
+                                )
 
-                if print_metrics:
-                    dt = time.time() - t0
-                    parts = [
-                        "done",
-                        "dt=%.2fs" % float(dt),
-                        "recon=%.3f" % float(recon),
-                        "corr=%.4f" % float(corr_val),
-                    ]
+                            # Postprocessor returns [2, N]. Standardize to (N, 2) for scoring.
+                            if w.shape[0] == 2:
+                                pred_stems[stem] = w.T.astype(np.float32, copy=False)
+                            elif w.shape[1] == 2:
+                                pred_stems[stem] = w.astype(np.float32, copy=False)
+                            else:
+                                raise EvaluationException(
+                                    "Pred stem has unexpected shape for %s: %s"
+                                    % (stem, str(w.shape))
+                                )
+
+                        pred_stems = _truncate_outputs_to_mix_len(pred_stems, mix.shape[0])
+
+                        gt: dict[str, np.ndarray] = {}
+                        for stem in STEMS:
+                            gt_path = track_dir / ("%s.wav" % stem)
+                            gt_x, gt_sr = _read_slice(gt_path, max_samples=max_samples)
+
+                            if gt_sr != int(cfg.sample_rate):
+                                raise EvaluationException(
+                                    "GT sample rate mismatch: %s sr=%d expected=%d"
+                                    % (str(gt_path), int(gt_sr), int(cfg.sample_rate))
+                                )
+
+                            # Align GT lengths to mixture length.
+                            if gt_x.shape[0] != mix.shape[0]:
+                                if gt_x.shape[0] > mix.shape[0]:
+                                    gt_x = gt_x[: mix.shape[0], :]
+                                else:
+                                    pad = np.zeros(
+                                        (mix.shape[0] - gt_x.shape[0], gt_x.shape[1]),
+                                        dtype=gt_x.dtype,
+                                    )
+                                    gt_x = np.concatenate([gt_x, pad], axis=0)
+
+                            gt[stem] = gt_x
+
+                        sisdr_row: dict[str, float] = {}
+                        for stem in STEMS:
+                            v = _si_sdr(pred_stems[stem], gt[stem])
+                            sisdr_row[stem] = v
+                            sisdr_accum[stem].append(v)
+
+                        stems_sum = np.zeros_like(mix)
+                        for stem in STEMS:
+                            stems_sum += pred_stems[stem]
+                        recon = _recon_snr_db(mix, stems_sum)
+                        recon_accum.append(recon)
+
+                        corr_val = _mean_interstem_corr(pred_stems)
+                        corr_accum.append(corr_val)
+
+                        track_row = [ckpt_label, track_name]
+                        for stem in STEMS:
+                            track_row.append("%.6f" % float(sisdr_row[stem]))
+                        track_row.append("%.6f" % float(recon))
+                        track_row.append("%.6f" % float(corr_val))
+                        track_writer.writerow(track_row)
+
+                        per_track_rows_written += 1
+
+                        do_flush = (int(per_track_rows_written) % int(flush_every)) == 0
+                        do_fsync = (int(fsync_every) > 0) and (
+                            (int(per_track_rows_written) % int(fsync_every)) == 0
+                        )
+                        if do_flush or do_fsync:
+                            _flush_outputs(f_track, f_sum, do_fsync=bool(do_fsync))
+
+                        if print_metrics:
+                            dt = time.time() - t0
+                            parts = [
+                                "done",
+                                "dt=%.2fs" % float(dt),
+                                "recon=%.3f" % float(recon),
+                                "corr=%.4f" % float(corr_val),
+                            ]
+                            for stem in STEMS:
+                                parts.append("%s=%.3f" % (stem, float(sisdr_row[stem])))
+                            _print_progress(
+                                progress_enabled,
+                                "ckpt %d/%d  track %d/%d  %s  %s"
+                                % (
+                                    int(ckpt_idx),
+                                    int(total_ckpts),
+                                    int(track_idx),
+                                    int(total_tracks),
+                                    track_name,
+                                    " ".join(parts),
+                                ),
+                            )
+
+                        if progress is not None and track_task_id is not None:
+                            progress.update(
+                                track_task_id,
+                                advance=1,
+                                description="ckpt %d/%d  %s"
+                                % (int(ckpt_idx), int(total_ckpts), track_name),
+                            )
+
+                    mean_sisdr_by_stem = {
+                        stem: float(np.mean(sisdr_accum[stem]) if sisdr_accum[stem] else 0.0)
+                        for stem in STEMS
+                    }
+                    mean_recon = float(np.mean(recon_accum) if recon_accum else 0.0)
+                    mean_corr = float(np.mean(corr_accum) if corr_accum else 0.0)
+                    mean_sisdr = float(np.mean([mean_sisdr_by_stem[stem] for stem in STEMS]))
+
+                    mean_row = [ckpt_label]
                     for stem in STEMS:
-                        parts.append("%s=%.3f" % (stem, float(sisdr_row[stem])))
-                    _print_progress(
-                        progress_enabled,
-                        "ckpt %d/%d  track %d/%d  %s  %s"
-                        % (
-                            int(ckpt_idx),
-                            int(total_ckpts),
-                            int(track_idx),
-                            int(total_tracks),
-                            track_name,
-                            " ".join(parts),
+                        mean_row.append("%.6f" % float(mean_sisdr_by_stem[stem]))
+                    mean_row.append("%.6f" % float(mean_recon))
+                    mean_row.append("%.6f" % float(mean_corr))
+                    sum_writer.writerow(mean_row)
+                    summary_rows.append(
+                        {
+                            "ckpt": ckpt_label,
+                            "mean_sisdr": mean_sisdr,
+                            "mean_recon_snr_db": mean_recon,
+                            "mean_interstem_corr": mean_corr,
+                            **{f"mean_sisdr_{stem}": mean_sisdr_by_stem[stem] for stem in STEMS},
+                        }
+                    )
+
+                    _flush_outputs(
+                        f_track,
+                        f_sum,
+                        do_fsync=bool(
+                            (int(fsync_every) > 0)
+                            and ((int(per_track_rows_written) % int(fsync_every)) == 0)
                         ),
                     )
 
-            mean_row = [ckpt_label]
-            for stem in STEMS:
-                mean_row.append(
-                    "%.6f" % float(np.mean(sisdr_accum[stem]) if sisdr_accum[stem] else 0.0)
-                )
-            mean_row.append("%.6f" % float(np.mean(recon_accum) if recon_accum else 0.0))
-            mean_row.append("%.6f" % float(np.mean(corr_accum) if corr_accum else 0.0))
-            sum_writer.writerow(mean_row)
-
-            _flush_outputs(
-                f_track,
-                f_sum,
-                do_fsync=bool(
-                    (int(fsync_every) > 0)
-                    and ((int(per_track_rows_written) % int(fsync_every)) == 0)
-                ),
-            )
+                    if progress is not None and ckpt_task_id is not None:
+                        progress.update(
+                            ckpt_task_id,
+                            advance=1,
+                            description=Path(ckpt_label).name,
+                        )
+            finally:
+                if ckpt_anim_stop is not None and ckpt_anim_thread is not None:
+                    ckpt_anim_stop.set()
+                    ckpt_anim_thread.join()
+                if progress is not None and ckpt_task_id is not None:
+                    progress.update(ckpt_task_id, eq="▁▁▁▁▁")
+                if track_anim_stop is not None and track_anim_thread is not None:
+                    track_anim_stop.set()
+                    track_anim_thread.join()
+                if progress is not None and track_task_id is not None:
+                    progress.update(track_task_id, eq="▁▁▁▁▁")
 
         _flush_outputs(f_track, f_sum, do_fsync=bool(int(fsync_every) > 0))
 
     logger.info("Wrote per-track CSV: %s", str(per_track_csv))
     logger.info("Wrote summary CSV: %s", str(summary_csv))
     _print_progress(progress_enabled, "Evaluation complete.")
+    print_evaluation_summary(summary_rows)
 
 
 if __name__ == "__main__":

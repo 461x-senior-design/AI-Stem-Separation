@@ -9,6 +9,8 @@ scipy>=1.10.0
 # CLI dependencies
 click>=8.1.0
 rich>=13.0.0
+python-dotenv>=1.0.0
+alive-progress>=3.1.5
 
 # Development dependencies (for CI)
 pytest>=7.4.0
