@@ -35,7 +35,7 @@ from rich.console import Console
 from rich.table import Table
 from torch.utils.data import DataLoader
 
-from ui.progress_theme import create_setup_progress, create_themed_progress, start_eq_animator
+from stemmy.tool.progress_theme import create_setup_progress, create_themed_progress, start_eq_animator
 from stemmy.constants import (
     BAR_FINISHED_STYLE,
     BOLD_PURPLE,

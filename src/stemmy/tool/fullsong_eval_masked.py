@@ -54,7 +54,7 @@ from stemmy.inference import (
     separate_audio_file,
 )
 from stemmy.logging_config import get_logger, setup_logging
-from ui.progress_theme import create_themed_progress, start_eq_animator
+from stemmy.tool.progress_theme import create_themed_progress, start_eq_animator
 
 logger = get_logger(__name__)
 
@@ -501,7 +501,7 @@ def main() -> None:
         per_track_rows_written = 0
 
         progress_ctx = (
-            create_themed_progress("Eval {task.fields[group]:<11}", title_style=BOLD_PURPLE)
+            create_themed_progress("{task.fields[group]:<11}", title_style=BOLD_PURPLE)
             if use_rich_progress
             else nullcontext(None)
         )
