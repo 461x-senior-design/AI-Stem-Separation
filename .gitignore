@@ -72,5 +72,5 @@ local_ckpts/
 # Script .env
 scripts/stemmy.env
 
-# Weights and Biases Folder
+# Wandb folder (local run cache)
 /wandb/
