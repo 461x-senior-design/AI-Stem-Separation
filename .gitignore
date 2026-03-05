@@ -71,3 +71,6 @@ local_ckpts/
 
 # Script .env
 scripts/stemmy.env
+
+# Weights and Biases Folder
+/wandb/
