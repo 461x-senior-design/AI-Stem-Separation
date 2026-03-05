@@ -91,7 +91,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         # Root folder location for musdb18hq dataset
         "--data-root",
         type=str,
-        default="/Users/lexapro_fiend/Projects/462/AI-Stem-Separation/musdb18hq",
+        default="",
         help="Root directory containing the dataset splits used by the dataset class.",
     )
 
