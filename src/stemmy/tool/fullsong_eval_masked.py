@@ -38,6 +38,7 @@ import soundfile as sf
 import torch
 from rich.console import Console
 from rich.table import Table
+import wandb
 
 from stemmy.constants import (
     BOLD_PURPLE,
@@ -55,6 +56,7 @@ from stemmy.inference import (
 )
 from stemmy.logging_config import get_logger, setup_logging
 from stemmy.tool.progress_theme import create_themed_progress, start_eq_animator
+from stemmy.wandb_config import wandb_run
 
 logger = get_logger(__name__)
 
@@ -409,6 +411,7 @@ def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
     console.print(table)
 
 
+@wandb_run(job_type="evaluation", name="song_eval")
 def main() -> None:
     """Entry point for full-song evaluation."""
     setup_logging()
@@ -446,6 +449,11 @@ def main() -> None:
         raise EvaluationException("MAX_SECONDS must be >= 0, got %d" % int(max_seconds))
 
     eval_dir.mkdir(parents=True, exist_ok=True)
+
+    if wandb.run is not None:
+        wandb.config.update(
+            {"n_eval_tracks": n_eval_tracks, "max_seconds": max_seconds, "device": device}
+        )
 
     tracks = _list_tracks(data_root / "test")[:n_eval_tracks]
     if not tracks:
@@ -739,6 +747,17 @@ def main() -> None:
                             and ((int(per_track_rows_written) % int(fsync_every)) == 0)
                         ),
                     )
+
+                    if wandb.run is not None:
+                        ckpt_epoch = ckpt_obj.get("epoch", ckpt_idx)
+                        metrics = {
+                            "eval/mean_sisdr_%s" % stem: mean_sisdr_by_stem[stem] for stem in STEMS
+                        }
+                        metrics["eval/mean_sisdr"] = mean_sisdr
+                        metrics["eval/mean_recon_snr_db"] = mean_recon
+                        metrics["eval/mean_interstem_corr"] = mean_corr
+                        metrics["checkpoint/epoch"] = ckpt_epoch
+                        wandb.log(metrics, step=ckpt_epoch)
 
                     if progress is not None and ckpt_task_id is not None:
                         progress.update(
