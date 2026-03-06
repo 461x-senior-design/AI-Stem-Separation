@@ -740,7 +740,9 @@ def separate_audio_file(
     if checkpoint is not None:
         _validate_checkpoint_alignment(checkpoint, cfg, stem_list)
 
-    with create_themed_progress("Separate {task.fields[phase]}", title_style=BOLD_PURPLE) as progress:
+    with create_themed_progress(
+        "Separate {task.fields[phase]}", title_style=BOLD_PURPLE
+    ) as progress:
         separate_task = progress.add_task(
             "separate",
             total=6,
@@ -784,7 +786,9 @@ def separate_audio_file(
             if model_output.ndim != 4:
                 raise InferenceException("Model output must have shape [B, S, F, T].")
             if model_output.shape[0] != input_tensor.shape[0]:
-                raise InferenceException("Model batch dimension does not match input batch dimension.")
+                raise InferenceException(
+                    "Model batch dimension does not match input batch dimension."
+                )
             if (
                 model_output.shape[2] != input_tensor.shape[2]
                 or model_output.shape[3] != input_tensor.shape[3]
@@ -837,7 +841,6 @@ def separate_audio_file(
             anim_stop.set()
             anim_thread.join()
             progress.update(separate_task, eq="▁▁▁▁▁")
-
 
 
 def separate_batch(
