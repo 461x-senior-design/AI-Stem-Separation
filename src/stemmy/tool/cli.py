@@ -203,20 +203,20 @@ def _load_model_and_cfg(
     return model, cfg, None
 
 
-# Root CLI command group
+# NOTE: Root CLI command group
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
     setup_logging(level=os.getenv("LOG_LEVEL", "ERROR"))
 
 
-# `stemmy dev` command group
+# NOTE: `stemmy dev` command group
 @cli.group(help="Developer commands.")
 def dev() -> None:
     """Developer command group."""
 
 
-# `stemmy dev train` command
+# NOTE: `stemmy dev train` command
 @dev.command(
     "train",
     context_settings={
@@ -241,7 +241,7 @@ def dev_train(potato: bool, train_args: Sequence[str]) -> None:
     train_main([*_train_default_args(), *train_argv])
 
 
-# `stemmy dev eval` command
+# NOTE: `stemmy dev eval` command
 @dev.command(
     "eval",
     context_settings={
@@ -285,7 +285,7 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     fullsong_eval_masked_main()
 
 
-# `stemmy separate` command
+# NOTE: `stemmy separate` command
 @cli.command(
     help=(
         "Separate an audio file into stems.\n\n"
