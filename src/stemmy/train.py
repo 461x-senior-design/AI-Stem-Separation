@@ -15,10 +15,10 @@ Outputs:
   and a small config dict for reproducibility.
 - Optional TorchScript export (*.pt) via --export-ts.
 
-Training changes in this version:
-- Model outputs are treated as logits over stems.
-- Predicted masks are computed with softmax across stems (sum-to-one, differentiable).
-- Loss is KL divergence between target distribution and predicted distribution.
+Loss composition (all terms off by default; enable via CLI flags):
+- KL divergence (always active): KL(target || softmax(logits))
+- STFT loss (--stft-loss-weight > 0): multi-scale spectrogram L1 (Exp C)
+- SI-SDR loss (--sisdr-loss-weight > 0): negative SI-SDR via ISTFT (Exp D)
 """
 
 import argparse
@@ -64,7 +64,8 @@ from stemmy.tool.progress_theme import (
     start_eq_animator,
 )
 from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
-from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset
+from stemmy.training.losses import compute_sisdr_loss_from_masks, multi_scale_spec_loss
+from stemmy.training.musdb18hq_dataset import CropConfig, GainAugConfig, Musdb18HQDataset
 from stemmy.training.stft import StftConfig
 from stemmy.wandb_config import wandb_run
 
@@ -88,7 +89,6 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train U-Net on MUSDB18-HQ (baseline).")
 
     p.add_argument(
-        # Root folder location for musdb18hq dataset
         "--data-root",
         type=str,
         default="",
@@ -201,6 +201,57 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         help="Enable AMP (only applies on CUDA).",
     )
 
+    # --- Exp A: Gradient clipping ---
+    p.add_argument(
+        "--clip-grad-norm",
+        type=float,
+        default=0.0,
+        help="Max gradient norm for clipping (0.0 = disabled). Recommended: 1.0.",
+    )
+
+    # --- Exp B: Gain augmentation ---
+    p.add_argument(
+        "--gain-aug",
+        action="store_true",
+        help="Enable per-stem gain augmentation on the training set.",
+    )
+    p.add_argument(
+        "--gain-aug-min",
+        type=float,
+        default=0.25,
+        help="Minimum per-stem gain multiplier for gain augmentation.",
+    )
+    p.add_argument(
+        "--gain-aug-max",
+        type=float,
+        default=1.75,
+        help="Maximum per-stem gain multiplier for gain augmentation.",
+    )
+
+    # --- Exp C: Multi-scale spectrogram loss ---
+    p.add_argument(
+        "--stft-loss-weight",
+        type=float,
+        default=0.0,
+        help="Weight for multi-scale spectrogram L1 loss (0.0 = disabled). Try 0.1.",
+    )
+
+    # --- Exp D: SI-SDR loss ---
+    p.add_argument(
+        "--sisdr-loss-weight",
+        type=float,
+        default=0.0,
+        help="Weight for SI-SDR loss via ISTFT (0.0 = disabled). Try 0.1.",
+    )
+
+    # --- W&B experiment tag ---
+    p.add_argument(
+        "--experiment",
+        type=str,
+        default="",
+        help="Experiment identifier logged to W&B config (e.g. 'clip_only', 'gain_aug').",
+    )
+
     return p.parse_args(argv)
 
 
@@ -275,6 +326,19 @@ def validate_args(args: argparse.Namespace) -> None:
     if args.seed < -1:
         raise ValueError("--seed must be -1 (disabled) or >= 0")
 
+    if args.clip_grad_norm < 0.0:
+        raise ValueError("--clip-grad-norm must be >= 0.0")
+
+    if args.gain_aug_min <= 0.0:
+        raise ValueError("--gain-aug-min must be > 0")
+    if args.gain_aug_max <= args.gain_aug_min:
+        raise ValueError("--gain-aug-max must be > --gain-aug-min")
+
+    if args.stft_loss_weight < 0.0:
+        raise ValueError("--stft-loss-weight must be >= 0.0")
+    if args.sisdr_loss_weight < 0.0:
+        raise ValueError("--sisdr-loss-weight must be >= 0.0")
+
 
 def set_seed(seed: int) -> None:
     """Seed RNGs for reproducible behavior (without forcing full determinism)."""
@@ -297,6 +361,13 @@ def build_dataloaders(
     """Build train/val datasets and DataLoaders."""
     max_tracks = args.max_tracks if args.max_tracks > 0 else None
 
+    train_gain_cfg = GainAugConfig(
+        enabled=bool(args.gain_aug),
+        min_gain=args.gain_aug_min,
+        max_gain=args.gain_aug_max,
+    )
+    val_gain_cfg = GainAugConfig(enabled=False)
+
     train_ds = Musdb18HQDataset(
         root_dir=args.data_root,
         split="train",
@@ -308,6 +379,7 @@ def build_dataloaders(
         waveform_norm=args.waveform_norm,
         spectrogram_norm=args.spectrogram_norm,
         seed=0,
+        gain_aug_cfg=train_gain_cfg,
     )
     val_ds = Musdb18HQDataset(
         root_dir=args.data_root,
@@ -320,6 +392,7 @@ def build_dataloaders(
         waveform_norm=args.waveform_norm,
         spectrogram_norm=args.spectrogram_norm,
         seed=0,
+        gain_aug_cfg=val_gain_cfg,
     )
 
     train_drop_last = len(train_ds) >= args.batch_size
@@ -358,6 +431,7 @@ def build_run_config(
 ) -> dict:
     """Build a small config dict stored inside checkpoints for reproducibility."""
     return {
+        "experiment": args.experiment,
         "data_root": args.data_root,
         "sample_rate": stft_cfg.sample_rate,
         "n_fft": stft_cfg.n_fft,
@@ -383,6 +457,12 @@ def build_run_config(
         "target_mask_mode": "stem_mag / sum_stem_mags",
         "seed": int(args.seed),
         "amp": bool(args.amp),
+        "clip_grad_norm": args.clip_grad_norm,
+        "gain_aug": bool(args.gain_aug),
+        "gain_aug_min": args.gain_aug_min,
+        "gain_aug_max": args.gain_aug_max,
+        "stft_loss_weight": args.stft_loss_weight,
+        "sisdr_loss_weight": args.sisdr_loss_weight,
     }
 
 
@@ -494,6 +574,92 @@ def print_training_summary(rows: list[dict[str, Any]], include_torchscript: bool
     console.print(table)
 
 
+def _run_batch(
+    model: torch.nn.Module,
+    mix_norm: torch.Tensor,
+    targets_norm: torch.Tensor,
+    mix_mag_unnorm: torch.Tensor,
+    mix_phase: torch.Tensor,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    use_amp: bool,
+    scaler: Any,
+    clip_grad_norm: float,
+    stft_loss_weight: float,
+    sisdr_loss_weight: float,
+    stft_cfg: Optional[StftConfig],
+    istft_window: Optional[torch.Tensor],
+) -> tuple[float, float, float, float]:
+    """Run a single training batch and return (kl_loss, stft_loss, sisdr_loss, total_loss)."""
+    optimizer.zero_grad(set_to_none=True)
+
+    if use_amp:
+        with _autocast_context(device, use_amp):
+            logits = model(mix_norm)
+            kl_loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+            if stft_loss_weight > 0.0:
+                stft_l = multi_scale_spec_loss(logits, targets_norm, mix_mag_unnorm)
+            else:
+                stft_l = torch.zeros((), device=device)
+
+        if sisdr_loss_weight > 0.0 and istft_window is not None and stft_cfg is not None:
+            sisdr_l = compute_sisdr_loss_from_masks(
+                logits.float(),
+                targets_norm.float(),
+                mix_mag_unnorm.float(),
+                mix_phase.float(),
+                n_fft=stft_cfg.n_fft,
+                hop_length=stft_cfg.hop_length,
+                win_length=stft_cfg.win_length,
+                window=istft_window,
+            )
+        else:
+            sisdr_l = torch.zeros((), device=device)
+
+        total_loss = kl_loss + stft_loss_weight * stft_l + sisdr_loss_weight * sisdr_l
+        scaler.scale(total_loss).backward()
+        scaler.unscale_(optimizer)
+        if clip_grad_norm > 0.0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm)
+        scaler.step(optimizer)
+        scaler.update()
+    else:
+        logits = model(mix_norm)
+        kl_loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+
+        if stft_loss_weight > 0.0:
+            stft_l = multi_scale_spec_loss(logits, targets_norm, mix_mag_unnorm)
+        else:
+            stft_l = torch.zeros((), device=device)
+
+        if sisdr_loss_weight > 0.0 and istft_window is not None and stft_cfg is not None:
+            sisdr_l = compute_sisdr_loss_from_masks(
+                logits,
+                targets_norm,
+                mix_mag_unnorm,
+                mix_phase,
+                n_fft=stft_cfg.n_fft,
+                hop_length=stft_cfg.hop_length,
+                win_length=stft_cfg.win_length,
+                window=istft_window,
+            )
+        else:
+            sisdr_l = torch.zeros((), device=device)
+
+        total_loss = kl_loss + stft_loss_weight * stft_l + sisdr_loss_weight * sisdr_l
+        total_loss.backward()
+        if clip_grad_norm > 0.0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad_norm)
+        optimizer.step()
+
+    return (
+        float(kl_loss.detach().cpu().item()),
+        float(stft_l.detach().cpu().item()),
+        float(sisdr_l.detach().cpu().item()),
+        float(total_loss.detach().cpu().item()),
+    )
+
+
 def train_one_epoch(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -502,37 +668,51 @@ def train_one_epoch(
     use_amp: bool,
     scaler: Any,
     epoch_index: int,
-) -> tuple[float, int]:
-    """Run one training epoch and return (mean_loss, num_batches)."""
+    clip_grad_norm: float = 0.0,
+    stft_loss_weight: float = 0.0,
+    sisdr_loss_weight: float = 0.0,
+    stft_cfg: Optional[StftConfig] = None,
+) -> tuple[dict[str, float], int]:
+    """Run one training epoch and return (loss_dict, num_batches).
+
+    loss_dict keys: 'kl', 'stft', 'sisdr', 'total'
+    """
     model.train()
-    running = 0.0
+
+    # Build ISTFT window once if SI-SDR loss is active
+    istft_window: Optional[torch.Tensor] = None
+    if sisdr_loss_weight > 0.0 and stft_cfg is not None:
+        istft_window = torch.hann_window(stft_cfg.win_length, device=device)
+
+    running_kl = 0.0
+    running_stft = 0.0
+    running_sisdr = 0.0
+    running_total = 0.0
     batches = 0
 
     if _progress_disabled():
         logger.info("Epoch %d train: %d batches", int(epoch_index + 1), int(len(train_loader)))
-        for mix_norm, targets_norm in train_loader:
+        for mix_norm, targets_norm, mix_mag_unnorm, mix_phase in train_loader:
             mix_norm = mix_norm.to(device, non_blocking=True)
             targets_norm = targets_norm.to(device, non_blocking=True)
+            mix_mag_unnorm = mix_mag_unnorm.to(device, non_blocking=True)
+            mix_phase = mix_phase.to(device, non_blocking=True)
 
-            optimizer.zero_grad(set_to_none=True)
-
-            if use_amp:
-                with _autocast_context(device, use_amp):
-                    logits = model(mix_norm)
-                    loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                logits = model(mix_norm)
-                loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
-                loss.backward()
-                optimizer.step()
-
-            running += float(loss.detach().cpu().item())
+            kl, stft, sisdr, total = _run_batch(
+                model, mix_norm, targets_norm, mix_mag_unnorm, mix_phase,
+                optimizer, device, use_amp, scaler,
+                clip_grad_norm, stft_loss_weight, sisdr_loss_weight,
+                stft_cfg, istft_window,
+            )
+            running_kl += kl
+            running_stft += stft
+            running_sisdr += sisdr
+            running_total += total
             batches += 1
-        mean_loss = running / max(1, batches)
-        return mean_loss, batches
+
+        n = max(1, batches)
+        return {"kl": running_kl / n, "stft": running_stft / n,
+                "sisdr": running_sisdr / n, "total": running_total / n}, batches
 
     with create_themed_progress(
         "Epoch {task.fields[epoch]} Train", title_style=BOLD_PURPLE
@@ -545,26 +725,22 @@ def train_one_epoch(
         )
         train_anim_stop, train_anim_thread = start_eq_animator(progress, train_task, fps=8)
         try:
-            for mix_norm, targets_norm in train_loader:
+            for mix_norm, targets_norm, mix_mag_unnorm, mix_phase in train_loader:
                 mix_norm = mix_norm.to(device, non_blocking=True)
                 targets_norm = targets_norm.to(device, non_blocking=True)
+                mix_mag_unnorm = mix_mag_unnorm.to(device, non_blocking=True)
+                mix_phase = mix_phase.to(device, non_blocking=True)
 
-                optimizer.zero_grad(set_to_none=True)
-
-                if use_amp:
-                    with _autocast_context(device, use_amp):
-                        logits = model(mix_norm)
-                        loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    logits = model(mix_norm)
-                    loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
-                    loss.backward()
-                    optimizer.step()
-
-                running += float(loss.detach().cpu().item())
+                kl, stft, sisdr, total = _run_batch(
+                    model, mix_norm, targets_norm, mix_mag_unnorm, mix_phase,
+                    optimizer, device, use_amp, scaler,
+                    clip_grad_norm, stft_loss_weight, sisdr_loss_weight,
+                    stft_cfg, istft_window,
+                )
+                running_kl += kl
+                running_stft += stft
+                running_sisdr += sisdr
+                running_total += total
                 batches += 1
                 progress.update(train_task, advance=1)
         finally:
@@ -572,8 +748,9 @@ def train_one_epoch(
             train_anim_thread.join()
             progress.update(train_task, eq="▁▁▁▁▁")
 
-    mean_loss = running / max(1, batches)
-    return mean_loss, batches
+    n = max(1, batches)
+    return {"kl": running_kl / n, "stft": running_stft / n,
+            "sisdr": running_sisdr / n, "total": running_total / n}, batches
 
 
 def eval_one_epoch(
@@ -582,7 +759,7 @@ def eval_one_epoch(
     device: torch.device,
     epoch_index: int,
 ) -> tuple[float, int]:
-    """Run validation and return (mean_loss, num_batches)."""
+    """Run validation and return (mean_kl_loss, num_batches)."""
     model.eval()
     running = 0.0
     batches = 0
@@ -590,7 +767,7 @@ def eval_one_epoch(
     if _progress_disabled():
         logger.info("Epoch %d val: %d batches", int(epoch_index + 1), int(len(val_loader)))
         with torch.no_grad():
-            for mix_norm, targets_norm in val_loader:
+            for mix_norm, targets_norm, _mix_mag_unnorm, _mix_phase in val_loader:
                 mix_norm = mix_norm.to(device, non_blocking=True)
                 targets_norm = targets_norm.to(device, non_blocking=True)
 
@@ -614,7 +791,7 @@ def eval_one_epoch(
             )
             val_anim_stop, val_anim_thread = start_eq_animator(progress, val_task, fps=8)
             try:
-                for mix_norm, targets_norm in val_loader:
+                for mix_norm, targets_norm, _mix_mag_unnorm, _mix_phase in val_loader:
                     mix_norm = mix_norm.to(device, non_blocking=True)
                     targets_norm = targets_norm.to(device, non_blocking=True)
 
@@ -643,8 +820,6 @@ def main(argv: Optional[list[str]] = None) -> None:
     if progress_disabled:
         logger.info("Progress bars disabled (STEMMY_DISABLE_PROGRESS=1)")
 
-    # NOTE: Could be worth extracting setup to its own function
-    # Initialize summary_rows for Training Summary Table
     summary_rows: list[dict[str, Any]] = []
     with create_setup_progress("Setup", title_style=BOLD_PURPLE) as setup_progress:
         setup_task = setup_progress.add_task(
@@ -758,11 +933,10 @@ def main(argv: Optional[list[str]] = None) -> None:
         ckpt_dir.mkdir(parents=True, exist_ok=True)
         setup_progress.update(setup_task, advance=1, step="▁▁▁▁▁", step_style=BAR_FINISHED_STYLE)
 
-    # NOTE: Start of training & validation loop
     for epoch in range(start_epoch, args.epochs):
         t0 = time.time()
 
-        train_loss, train_batches = train_one_epoch(
+        loss_dict, train_batches = train_one_epoch(
             model=model,
             optimizer=optimizer,
             train_loader=train_loader,
@@ -770,6 +944,10 @@ def main(argv: Optional[list[str]] = None) -> None:
             use_amp=use_amp,
             scaler=scaler,
             epoch_index=epoch,
+            clip_grad_norm=args.clip_grad_norm,
+            stft_loss_weight=args.stft_loss_weight,
+            sisdr_loss_weight=args.sisdr_loss_weight,
+            stft_cfg=stft_cfg,
         )
         global_step += train_batches
 
@@ -780,11 +958,14 @@ def main(argv: Optional[list[str]] = None) -> None:
         dt = time.time() - t0
         lr_now = float(optimizer.param_groups[0].get("lr", args.lr))
         logger.info(
-            "Epoch %d/%d - lr=%.6e train_loss=%.6f val_loss=%.6f - time=%.1fs",
+            "Epoch %d/%d - lr=%.6e kl=%.6f stft=%.6f sisdr=%.6f total=%.6f val_kl=%.6f - %.1fs",
             int(epoch + 1),
             int(args.epochs),
             float(lr_now),
-            float(train_loss),
+            float(loss_dict["kl"]),
+            float(loss_dict["stft"]),
+            float(loss_dict["sisdr"]),
+            float(loss_dict["total"]),
             float(val_loss),
             float(dt),
         )
@@ -792,8 +973,11 @@ def main(argv: Optional[list[str]] = None) -> None:
         if wandb.run is not None:
             wandb.log(
                 {
-                    "train/loss": train_loss,
-                    "val/loss": val_loss,
+                    "train/kl_loss": loss_dict["kl"],
+                    "train/stft_loss": loss_dict["stft"],
+                    "train/sisdr_loss": loss_dict["sisdr"],
+                    "train/total_loss": loss_dict["total"],
+                    "val/kl_loss": val_loss,
                     "train/lr": lr_now,
                     "time/epoch_time": dt,
                 },
@@ -826,7 +1010,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         summary_rows.append(
             {
                 "epoch": epoch + 1,
-                "train_loss": float(train_loss),
+                "train_loss": float(loss_dict["total"]),
                 "val_loss": float(val_loss),
                 "checkpoint_path": saved_ckpt,
                 "torchscript_path": saved_ts,

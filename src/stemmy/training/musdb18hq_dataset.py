@@ -5,14 +5,17 @@ This dataset:
 - loads aligned mixture + stem audio from the MUSDB18-HQ folder layout
 - extracts a fixed-length mono waveform segment
 - computes mono STFT magnitude (using StftConfig, including `center`)
+- optionally applies per-stem gain augmentation and reconstructs the mix from stems
 - computes per-stem ratio masks as:
       target_s = stem_mag_s / (sum_s(stem_mag_s) + eps)
   which yields a per-(F,T) distribution over stems (sum-to-one across stems)
 - optionally normalizes the mixture magnitude spectrogram for model input
 
 Returned tensors:
-- mix_norm:     [1, F, T] float32 normalized mixture magnitude
-- targets_norm: [S, F, T] float32 per-stem ratio masks (S=4), sum-to-one across stems
+- mix_norm:       [1, F, T] float32 normalized mixture magnitude
+- targets_norm:   [S, F, T] float32 per-stem ratio masks (S=4), sum-to-one across stems
+- mix_mag_unnorm: [1, F, T] float32 unnormalized mixture magnitude (before spectrogram norm)
+- mix_phase:      [1, F, T] float32 mixture phase in radians
 """
 
 import random
@@ -42,6 +45,25 @@ class CropConfig:
     time_frames: int = 256  # T
 
 
+@dataclass(frozen=True)
+class GainAugConfig:
+    """Per-stem gain augmentation configuration.
+
+    When enabled (and not in deterministic mode), each stem is scaled by an
+    independent random gain before the mix is reconstructed. This breaks the
+    energy-balance prior that the model would otherwise learn to exploit.
+
+    Attributes:
+        enabled: Whether to apply gain augmentation.
+        min_gain: Minimum per-stem gain multiplier.
+        max_gain: Maximum per-stem gain multiplier.
+    """
+
+    enabled: bool = False
+    min_gain: float = 0.25
+    max_gain: float = 1.75
+
+
 class Musdb18HQDataset(torch.utils.data.Dataset):
     """Dataset for MUSDB18-HQ stems.
 
@@ -63,6 +85,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         waveform_norm: str = DEFAULT_WAVEFORM_NORM,
         spectrogram_norm: str = DEFAULT_SPECTROGRAM_NORM,
         seed: int = 0,
+        gain_aug_cfg: GainAugConfig = GainAugConfig(),
     ) -> None:
         """Initialize the dataset.
 
@@ -76,7 +99,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             deterministic: If True, choose a centered crop for each track
             waveform_norm: Waveform normalization method ("peak", "rms", "none")
             spectrogram_norm: Spectrogram normalization method (expected "freq_minmax" or "none")
-            seed: Random seed for selecting crop start positions
+            seed: Random seed for selecting crop start positions and gain values
+            gain_aug_cfg: Gain augmentation configuration (train only; ignored when deterministic)
         """
         if split not in ["train", "test"]:
             raise ValueError("split must be 'train' or 'test'.")
@@ -111,6 +135,10 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         if not isinstance(spectrogram_norm, str) or spectrogram_norm.strip() == "":
             raise ValueError("spectrogram_norm must be a non-empty string.")
         self.spectrogram_norm = spectrogram_norm.strip().lower()
+
+        if not isinstance(gain_aug_cfg, GainAugConfig):
+            raise ValueError("gain_aug_cfg must be a GainAugConfig.")
+        self.gain_aug_cfg = gain_aug_cfg
 
         self.rng = random.Random(int(seed))
 
@@ -241,7 +269,9 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 % (self.spectrogram_norm,)
             )
 
-    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, idx: int
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Get a single training example.
 
         Args:
@@ -249,8 +279,10 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         Returns:
             Tuple of:
-              mix_norm: [1, F, T] float32
-              targets_norm: [S, F, T] float32
+              mix_norm:       [1, F, T] float32 normalized mixture magnitude
+              targets_norm:   [S, F, T] float32 per-stem ratio masks
+              mix_mag_unnorm: [1, F, T] float32 unnormalized mixture magnitude
+              mix_phase:      [1, F, T] float32 mixture phase (radians)
         """
         if not isinstance(idx, int):
             raise IndexError("idx must be an int.")
@@ -276,35 +308,89 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         else:
             start = self.rng.randint(0, total_frames - self.segment_samples)
 
-        mix_wav = self._read_mono_segment(mix_path, start, self.segment_samples)
+        if self.gain_aug_cfg.enabled and not self.deterministic:
+            # --- Gain augmentation path ---
+            # Load all stem wavs at the same start offset
+            stem_wavs_raw: dict = {}
+            for stem in self.stems:
+                stem_path = track_dir / f"{stem}.wav"
+                stem_wavs_raw[stem] = self._read_mono_segment(
+                    stem_path, start, self.segment_samples
+                )
 
-        mix_wav_np = mix_wav.detach().cpu().numpy()
-        mix_wav_np, mix_norm_params = normalize_waveform(mix_wav_np, method=self.waveform_norm)
-        mix_scale = float(mix_norm_params.get("scale_factor", 1.0))
-        mix_wav = torch.from_numpy(mix_wav_np).to(torch.float32)
+            # Sample a random gain per stem using the shared RNG
+            gains = {
+                stem: self.rng.uniform(self.gain_aug_cfg.min_gain, self.gain_aug_cfg.max_gain)
+                for stem in self.stems
+            }
 
-        mix_mag, _mix_phase = stft_mag_phase_mono(mix_wav, self.stft_cfg)
+            # Reconstruct augmented mix from scaled stems
+            aug_mix_wav = torch.zeros(self.segment_samples)
+            for stem in self.stems:
+                aug_mix_wav = aug_mix_wav + gains[stem] * stem_wavs_raw[stem]
+
+            # Normalize augmented mix
+            aug_mix_np = aug_mix_wav.detach().cpu().numpy()
+            aug_mix_np, aug_mix_params = normalize_waveform(aug_mix_np, method=self.waveform_norm)
+            mix_scale = float(aug_mix_params.get("scale_factor", 1.0))
+            aug_mix_norm = torch.from_numpy(aug_mix_np).to(torch.float32)
+
+            # STFT on normalized augmented mix
+            mix_mag, mix_phase_tensor = stft_mag_phase_mono(aug_mix_norm, self.stft_cfg)
+
+            # Prepare per-stem scaled wavs for mask computation
+            stem_wavs_scaled: Optional[dict] = {}
+            for stem in self.stems:
+                scaled = gains[stem] * stem_wavs_raw[stem]
+                if mix_scale != 0.0:
+                    scaled = scaled / mix_scale
+                stem_wavs_scaled[stem] = scaled
+        else:
+            # --- Original path: load mixture.wav ---
+            mix_wav = self._read_mono_segment(mix_path, start, self.segment_samples)
+
+            mix_wav_np = mix_wav.detach().cpu().numpy()
+            mix_wav_np, mix_norm_params = normalize_waveform(
+                mix_wav_np, method=self.waveform_norm
+            )
+            mix_scale = float(mix_norm_params.get("scale_factor", 1.0))
+            mix_wav = torch.from_numpy(mix_wav_np).to(torch.float32)
+
+            mix_mag, mix_phase_tensor = stft_mag_phase_mono(mix_wav, self.stft_cfg)
+            stem_wavs_scaled = None  # stems will be loaded from disk below
+
         if int(mix_mag.shape[1]) != int(self.crop_cfg.time_frames):
             raise RuntimeError(
                 f"Unexpected time frames: got {mix_mag.shape[1]}, expected "
                 f"{self.crop_cfg.time_frames}"
             )
 
+        # Save unnormalized magnitude and phase before spectrogram normalization
+        mix_mag_unnorm = mix_mag.unsqueeze(0)           # [1, F, T]
+        mix_phase_out = mix_phase_tensor.unsqueeze(0)   # [1, F, T]
+
+        # Apply spectrogram normalization for model input
         if self.spectrogram_norm == "none":
-            mix_norm = mix_mag
+            mix_norm_spec = mix_mag
         else:
-            mix_norm, _f_min, _f_max = freq_minmax_normalize(mix_mag)
+            mix_norm_spec, _f_min, _f_max = freq_minmax_normalize(mix_mag)
 
+        # Load / prepare stems for ratio mask computation
         stem_mags: List[torch.Tensor] = []
-        for stem in self.stems:
-            stem_path = track_dir / f"{stem}.wav"
-            stem_wav = self._read_mono_segment(stem_path, start, self.segment_samples)
-
-            if mix_scale != 0.0:
-                stem_wav = stem_wav / mix_scale
-
-            stem_mag, _ = stft_mag_phase_mono(stem_wav, self.stft_cfg)
-            stem_mags.append(stem_mag)
+        if stem_wavs_scaled is not None:
+            # Gain aug path: stems already loaded and scaled
+            for stem in self.stems:
+                stem_mag, _ = stft_mag_phase_mono(stem_wavs_scaled[stem], self.stft_cfg)
+                stem_mags.append(stem_mag)
+        else:
+            # Original path: load stems from disk
+            for stem in self.stems:
+                stem_path = track_dir / f"{stem}.wav"
+                stem_wav = self._read_mono_segment(stem_path, start, self.segment_samples)
+                if mix_scale != 0.0:
+                    stem_wav = stem_wav / mix_scale
+                stem_mag, _ = stft_mag_phase_mono(stem_wav, self.stft_cfg)
+                stem_mags.append(stem_mag)
 
         denom = torch.zeros_like(stem_mags[0])
         for sm in stem_mags:
@@ -317,11 +403,11 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         for sm in stem_mags:
             target_masks.append(sm / denom_safe)
 
-        mix_norm = mix_norm.unsqueeze(0)  # [1, F, T]
-        targets_norm = torch.stack(target_masks, dim=0)  # [S, F, T]
+        mix_norm_out = mix_norm_spec.unsqueeze(0)       # [1, F, T]
+        targets_norm = torch.stack(target_masks, dim=0) # [S, F, T]
 
         targets_sum = targets_norm.sum(dim=0, keepdim=False)
         if not torch.isfinite(targets_sum).all():
             raise RuntimeError("Non-finite target masks encountered.")
 
-        return mix_norm, targets_norm
+        return mix_norm_out, targets_norm, mix_mag_unnorm, mix_phase_out

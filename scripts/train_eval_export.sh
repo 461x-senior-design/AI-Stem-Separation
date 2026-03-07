@@ -51,6 +51,13 @@ Common overrides:
   --waveform-norm peak|rms|none
   --spectrogram-norm freq_minmax|none
   --amp 0|1
+  --clip-grad-norm FLOAT  (0.0 = disabled; Exp A)
+  --gain-aug 0|1          (Exp B)
+  --gain-aug-min FLOAT    (default 0.25; Exp B)
+  --gain-aug-max FLOAT    (default 1.75; Exp B)
+  --stft-loss-weight FLOAT (0.0 = disabled; Exp C)
+  --sisdr-loss-weight FLOAT (0.0 = disabled; Exp D)
+  --experiment STRING     (W&B experiment tag, e.g. clip_only, gain_aug)
 
 Optional training retry behavior (OFF by default):
   --lr-backoff 0|1
@@ -106,6 +113,15 @@ BATCH_SIZE=""   # if set, skip probing
 LR_BACKOFF=""
 LR_BACKOFF_FACTOR=""
 LR_BACKOFF_MAX_TRIES=""
+
+# Experiment improvements (all off by default)
+CLIP_GRAD_NORM=""
+GAIN_AUG=""
+GAIN_AUG_MIN=""
+GAIN_AUG_MAX=""
+STFT_LOSS_WEIGHT=""
+SISDR_LOSS_WEIGHT=""
+EXPERIMENT=""
 
 # Eval controls (forwarded as env vars to stemmy.tool.fullsong_eval_masked.py)
 EVAL_PROGRESS=""
@@ -165,6 +181,14 @@ while [[ $# -gt 0 ]]; do
     --lr-backoff) LR_BACKOFF="${2:-}"; shift 2 ;;
     --lr-backoff-factor) LR_BACKOFF_FACTOR="${2:-}"; shift 2 ;;
     --lr-backoff-max-tries) LR_BACKOFF_MAX_TRIES="${2:-}"; shift 2 ;;
+
+    --clip-grad-norm) CLIP_GRAD_NORM="${2:-}"; shift 2 ;;
+    --gain-aug) GAIN_AUG="${2:-}"; shift 2 ;;
+    --gain-aug-min) GAIN_AUG_MIN="${2:-}"; shift 2 ;;
+    --gain-aug-max) GAIN_AUG_MAX="${2:-}"; shift 2 ;;
+    --stft-loss-weight) STFT_LOSS_WEIGHT="${2:-}"; shift 2 ;;
+    --sisdr-loss-weight) SISDR_LOSS_WEIGHT="${2:-}"; shift 2 ;;
+    --experiment) EXPERIMENT="${2:-}"; shift 2 ;;
 
     --eval-progress) EVAL_PROGRESS="${2:-}"; shift 2 ;;
     --eval-print-metrics) EVAL_PRINT_METRICS="${2:-}"; shift 2 ;;
@@ -257,6 +281,15 @@ AMP="${AMP:-0}"
 N_EVAL_TRACKS="${N_EVAL_TRACKS:-30}"
 MAX_SECONDS="${MAX_SECONDS:-30}"
 
+# Experiment defaults (all off)
+CLIP_GRAD_NORM="${CLIP_GRAD_NORM:-0.0}"
+GAIN_AUG="${GAIN_AUG:-0}"
+GAIN_AUG_MIN="${GAIN_AUG_MIN:-0.25}"
+GAIN_AUG_MAX="${GAIN_AUG_MAX:-1.75}"
+STFT_LOSS_WEIGHT="${STFT_LOSS_WEIGHT:-0.0}"
+SISDR_LOSS_WEIGHT="${SISDR_LOSS_WEIGHT:-0.0}"
+EXPERIMENT="${EXPERIMENT:-}"
+
 # Optional LR backoff defaults (OFF)
 LR_BACKOFF="${LR_BACKOFF:-0}"
 LR_BACKOFF_FACTOR="${LR_BACKOFF_FACTOR:-0.5}"
@@ -333,6 +366,11 @@ esac
 
 if ! [[ "${AMP}" =~ ^[01]$ ]]; then
   echo "ERROR: AMP must be 0 or 1 (got: ${AMP})" >&2
+  exit 2
+fi
+
+if ! [[ "${GAIN_AUG}" =~ ^[01]$ ]]; then
+  echo "ERROR: GAIN_AUG must be 0 or 1 (got: ${GAIN_AUG})" >&2
   exit 2
 fi
 
@@ -530,6 +568,14 @@ echo "=== RUN INFO ==="
   echo "lr_backoff_factor=${LR_BACKOFF_FACTOR}"
   echo "lr_backoff_max_tries=${LR_BACKOFF_MAX_TRIES}"
   echo
+  echo "clip_grad_norm=${CLIP_GRAD_NORM}"
+  echo "gain_aug=${GAIN_AUG}"
+  echo "gain_aug_min=${GAIN_AUG_MIN}"
+  echo "gain_aug_max=${GAIN_AUG_MAX}"
+  echo "stft_loss_weight=${STFT_LOSS_WEIGHT}"
+  echo "sisdr_loss_weight=${SISDR_LOSS_WEIGHT}"
+  echo "experiment=${EXPERIMENT}"
+  echo
   echo "eval_progress=${EVAL_PROGRESS}"
   echo "eval_print_metrics=${EVAL_PRINT_METRICS}"
   echo "eval_flush_every=${EVAL_FLUSH_EVERY}"
@@ -571,6 +617,22 @@ run_train_once() {
 
   if [[ "${AMP}" == "1" ]]; then
     train_args+=(--amp)
+  fi
+
+  if [[ "${GAIN_AUG}" == "1" ]]; then
+    train_args+=(--gain-aug)
+  fi
+
+  train_args+=(
+    --clip-grad-norm "${CLIP_GRAD_NORM}"
+    --gain-aug-min "${GAIN_AUG_MIN}"
+    --gain-aug-max "${GAIN_AUG_MAX}"
+    --stft-loss-weight "${STFT_LOSS_WEIGHT}"
+    --sisdr-loss-weight "${SISDR_LOSS_WEIGHT}"
+  )
+
+  if [[ -n "${EXPERIMENT}" ]]; then
+    train_args+=(--experiment "${EXPERIMENT}")
   fi
 
   python -m stemmy.train "${train_args[@]}"
