@@ -203,17 +203,20 @@ def _load_model_and_cfg(
     return model, cfg, None
 
 
+# NOTE: Root CLI command group
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
-    setup_logging()
+    setup_logging(level=os.getenv("LOG_LEVEL", "ERROR"))
 
 
+# NOTE: `stemmy dev` command group
 @cli.group(help="Developer commands.")
 def dev() -> None:
     """Developer command group."""
 
 
+# NOTE: `stemmy dev train` command
 @dev.command(
     "train",
     context_settings={
@@ -238,6 +241,7 @@ def dev_train(potato: bool, train_args: Sequence[str]) -> None:
     train_main([*_train_default_args(), *train_argv])
 
 
+# NOTE: `stemmy dev eval` command
 @dev.command(
     "eval",
     context_settings={
@@ -281,6 +285,7 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     fullsong_eval_masked_main()
 
 
+# NOTE: `stemmy separate` command
 @cli.command(
     help=(
         "Separate an audio file into stems.\n\n"
@@ -348,6 +353,12 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     show_default=True,
     help="Enable CUDA autocast (AMP) during inference to reduce memory usage.",
 )
+@click.option(
+    "--potato",
+    is_flag=True,
+    default=False,
+    help="Disable progress bars and force INFO logs.",
+)
 def separate(
     input_file: str,
     output_dir: str,
@@ -358,8 +369,11 @@ def separate(
     chunk_frames: int,
     overlap_frames: int,
     amp: bool,
+    potato: bool,
 ) -> None:
     """Separate an input file into stems and export the outputs."""
+    _apply_potato_mode(potato)
+
     console = Console()
     display_input = input_file
     console.print("\nSong Name:", style=BOLD_RED, end=" ")

@@ -23,6 +23,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence, Union
 import torch
 
 from stemmy.constants import (
+    BOLD_PURPLE,
     DEFAULT_SPECTROGRAM_NORM,
     DEFAULT_WAVEFORM_NORM,
     HOP_LENGTH,
@@ -37,6 +38,7 @@ from stemmy.logging_config import get_logger
 from stemmy.models.unet_2d import UNet2D
 from stemmy.postprocessing.pipeline import Postprocessor
 from stemmy.preprocessing.pipeline import Preprocessor
+from stemmy.tool.progress_theme import create_themed_progress, start_eq_animator
 
 logger = get_logger(__name__)
 
@@ -738,58 +740,107 @@ def separate_audio_file(
     if checkpoint is not None:
         _validate_checkpoint_alignment(checkpoint, cfg, stem_list)
 
-    pre = _build_preprocessor(cfg)
-    post = Postprocessor()
-
-    input_tensor, metadata = _preprocess_audio(pre, audio_path_p)
-
-    device = torch.device(str(cfg.device))
-    model = model.to(device)
-    input_tensor = input_tensor.to(device)
-
-    model_output = _run_model_forward(model, input_tensor, device, cfg)
-
-    if model_output.ndim != 4:
-        raise InferenceException("Model output must have shape [B, S, F, T].")
-    if model_output.shape[0] != input_tensor.shape[0]:
-        raise InferenceException("Model batch dimension does not match input batch dimension.")
-    if (
-        model_output.shape[2] != input_tensor.shape[2]
-        or model_output.shape[3] != input_tensor.shape[3]
-    ):
-        raise InferenceException("Model output [F, T] does not match input [F, T].")
-    if model_output.shape[1] != len(stem_list):
-        raise InferenceException(
-            "Stem count mismatch: model returned S=%d, stems list has %d."
-            % (int(model_output.shape[1]), int(len(stem_list)))
+    with create_themed_progress(
+        "Separate {task.fields[phase]}", title_style=BOLD_PURPLE
+    ) as progress:
+        separate_task = progress.add_task(
+            "separate",
+            total=6,
+            phase="",
+            eq="",
         )
+        anim_stop, anim_thread = start_eq_animator(progress, separate_task, fps=8)
+        try:
+            progress.update(
+                separate_task,
+                advance=1,
+                phase="Init",
+            )
 
-    # Training optimizes KL(target || softmax(logits)); inference must mirror that.
-    model_output = torch.softmax(model_output, dim=1)
-    model_output = torch.clamp(model_output, 0.0, 1.0)
-    if cfg.renorm_masks:
-        model_output = _renorm_sum_to_one(model_output, eps=cfg.eps)
+            pre = _build_preprocessor(cfg)
+            post = Postprocessor()
 
-    stem_name = audio_path_p.stem
-    logger.info(
-        f"Separating audio file: {audio_path_p} -> output_dir={output_dir_p} "
-        f"export={bool(export_files)} stems={','.join(stem_list)}"
-    )
+            progress.update(
+                separate_task,
+                advance=1,
+                phase="Pre",
+            )
+            input_tensor, metadata = _preprocess_audio(pre, audio_path_p)
 
-    result = _postprocess_masks(
-        post=post,
-        model_output=model_output.cpu(),
-        metadata=metadata,
-        input_tensor=input_tensor.cpu(),
-        output_dir=output_dir_p,
-        stem_name=stem_name,
-        export_files=bool(export_files),
-        stems=stem_list,
-    )
-    outputs = _adapt_postprocess_result(result)
-    if cfg.validate_outputs:
-        _validate_stem_outputs(outputs, stems=stem_list, export_files=bool(export_files))
-    return outputs
+            progress.update(
+                separate_task,
+                advance=1,
+                phase="Device",
+            )
+            device = torch.device(str(cfg.device))
+            model = model.to(device)
+            input_tensor = input_tensor.to(device)
+
+            progress.update(
+                separate_task,
+                advance=1,
+                phase="Infer",
+            )
+            model_output = _run_model_forward(model, input_tensor, device, cfg)
+
+            if model_output.ndim != 4:
+                raise InferenceException("Model output must have shape [B, S, F, T].")
+            if model_output.shape[0] != input_tensor.shape[0]:
+                raise InferenceException(
+                    "Model batch dimension does not match input batch dimension."
+                )
+            if (
+                model_output.shape[2] != input_tensor.shape[2]
+                or model_output.shape[3] != input_tensor.shape[3]
+            ):
+                raise InferenceException("Model output [F, T] does not match input [F, T].")
+            if model_output.shape[1] != len(stem_list):
+                raise InferenceException(
+                    "Stem count mismatch: model returned S=%d, stems list has %d."
+                    % (int(model_output.shape[1]), int(len(stem_list)))
+                )
+
+            # Training optimizes KL(target || softmax(logits)); inference must mirror that.
+            model_output = torch.softmax(model_output, dim=1)
+            model_output = torch.clamp(model_output, 0.0, 1.0)
+            if cfg.renorm_masks:
+                model_output = _renorm_sum_to_one(model_output, eps=cfg.eps)
+
+            progress.update(
+                separate_task,
+                advance=1,
+                phase="Export",
+            )
+            stem_name = audio_path_p.stem
+            logger.info(
+                f"Separating audio file: {audio_path_p} -> output_dir={output_dir_p} "
+                f"export={bool(export_files)} stems={','.join(stem_list)}"
+            )
+
+            result = _postprocess_masks(
+                post=post,
+                model_output=model_output.cpu(),
+                metadata=metadata,
+                input_tensor=input_tensor.cpu(),
+                output_dir=output_dir_p,
+                stem_name=stem_name,
+                export_files=bool(export_files),
+                stems=stem_list,
+            )
+            outputs = _adapt_postprocess_result(result)
+            if cfg.validate_outputs:
+                _validate_stem_outputs(outputs, stems=stem_list, export_files=bool(export_files))
+
+            progress.update(
+                separate_task,
+                advance=1,
+                phase="Done",
+            )
+            return outputs
+        finally:
+            anim_stop.set()
+            anim_thread.join()
+            progress.update(separate_task, eq="▁▁▁▁▁")
 
 
 def separate_batch(
