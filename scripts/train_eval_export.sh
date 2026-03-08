@@ -239,8 +239,8 @@ fi
 mkdir -p "${RUNS_BASE}"
 
 DEVICE="${DEVICE:-cuda}"
-if [[ "${DEVICE}" != "cpu" && "${DEVICE}" != "cuda" && "${DEVICE}" != cuda:* ]]; then
-  echo "ERROR: DEVICE must be cpu|cuda|cuda:N (got: ${DEVICE})" >&2
+if [[ "${DEVICE}" != "cpu" && "${DEVICE}" != "mps" && "${DEVICE}" != "cuda" && "${DEVICE}" != cuda:* ]]; then
+  echo "ERROR: DEVICE must be cpu|mps|cuda|cuda:N (got: ${DEVICE})" >&2
   exit 2
 fi
 

@@ -125,7 +125,14 @@ def _validate_device(device: str) -> str:
             )
         return dev
 
-    raise EvaluationException("Invalid DEVICE. Use cpu, cuda, or cuda:N (example: cuda:0).")
+    if dev == "mps":
+        if not torch.backends.mps.is_available():
+            raise EvaluationException(
+                "Requested MPS device but torch.backends.mps.is_available() is False."
+            )
+        return dev
+
+    raise EvaluationException("Invalid DEVICE. Use cpu, mps, cuda, or cuda:N (example: cuda:0).")
 
 
 def _list_tracks(split_dir: Path) -> list[Path]:
