@@ -35,6 +35,7 @@ from stemmy.logging_config import setup_logging
 from stemmy.tool.fullsong_eval_masked import main as fullsong_eval_masked_main
 from stemmy.train import main as train_main
 
+CHKPT: str = str((Path(__file__).resolve().parent / "default.pth").resolve())
 DIR: str = Path.cwd().name
 STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 TRAIN_DATA_ROOT_KEY: str = "TRAIN_DATA_ROOT"
@@ -298,10 +299,12 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     )
 )
 @click.option("--input-file", "-i", required=True, help="Name of input audio file.")
-@click.option("--output-dir", "-o", default=DIR, help="Name of output directory.")
+@click.option("--output-dir", "-o", default=".", help="Name of output directory.")
 @click.option(
     "--checkpoint",
     "-c",
+    default=CHKPT,
+    show_default=True,
     required=False,
     help=(
         "Path to model checkpoint (.pth). Preferred when you want config-from-checkpoint "
@@ -333,7 +336,7 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
 @click.option(
     "--chunk-frames",
     type=int,
-    default=0,
+    default=256,  # NOTE: Changed from 0
     show_default=True,
     help=(
         "If > 0, run inference in time chunks of this many STFT frames to "
@@ -343,7 +346,7 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
 @click.option(
     "--overlap-frames",
     type=int,
-    default=0,
+    default=64,  # NOTE: Changed from 0
     show_default=True,
     help="Overlap (in STFT frames) between chunks when --chunk-frames > 0.",
 )
