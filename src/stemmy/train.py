@@ -36,6 +36,7 @@ from rich.console import Console
 from rich.table import Table
 from torch.utils.data import DataLoader
 
+import wandb
 from stemmy.constants import (
     BAR_FINISHED_STYLE,
     BOLD_PURPLE,
@@ -65,6 +66,7 @@ from stemmy.tool.progress_theme import (
 from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset
 from stemmy.training.stft import StftConfig
+from stemmy.wandb_config import wandb_run
 
 logger = get_logger(__name__)
 
@@ -86,9 +88,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Train U-Net on MUSDB18-HQ (baseline).")
 
     p.add_argument(
+        # Root folder location for musdb18hq dataset
         "--data-root",
         type=str,
-        default="/home/ryan/shared/46x/stems/musdb18hq",
+        default="",
         help="Root directory containing the dataset splits used by the dataset class.",
     )
 
@@ -630,6 +633,7 @@ def eval_one_epoch(
     return mean_loss, batches
 
 
+@wandb_run(job_type="training", name="training")
 def main(argv: Optional[list[str]] = None) -> None:
     """Main training loop."""
     setup_logging()
@@ -747,6 +751,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         if progress_disabled:
             logger.info("Setup: building run config")
         config = build_run_config(args, device, stft_cfg, crop_cfg)
+        if wandb.run is not None:
+            wandb.config.update(config)
 
         ckpt_dir = Path(args.checkpoint_dir).expanduser().resolve()
         ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -782,6 +788,17 @@ def main(argv: Optional[list[str]] = None) -> None:
             float(val_loss),
             float(dt),
         )
+
+        if wandb.run is not None:
+            wandb.log(
+                {
+                    "train/loss": train_loss,
+                    "val/loss": val_loss,
+                    "train/lr": lr_now,
+                    "time/epoch_time": dt,
+                },
+                step=epoch + 1,
+            )
 
         do_save = ((epoch + 1) % args.save_every_epochs) == 0
         saved_ckpt = "-"

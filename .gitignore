@@ -71,3 +71,6 @@ local_ckpts/
 
 # Script .env
 scripts/stemmy.env
+
+# Wandb folder (local run cache)
+/wandb/
