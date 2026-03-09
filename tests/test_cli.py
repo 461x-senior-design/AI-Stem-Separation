@@ -102,9 +102,7 @@ def test_dev_train_help_lists_options() -> None:
 def test_dev_train_env_var_sets_data_root() -> None:
     """Verify TRAIN_DATA_ROOT env var is picked up as the --data-root default."""
     runner = CliRunner()
-    result = runner.invoke(
-        cli, ["dev", "train"], env={"TRAIN_DATA_ROOT": "/nonexistent_path_xyz"}
-    )
+    result = runner.invoke(cli, ["dev", "train"], env={"TRAIN_DATA_ROOT": "/nonexistent_path_xyz"})
     assert result.exit_code != 0
     assert "nonexistent_path_xyz" in result.output
 
