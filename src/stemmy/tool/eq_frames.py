@@ -1,5 +1,8 @@
 """Utilities for generating text EQ animation frames."""
 
+import re
+from pathlib import Path
+
 DEFAULT_EQ_MIDI_TEXT = """
 # Mini step-sequencer format:
 # key=value headers
@@ -8,10 +11,12 @@ DEFAULT_EQ_MIDI_TEXT = """
 steps=16
 subframes=3
 #      1 . 2 . 3 . 4 . 5 . 6 . 7 . 8 .
-kick:  8 8 . . . . 8 . 8 . . . . . 8 8
-snare: . . . . 7 . . . . . . . 7 . . .
-hat:   6 6 . 8 7 . 4 5 6 7 8 . 5 . 7 8
+kick:  8 . . 8 . . . . . . 8 . . . . .
+snare: . . . . 8 . . . . . . . 8 . . .
+hat:   . . 5 . . . 6 . . . 6 . . . 8 .
 """
+
+_EQ_FRAMES_PATTERN = re.compile(r"(?ms)^EQ_FRAMES:\s*tuple\[str,\s*\.\.\.\]\s*=\s*\(\n.*?^\)\n?")
 
 
 def make_eq_frames(midi_text=DEFAULT_EQ_MIDI_TEXT, bars=1):
@@ -120,6 +125,48 @@ def make_eq_frames(midi_text=DEFAULT_EQ_MIDI_TEXT, bars=1):
     return tuple(frames)
 
 
+def format_eq_frames_literal(frames):
+    """Format frames as the constants.py tuple literal body."""
+    frame_lines = [f'    "{frame}",' for frame in frames]
+    return "EQ_FRAMES: tuple[str, ...] = (\n" + "\n".join(frame_lines) + "\n)\n"
+
+
+def replace_eq_frames_block(constants_text, frames_literal):
+    """Replace the EQ_FRAMES tuple assignment block in constants.py text."""
+    replaced_text, count = _EQ_FRAMES_PATTERN.subn(frames_literal, constants_text, count=1)
+    if count != 1:
+        raise ValueError("Unable to locate a unique EQ_FRAMES tuple block in constants.py.")
+    return replaced_text
+
+
+def update_constants_eq_frames(
+    constants_path=None,
+    midi_text=DEFAULT_EQ_MIDI_TEXT,
+    bars=1,
+):
+    """Generate EQ frames and update constants.py in place.
+
+    Returns:
+        bool: True if constants.py changed, False if already up to date.
+    """
+    if constants_path is None:
+        constants_path = Path(__file__).resolve().parents[1] / "constants.py"
+    path = Path(constants_path)
+
+    frames = make_eq_frames(midi_text=midi_text, bars=bars)
+    frames_literal = format_eq_frames_literal(frames)
+
+    original_text = path.read_text(encoding="utf-8")
+    updated_text = replace_eq_frames_block(original_text, frames_literal)
+    if updated_text == original_text:
+        return False
+    path.write_text(updated_text, encoding="utf-8")
+    return True
+
+
 if __name__ == "__main__":
-    # Prints a copy-pasteable tuple literal for src/constants.py.
-    print(repr(make_eq_frames(bars=1)))
+    changed = update_constants_eq_frames(bars=1)
+    if changed:
+        print("Updated EQ_FRAMES in src/stemmy/constants.py")
+    else:
+        print("EQ_FRAMES already up to date in src/stemmy/constants.py")
