@@ -69,7 +69,8 @@ local_ckpts/
 # Training checkpoints and torchscript output
 /runs/
 
-# Script .env
+# Environment files
+.env
 scripts/stemmy.env
 
 # Wandb folder (local run cache)

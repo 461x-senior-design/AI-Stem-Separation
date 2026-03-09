@@ -33,7 +33,7 @@ from stemmy.inference import (
 )
 from stemmy.logging_config import setup_logging
 from stemmy.tool.fullsong_eval_masked import main as fullsong_eval_masked_main
-from stemmy.train import main as train_main
+from stemmy.train import main as train_command
 
 CHKPT: str = str((Path(__file__).resolve().parent / "default.pth").resolve())
 DIR: str = Path.cwd().name
@@ -52,28 +52,6 @@ def _apply_potato_mode(potato: bool) -> None:
     os.environ["STEMMY_DISABLE_PROGRESS"] = "1"
     os.environ["EVAL_PROGRESS"] = "0"
     setup_logging(level="INFO")
-
-
-def _train_default_args() -> list[str]:
-    """Return defaults for dev train, aligned with run_train.py."""
-    env_values = dotenv_values(".env")
-    data_root = os.getenv(TRAIN_DATA_ROOT_KEY) or env_values.get(TRAIN_DATA_ROOT_KEY)
-    args = [
-        "--epochs",
-        "1",
-        "--batch-size",
-        "4",
-        "--time-frames",
-        "256",
-        "--checkpoint-dir",
-        "checkpoints",
-        "--export-ts",
-    ]
-
-    if isinstance(data_root, str) and data_root.strip():
-        args = ["--data-root", data_root, *args]
-
-    return args
 
 
 def _fullsong_eval_default_env() -> dict[str, str]:
@@ -217,29 +195,8 @@ def dev() -> None:
     """Developer command group."""
 
 
-# NOTE: `stemmy dev train` command
-@dev.command(
-    "train",
-    context_settings={
-        "ignore_unknown_options": True,
-        "allow_extra_args": True,
-    },
-    help="Run the training entrypoint and forward all extra args.",
-)
-@click.option(
-    "--potato",
-    is_flag=True,
-    default=False,
-    help="Disable progress bars and force INFO logs.",
-)
-@click.argument("train_args", nargs=-1, type=click.UNPROCESSED)
-def dev_train(potato: bool, train_args: Sequence[str]) -> None:
-    """Run training via stemmy.train with passthrough arguments."""
-    train_argv = [arg for arg in train_args if arg != "--potato"]
-    potato = bool(potato or ("--potato" in train_args))
-    _apply_potato_mode(potato)
-    os.environ.setdefault("LOG_LEVEL", "ERROR")
-    train_main([*_train_default_args(), *train_argv])
+# NOTE: `stemmy dev train` — registered from stemmy.train as a first-class Click command
+dev.add_command(train_command)
 
 
 # NOTE: `stemmy dev eval` command
