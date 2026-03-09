@@ -165,3 +165,20 @@ def test_dev_train_potato_is_removed_from_passthrough_args(monkeypatch) -> None:
     result = runner.invoke(cli, ["dev", "train", "--potato", "--lr", "0.001"])
     assert result.exit_code == 0
     assert "--potato" not in captured["argv"]
+
+
+def test_spinner_updates_constants(monkeypatch) -> None:
+    """Verify stemmy spinner triggers EQ frame regeneration/update."""
+    runner = CliRunner()
+    called: dict[str, bool] = {"value": False}
+
+    def _fake_update_constants_eq_frames() -> bool:
+        called["value"] = True
+        return True
+
+    monkeypatch.setattr(cli_mod, "update_constants_eq_frames", _fake_update_constants_eq_frames)
+
+    result = runner.invoke(cli, ["spinner"])
+    assert result.exit_code == 0
+    assert called["value"] is True
+    assert "Updated EQ_FRAMES in src/stemmy/constants.py" in result.output
