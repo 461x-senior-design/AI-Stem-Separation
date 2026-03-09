@@ -36,10 +36,10 @@ from typing import Union
 import numpy as np
 import soundfile as sf
 import torch
-import wandb
 from rich.console import Console
 from rich.table import Table
 
+import wandb
 from stemmy.constants import (
     BOLD_PURPLE,
     LAVENDER,

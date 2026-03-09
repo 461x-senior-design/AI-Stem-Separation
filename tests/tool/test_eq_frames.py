@@ -12,13 +12,7 @@ from stemmy.tool.eq_frames import (
 
 def test_replace_eq_frames_block_replaces_assignment() -> None:
     """Replace only the EQ_FRAMES block in constants-like text."""
-    original = (
-        'HEADER = "x"\n'
-        "EQ_FRAMES: tuple[str, ...] = (\n"
-        '    "a",\n'
-        ")\n"
-        'FOOTER = "y"\n'
-    )
+    original = 'HEADER = "x"\nEQ_FRAMES: tuple[str, ...] = (\n    "a",\n)\nFOOTER = "y"\n'
     replacement = format_eq_frames_literal(("█▅▃▄▇", "▁▁▁▁▁"))
 
     updated = replace_eq_frames_block(original, replacement)
@@ -46,11 +40,7 @@ snare: . 7 . 7
 hat: 5 5 5 5
 """
     frames = make_eq_frames(midi_text=pattern, bars=1)
-    constants_text = (
-        "# test constants\n"
-        + format_eq_frames_literal(frames)
-        + 'TAIL = "ok"\n'
-    )
+    constants_text = "# test constants\n" + format_eq_frames_literal(frames) + 'TAIL = "ok"\n'
     constants_path = tmp_path / "constants.py"
     constants_path.write_text(constants_text, encoding="utf-8")
 
