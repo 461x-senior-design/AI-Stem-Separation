@@ -107,13 +107,6 @@ def test_dev_train_env_var_sets_data_root() -> None:
     assert "nonexistent_path_xyz" in result.output
 
 
-    monkeypatch.setattr(cli_mod, "train_main", _fake_train_main)
-
-    result = runner.invoke(cli, ["dev", "train", "--potato", "--lr", "0.001"])
-    assert result.exit_code == 0
-    assert "--potato" not in captured["argv"]
-
-
 def test_spinner_updates_constants(monkeypatch) -> None:
     """Verify stemmy spinner triggers EQ frame regeneration/update."""
     runner = CliRunner()
