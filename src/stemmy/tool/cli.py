@@ -32,6 +32,7 @@ from stemmy.inference import (
     separate_audio_file,
 )
 from stemmy.logging_config import setup_logging
+from stemmy.tool.eq_frames import update_constants_eq_frames
 from stemmy.tool.fullsong_eval_masked import main as fullsong_eval_masked_main
 from stemmy.train import main as train_command
 
@@ -241,6 +242,21 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
         os.environ[key] = value
 
     fullsong_eval_masked_main()
+
+
+# NOTE: `stemmy spinner` command
+@cli.command("spinner", help="Generate EQ spinner frames and update src/stemmy/constants.py.")
+def spinner() -> None:
+    """Regenerate EQ_FRAMES and write them to constants.py."""
+    try:
+        changed = update_constants_eq_frames()
+    except (FileNotFoundError, PermissionError, ValueError, OSError) as exc:
+        raise click.ClickException("Failed to update EQ_FRAMES: %s" % exc) from exc
+
+    if changed:
+        click.echo("Updated EQ_FRAMES in src/stemmy/constants.py")
+    else:
+        click.echo("EQ_FRAMES already up to date in src/stemmy/constants.py")
 
 
 # NOTE: `stemmy separate` command
