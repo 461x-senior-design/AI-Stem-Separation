@@ -302,9 +302,7 @@ def candidate_passes_guards(
     if max_drop_any_stem_db >= 0.0:
         if len(candidate.sisdr_values) != len(baseline.sisdr_values):
             return False
-        for candidate_value, baseline_value in zip(
-            candidate.sisdr_values, baseline.sisdr_values
-        ):
+        for candidate_value, baseline_value in zip(candidate.sisdr_values, baseline.sisdr_values):
             if candidate_value < (baseline_value - max_drop_any_stem_db):
                 return False
 
@@ -453,10 +451,13 @@ def _delta_list(candidate: RowScore, baseline: Optional[RowScore]) -> list[float
         return []
     if len(candidate.sisdr_values) != len(baseline.sisdr_values):
         return []
-    return [candidate_value - baseline_value for candidate_value, baseline_value in zip(
-        candidate.sisdr_values,
-        baseline.sisdr_values,
-    )]
+    return [
+        candidate_value - baseline_value
+        for candidate_value, baseline_value in zip(
+            candidate.sisdr_values,
+            baseline.sisdr_values,
+        )
+    ]
 
 
 def print_top(scores: list[RowScore], top_k: int, baseline: Optional[RowScore] = None) -> None:
@@ -481,7 +482,7 @@ def print_top(scores: list[RowScore], top_k: int, baseline: Optional[RowScore] =
         else:
             deltas = _delta_list(row, baseline)
             print(
-                f'{i},{row.epoch},{row.score:.6f},{recon_snr_str},{corr_str},'
+                f"{i},{row.epoch},{row.score:.6f},{recon_snr_str},{corr_str},"
                 f'"{row.sisdr_values}","{deltas}",{ckpt_path_str}'
             )
 
