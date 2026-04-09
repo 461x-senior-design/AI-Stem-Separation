@@ -647,7 +647,8 @@ def main(argv: list[str]) -> int:
         )
         if not baseline_scores:
             print(
-                "ERROR: No valid baseline rows were scored. Check --baseline-summary-csv and --baseline-metric.",
+                "ERROR: No valid baseline rows were scored. "
+                "Check --baseline-summary-csv and --baseline-metric.",
                 file=sys.stderr,
             )
             return 3
