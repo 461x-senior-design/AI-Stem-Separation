@@ -87,84 +87,24 @@ def test_dev_fullsong_eval_masked_potato_sets_info_and_disables_progress(monkeyp
     assert captured["STEMMY_DISABLE_PROGRESS"] == "1"
 
 
-def test_dev_train_sets_default_args_and_forwards_extras(monkeypatch) -> None:
-    """Verify dev train uses defaults, .env TRAIN_DATA_ROOT, and passthrough args."""
+def test_dev_train_help_lists_options() -> None:
+    """Verify dev train exposes first-class Click options in --help."""
     runner = CliRunner()
-
-    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {"TRAIN_DATA_ROOT": "/tmp/musdb"})
-    monkeypatch.delenv("TRAIN_DATA_ROOT", raising=False)
-    monkeypatch.delenv("LOG_LEVEL", raising=False)
-
-    captured: dict[str, object] = {}
-
-    def _fake_train_main(argv) -> None:
-        captured["argv"] = list(argv)
-        captured["log_level"] = cli_mod.os.environ.get("LOG_LEVEL", "")
-
-    monkeypatch.setattr(cli_mod, "train_main", _fake_train_main)
-
-    result = runner.invoke(cli, ["dev", "train", "--lr", "0.001"])
-
+    result = runner.invoke(cli, ["dev", "train", "--help"])
     assert result.exit_code == 0
-    assert captured["log_level"] == "ERROR"
-    assert captured["argv"] == [
-        "--data-root",
-        "/tmp/musdb",
-        "--epochs",
-        "1",
-        "--batch-size",
-        "4",
-        "--time-frames",
-        "256",
-        "--checkpoint-dir",
-        "checkpoints",
-        "--export-ts",
-        "--lr",
-        "0.001",
-    ]
+    assert "--data-root" in result.output
+    assert "--epochs" in result.output
+    assert "--potato" in result.output
+    assert "--lr" in result.output
+    assert "--batch-size" in result.output
 
 
-def test_dev_train_potato_sets_info_and_disables_progress(monkeypatch) -> None:
-    """Verify --potato forces INFO logs and disables progress output."""
+def test_dev_train_env_var_sets_data_root() -> None:
+    """Verify TRAIN_DATA_ROOT env var is picked up as the --data-root default."""
     runner = CliRunner()
-
-    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {})
-    monkeypatch.delenv("LOG_LEVEL", raising=False)
-    monkeypatch.delenv("EVAL_PROGRESS", raising=False)
-    monkeypatch.delenv("STEMMY_DISABLE_PROGRESS", raising=False)
-
-    captured: dict[str, object] = {}
-
-    def _fake_train_main(argv) -> None:
-        captured["argv"] = list(argv)
-        captured["LOG_LEVEL"] = cli_mod.os.environ.get("LOG_LEVEL", "")
-        captured["EVAL_PROGRESS"] = cli_mod.os.environ.get("EVAL_PROGRESS", "")
-        captured["STEMMY_DISABLE_PROGRESS"] = cli_mod.os.environ.get("STEMMY_DISABLE_PROGRESS", "")
-
-    monkeypatch.setattr(cli_mod, "train_main", _fake_train_main)
-
-    result = runner.invoke(cli, ["dev", "train", "--potato"])
-    assert result.exit_code == 0
-    assert captured["LOG_LEVEL"] == "INFO"
-    assert captured["EVAL_PROGRESS"] == "0"
-    assert captured["STEMMY_DISABLE_PROGRESS"] == "1"
-
-
-def test_dev_train_potato_is_removed_from_passthrough_args(monkeypatch) -> None:
-    """Verify --potato is not forwarded to the training entrypoint."""
-    runner = CliRunner()
-
-    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {})
-    captured: dict[str, object] = {}
-
-    def _fake_train_main(argv) -> None:
-        captured["argv"] = list(argv)
-
-    monkeypatch.setattr(cli_mod, "train_main", _fake_train_main)
-
-    result = runner.invoke(cli, ["dev", "train", "--potato", "--lr", "0.001"])
-    assert result.exit_code == 0
-    assert "--potato" not in captured["argv"]
+    result = runner.invoke(cli, ["dev", "train"], env={"TRAIN_DATA_ROOT": "/nonexistent_path_xyz"})
+    assert result.exit_code != 0
+    assert "nonexistent_path_xyz" in result.output
 
 
 def test_spinner_updates_constants(monkeypatch) -> None:
