@@ -358,6 +358,21 @@ def _flush_outputs(
         os.fsync(f_sum.fileno())
 
 
+def _vocals_priority_score(
+    mean_sisdr_by_stem: dict[str, float],
+    mean_recon: float,
+    mean_corr: float,
+) -> float:
+    """Compute a simple derived score that weights vocals more heavily.
+
+    This is for easier manual comparison in the summary CSV.
+    It is not used directly by the evaluation loop to choose checkpoints.
+    """
+    mean_sisdr = float(np.mean([mean_sisdr_by_stem[stem] for stem in STEMS]))
+    vocals = float(mean_sisdr_by_stem.get("vocals", 0.0))
+    return mean_sisdr + 0.5 * vocals + 0.05 * mean_recon + 2.0 * mean_corr
+
+
 def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
     """Print an end-of-run checkpoint evaluation summary table."""
     if not rows:
@@ -371,12 +386,14 @@ def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
         table.add_column(f"SI-SDR {stem}", justify="right", style=WHITE)
     table.add_column("Recon SNR", justify="right", style=WHITE)
     table.add_column("Interstem Corr", justify="right", style=WHITE)
+    table.add_column("Vocals Priority", justify="right", style=WHITE)
 
     score_keys = [
         "mean_sisdr",
         *[f"mean_sisdr_{stem}" for stem in STEMS],
         "mean_recon_snr_db",
         "mean_interstem_corr",
+        "vocals_priority_score",
     ]
     col_best: dict[str, float] = {}
     col_worst: dict[str, float] = {}
@@ -396,6 +413,7 @@ def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
         mean_sisdr = float(row["mean_sisdr"])
         mean_recon = float(row["mean_recon_snr_db"])
         mean_corr = float(row["mean_interstem_corr"])
+        vocals_priority = float(row["vocals_priority_score"])
         table.add_row(
             Path(str(row["ckpt"])).name,
             style_score("mean_sisdr", mean_sisdr, decimals=3),
@@ -405,6 +423,7 @@ def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
             ],
             style_score("mean_recon_snr_db", mean_recon, decimals=3),
             style_score("mean_interstem_corr", mean_corr, decimals=4),
+            style_score("vocals_priority_score", vocals_priority, decimals=3),
         )
 
     console.print()
@@ -466,23 +485,6 @@ def main() -> None:
     per_track_csv = eval_dir / "fullsong_eval_per_track.csv"
     summary_csv = eval_dir / "fullsong_eval_summary.csv"
 
-    # _print_progress(
-    #     progress_enabled,
-    #     "Eval config: device=%s  tracks=%d  max_seconds=%d  ckpts=%d"
-    #     % (device, int(len(tracks)), int(max_seconds), int(len(ckpts))),
-    # )
-    #
-    # _print_progress(
-    #     progress_enabled,
-    #     "CSV outputs: %s  %s" % (str(per_track_csv), str(summary_csv)),
-    # )
-    # _print_progress(
-    #     progress_enabled,
-    #     "Progress: EVAL_PROGRESS=%s EVAL_PRINT_METRICS=%s EVAL_FLUSH_EVERY=%d "
-    #     "EVAL_FSYNC_EVERY=%d"
-    #     % (str(progress_enabled), str(print_metrics), int(flush_every), int(fsync_every)),
-    # )
-
     with per_track_csv.open("w", newline="") as f_track, summary_csv.open("w", newline="") as f_sum:
         track_writer = csv.writer(f_track)
         sum_writer = csv.writer(f_sum)
@@ -494,10 +496,14 @@ def main() -> None:
         track_header += ["recon_snr_db", "interstem_corr"]
         track_writer.writerow(track_header)
 
-        sum_header = ["ckpt"]
+        sum_header = ["ckpt", "mean_sisdr"]
         for stem in STEMS:
             sum_header.append("mean_sisdr_%s" % stem)
-        sum_header += ["mean_recon_snr_db", "mean_interstem_corr"]
+        sum_header += [
+            "mean_recon_snr_db",
+            "mean_interstem_corr",
+            "vocals_priority_score",
+        ]
         sum_writer.writerow(sum_header)
 
         _flush_outputs(f_track, f_sum, do_fsync=False)
@@ -616,7 +622,6 @@ def main() -> None:
                                     % (stem, str(w.shape))
                                 )
 
-                            # Postprocessor returns [2, N]. Standardize to (N, 2) for scoring.
                             if w.shape[0] == 2:
                                 pred_stems[stem] = w.T.astype(np.float32, copy=False)
                             elif w.shape[1] == 2:
@@ -640,7 +645,6 @@ def main() -> None:
                                     % (str(gt_path), int(gt_sr), int(cfg.sample_rate))
                                 )
 
-                            # Align GT lengths to mixture length.
                             if gt_x.shape[0] != mix.shape[0]:
                                 if gt_x.shape[0] > mix.shape[0]:
                                     gt_x = gt_x[: mix.shape[0], :]
@@ -722,19 +726,27 @@ def main() -> None:
                     mean_recon = float(np.mean(recon_accum) if recon_accum else 0.0)
                     mean_corr = float(np.mean(corr_accum) if corr_accum else 0.0)
                     mean_sisdr = float(np.mean([mean_sisdr_by_stem[stem] for stem in STEMS]))
+                    vocals_priority_score = _vocals_priority_score(
+                        mean_sisdr_by_stem=mean_sisdr_by_stem,
+                        mean_recon=mean_recon,
+                        mean_corr=mean_corr,
+                    )
 
-                    mean_row = [ckpt_label]
+                    mean_row = [ckpt_label, "%.6f" % float(mean_sisdr)]
                     for stem in STEMS:
                         mean_row.append("%.6f" % float(mean_sisdr_by_stem[stem]))
                     mean_row.append("%.6f" % float(mean_recon))
                     mean_row.append("%.6f" % float(mean_corr))
+                    mean_row.append("%.6f" % float(vocals_priority_score))
                     sum_writer.writerow(mean_row)
+
                     summary_rows.append(
                         {
                             "ckpt": ckpt_label,
                             "mean_sisdr": mean_sisdr,
                             "mean_recon_snr_db": mean_recon,
                             "mean_interstem_corr": mean_corr,
+                            "vocals_priority_score": vocals_priority_score,
                             **{f"mean_sisdr_{stem}": mean_sisdr_by_stem[stem] for stem in STEMS},
                         }
                     )
@@ -756,6 +768,7 @@ def main() -> None:
                         metrics["eval/mean_sisdr"] = mean_sisdr
                         metrics["eval/mean_recon_snr_db"] = mean_recon
                         metrics["eval/mean_interstem_corr"] = mean_corr
+                        metrics["eval/vocals_priority_score"] = vocals_priority_score
                         metrics["checkpoint/epoch"] = ckpt_epoch
                         wandb.log(metrics, step=ckpt_epoch)
 
