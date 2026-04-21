@@ -18,7 +18,7 @@ NO_WANDB        : set to "1" to skip wandb entirely (training/eval still run nor
 
 Usage
 -----
-    from stemmy.wandb_config import wandb_run
+    from stemmy.training.wandb_config import wandb_run
     import wandb
 
     @wandb_run(job_type="training", name="baseline")

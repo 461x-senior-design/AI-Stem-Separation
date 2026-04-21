@@ -69,7 +69,7 @@ from stemmy.training.augment import AugmentConfig, build_augment_pipeline
 from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset
 from stemmy.training.stft import StftConfig
-from stemmy.wandb_config import wandb_run
+from stemmy.training.wandb_config import wandb_run
 
 logger = get_logger(__name__)
 
