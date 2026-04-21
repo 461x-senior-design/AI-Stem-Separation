@@ -46,6 +46,7 @@ from stemmy.constants import (
     NEON_GREEN,
     ROSE_RED,
     STEMS_4,
+    TARGET_CHANNELS,
     WHITE,
 )
 from stemmy.inference import (
@@ -78,7 +79,7 @@ def _get_env_path(name: str) -> Path:
 
 
 def _get_env_int(name: str, default: int) -> int:
-    """Read an integer environment variable, or return default when unset/blank."""
+    """Read an integer environment variable, or return default when unset or blank."""
     raw = os.environ.get(name, "").strip()
     if raw == "":
         return int(default)
@@ -157,9 +158,10 @@ def _list_tracks(split_dir: Path) -> list[Path]:
 def _read_slice(path: Path, max_samples: int) -> tuple[np.ndarray, int]:
     """Read audio as float32 stereo (N, 2) and optionally truncate to max_samples."""
     x, sr = sf.read(str(path), always_2d=True, dtype="float32")
-    if x.ndim != 2 or x.shape[1] != 2:
+    if x.ndim != 2 or x.shape[1] != TARGET_CHANNELS:
         raise EvaluationException(
-            "Expected stereo audio with shape (N,2), got: %s" % (str(x.shape),)
+            "Expected stereo audio with shape (N,%d), got: %s"
+            % (int(TARGET_CHANNELS), str(x.shape))
         )
     if max_samples > 0 and x.shape[0] > max_samples:
         x = x[:max_samples, :]
@@ -182,8 +184,10 @@ def _si_sdr(est: np.ndarray, ref: np.ndarray, eps: float = 1e-12) -> float:
         raise EvaluationException(
             "Shape mismatch est=%s ref=%s" % (str(est_f.shape), str(ref_f.shape))
         )
-    if est_f.ndim != 2 or est_f.shape[1] != 2:
-        raise EvaluationException("Expected stereo shape (N,2), got: %s" % (str(est_f.shape),))
+    if est_f.ndim != 2 or est_f.shape[1] != TARGET_CHANNELS:
+        raise EvaluationException(
+            "Expected stereo shape (N,%d), got: %s" % (int(TARGET_CHANNELS), str(est_f.shape))
+        )
 
     est_zm = _zero_mean(est_f)
     ref_zm = _zero_mean(ref_f)
@@ -251,17 +255,17 @@ def _mean_interstem_corr(pred_stems: dict[str, np.ndarray]) -> float:
 def _ckpt_sort_key(p: Path) -> tuple[int, int, str]:
     """Sort checkpoints to prefer those with an epoch number, then ascending epoch."""
     stem = p.stem
-    e = -1
+    epoch = -1
 
     if "epoch" in stem:
         tail = stem.split("epoch")[-1]
         try:
-            e = int(tail)
+            epoch = int(tail)
         except ValueError:
-            e = -1
+            epoch = -1
 
-    unknown = 1 if e < 0 else 0
-    epoch_val = e if e >= 0 else 0
+    unknown = 1 if epoch < 0 else 0
+    epoch_val = epoch if epoch >= 0 else 0
     return unknown, epoch_val, p.name
 
 
@@ -279,9 +283,10 @@ def _truncate_outputs_to_mix_len(
             raise EvaluationException("Missing predicted stem: %s" % stem)
 
         x = pred[stem]
-        if x.ndim != 2 or x.shape[1] != 2:
+        if x.ndim != 2 or x.shape[1] != TARGET_CHANNELS:
             raise EvaluationException(
-                "Expected pred stem %s to have shape (N,2), got %s" % (stem, str(x.shape))
+                "Expected pred stem %s to have shape (N,%d), got %s"
+                % (stem, int(TARGET_CHANNELS), str(x.shape))
             )
 
         if x.shape[0] > mix_len:
@@ -320,20 +325,20 @@ def _build_eval_inference_config(
     ckpt_obj: dict,
     device: str,
 ) -> InferenceConfig:
-    """Build an InferenceConfig for evaluation based on checkpoint config.
-
-    Evaluation overrides:
-    - stems ordering is fixed to project canonical STEMS_4 ordering
-    - export_files=False (evaluation writes only CSVs)
-    - renorm_masks=True (keeps predicted masks sum-to-one across stems per TF-bin)
-    """
+    """Build an InferenceConfig for evaluation based on checkpoint config."""
     cfg_from_ckpt = config_from_checkpoint(ckpt_obj)
+
+    renorm_masks = bool(cfg_from_ckpt.renorm_masks)
+    if cfg_from_ckpt.pred_activation == "sigmoid":
+        renorm_masks = False
+
     cfg = replace(
         cfg_from_ckpt,
         stems=list(STEMS),
+        audio_channels=int(TARGET_CHANNELS),
         device=device,
         export_files=False,
-        renorm_masks=True,
+        renorm_masks=renorm_masks,
     )
     return cfg
 
@@ -350,7 +355,7 @@ def _flush_outputs(
     f_sum,
     do_fsync: bool,
 ) -> None:
-    """Flush CSV file buffers (and optionally fsync)."""
+    """Flush CSV file buffers and optionally fsync."""
     f_track.flush()
     f_sum.flush()
     if do_fsync:
@@ -363,11 +368,7 @@ def _vocals_priority_score(
     mean_recon: float,
     mean_corr: float,
 ) -> float:
-    """Compute a simple derived score that weights vocals more heavily.
-
-    This is for easier manual comparison in the summary CSV.
-    It is not used directly by the evaluation loop to choose checkpoints.
-    """
+    """Compute a simple derived score that weights vocals more heavily."""
     mean_sisdr = float(np.mean([mean_sisdr_by_stem[stem] for stem in STEMS]))
     vocals = float(mean_sisdr_by_stem.get("vocals", 0.0))
     return mean_sisdr + 0.5 * vocals + 0.05 * mean_recon + 2.0 * mean_corr
@@ -383,14 +384,14 @@ def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
     table.add_column("Checkpoint", style=LAVENDER)
     table.add_column("Mean SI-SDR", justify="right", style=WHITE)
     for stem in STEMS:
-        table.add_column(f"SI-SDR {stem}", justify="right", style=WHITE)
+        table.add_column("SI-SDR %s" % stem, justify="right", style=WHITE)
     table.add_column("Recon SNR", justify="right", style=WHITE)
     table.add_column("Interstem Corr", justify="right", style=WHITE)
     table.add_column("Vocals Priority", justify="right", style=WHITE)
 
     score_keys = [
         "mean_sisdr",
-        *[f"mean_sisdr_{stem}" for stem in STEMS],
+        *["mean_sisdr_%s" % stem for stem in STEMS],
         "mean_recon_snr_db",
         "mean_interstem_corr",
         "vocals_priority_score",
@@ -418,7 +419,7 @@ def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
             Path(str(row["ckpt"])).name,
             style_score("mean_sisdr", mean_sisdr, decimals=3),
             *[
-                style_score(f"mean_sisdr_{stem}", float(row[f"mean_sisdr_{stem}"]), decimals=3)
+                style_score("mean_sisdr_%s" % stem, float(row["mean_sisdr_%s" % stem]), decimals=3)
                 for stem in STEMS
             ],
             style_score("mean_recon_snr_db", mean_recon, decimals=3),
@@ -622,9 +623,9 @@ def main() -> None:
                                     % (stem, str(w.shape))
                                 )
 
-                            if w.shape[0] == 2:
+                            if w.shape[0] == TARGET_CHANNELS:
                                 pred_stems[stem] = w.T.astype(np.float32, copy=False)
-                            elif w.shape[1] == 2:
+                            elif w.shape[1] == TARGET_CHANNELS:
                                 pred_stems[stem] = w.astype(np.float32, copy=False)
                             else:
                                 raise EvaluationException(
@@ -659,9 +660,9 @@ def main() -> None:
 
                         sisdr_row: dict[str, float] = {}
                         for stem in STEMS:
-                            v = _si_sdr(pred_stems[stem], gt[stem])
-                            sisdr_row[stem] = v
-                            sisdr_accum[stem].append(v)
+                            value = _si_sdr(pred_stems[stem], gt[stem])
+                            sisdr_row[stem] = value
+                            sisdr_accum[stem].append(value)
 
                         stems_sum = np.zeros_like(mix)
                         for stem in STEMS:
@@ -747,7 +748,7 @@ def main() -> None:
                             "mean_recon_snr_db": mean_recon,
                             "mean_interstem_corr": mean_corr,
                             "vocals_priority_score": vocals_priority_score,
-                            **{f"mean_sisdr_{stem}": mean_sisdr_by_stem[stem] for stem in STEMS},
+                            **{"mean_sisdr_%s" % stem: mean_sisdr_by_stem[stem] for stem in STEMS},
                         }
                     )
 

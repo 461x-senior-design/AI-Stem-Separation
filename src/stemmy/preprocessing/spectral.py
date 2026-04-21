@@ -18,15 +18,14 @@ def compute_stft(
     Args:
         waveform: Input audio, shape [N] mono, [2, N] stereo (channel-first),
                   or [N, 2] stereo (channel-last)
-        n_fft: FFT window size (default: 4096)
-        hop_length: Samples between frames (default: 1024)
-        win_length: Window length (default: n_fft)
-        center: Whether to pad so frames are centered (must match training/inference)
-        window: Window function name (must match stemmy.constants.WINDOW)
+        n_fft: FFT window size
+        hop_length: Samples between frames
+        win_length: Window length
+        center: Whether to pad so frames are centered
+        window: Window function name
 
     Returns:
-        Complex STFT array, shape [F, T] for mono or [2, F, T] for stereo where
-        F = n_fft // 2 + 1 = 2049
+        Complex STFT array, shape [F, T] for mono or [2, F, T] for stereo
     """
     if not isinstance(waveform, np.ndarray):
         raise TypeError("waveform must be a numpy.ndarray.")
@@ -44,7 +43,7 @@ def compute_stft(
     window = window.strip().lower()
     expected_window = str(WINDOW).strip().lower()
     if window != expected_window:
-        raise ValueError("window must match stemmy.constants.WINDOW (%s)." % (str(WINDOW),))
+        raise ValueError("window must match stemmy.constants.WINDOW (%s)." % str(WINDOW))
 
     if waveform.ndim == 1:
         return librosa.stft(
@@ -57,7 +56,6 @@ def compute_stft(
         )
 
     if waveform.ndim == 2:
-        # Accept both channel-first [2, N] and channel-last [N, 2]
         if waveform.shape[0] == 2:
             left = librosa.stft(
                 waveform[0],
@@ -98,42 +96,42 @@ def compute_stft(
 
         raise ValueError("Stereo waveform must have shape [2, N] or [N, 2].")
 
-    raise ValueError("waveform must have shape [N] (mono), [2, N] or [N, 2] (stereo).")
+    raise ValueError("waveform must have shape [N], [2, N], or [N, 2].")
 
 
-def split_magnitude_phase(stft_complex: np.ndarray):
+def split_magnitude_phase(stft_complex: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Split complex STFT into magnitude and phase components.
 
     Args:
-        stft_complex: Complex STFT array, shape [N], [F, T], or [2, F, T]
+        stft_complex: Complex STFT array, shape [F, T] or [2, F, T]
 
     Returns:
         Tuple of (magnitude, phase)
-        - magnitude: Non-negative real values (same shape as input)
-        - phase: Values in range [-pi, pi] (same shape as input)
     """
     if not isinstance(stft_complex, np.ndarray):
         raise TypeError("stft_complex must be a numpy.ndarray.")
-    if stft_complex.ndim not in (1, 2, 3):
-        raise ValueError("stft_complex must have shape [N], [F, T] (mono), or [2, F, T] (stereo).")
+    if stft_complex.ndim not in (2, 3):
+        raise ValueError("stft_complex must have shape [F, T] or [2, F, T].")
 
     magnitude = np.abs(stft_complex)
     phase = np.angle(stft_complex)
     return magnitude, phase
 
 
-def normalize_spectrogram(magnitude: np.ndarray, method: str = "minmax"):
+def normalize_spectrogram(
+    magnitude: np.ndarray,
+    method: str = "minmax",
+) -> tuple[np.ndarray, dict]:
     """
     Normalize spectrogram magnitude values.
 
     Args:
         magnitude: magnitude spectrogram, shape [F, T] or [2, F, T]
-        method: "minmax" (scale to [0, 1]), "freq_minmax" (per-frequency scaling), or "none"
+        method: "minmax", "freq_minmax", or "none"
 
     Returns:
         Tuple of (normalized_magnitude, params)
-        params contains everything needed to reverse normalization
     """
     if not isinstance(magnitude, np.ndarray):
         raise TypeError("magnitude must be a numpy.ndarray.")
@@ -143,7 +141,6 @@ def normalize_spectrogram(magnitude: np.ndarray, method: str = "minmax"):
         raise ValueError("method must be a non-empty string.")
 
     method = method.strip().lower()
-
     normalized = magnitude.copy()
 
     if method == "none":
@@ -160,14 +157,18 @@ def normalize_spectrogram(magnitude: np.ndarray, method: str = "minmax"):
         return normalized, {"method": "minmax", "min": min_val, "max": max_val}
 
     if method == "freq_minmax":
-        if magnitude.ndim != 2:
-            raise ValueError("freq_minmax expects magnitude with shape [F, T].")
+        if magnitude.ndim == 2:
+            f_min = magnitude.min(axis=1, keepdims=True)
+            f_max = magnitude.max(axis=1, keepdims=True)
+            denom = np.maximum(f_max - f_min, FREQ_MINMAX_EPS)
+            normalized = np.clip((magnitude - f_min) / denom, 0.0, 1.0)
+            return normalized, {"method": "freq_minmax", "f_min": f_min, "f_max": f_max}
 
-        f_min = magnitude.min(axis=1, keepdims=True)  # [F, 1]
-        f_max = magnitude.max(axis=1, keepdims=True)  # [F, 1]
-
-        denom = np.maximum(f_max - f_min, FREQ_MINMAX_EPS)
-        normalized = np.clip((magnitude - f_min) / denom, 0.0, 1.0)
-        return normalized, {"method": "freq_minmax", "f_min": f_min, "f_max": f_max}
+        if magnitude.ndim == 3:
+            f_min = magnitude.min(axis=2, keepdims=True)
+            f_max = magnitude.max(axis=2, keepdims=True)
+            denom = np.maximum(f_max - f_min, FREQ_MINMAX_EPS)
+            normalized = np.clip((magnitude - f_min) / denom, 0.0, 1.0)
+            return normalized, {"method": "freq_minmax", "f_min": f_min, "f_max": f_max}
 
     raise ValueError(f"Unknown normalization method: {method}")

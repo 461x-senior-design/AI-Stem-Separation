@@ -1,14 +1,5 @@
 # src/stemmy/tool/cli.py
-"""Command-line interface for running stem separation inference.
-
-This module provides a Click-based CLI that can:
-- Preview expected output filenames for a given input track.
-- Run end-to-end separation using either:
-  - A training checkpoint (.pth), which enables config-from-checkpoint alignment, or
-  - A TorchScript model (.pt), which is a frozen inference artifact.
-
-Outputs are written as <base>_<stem>.wav files under the chosen output directory.
-"""
+"""Command-line interface for running stem separation inference."""
 
 import os
 from dataclasses import replace
@@ -23,7 +14,7 @@ from rich.padding import Padding
 from rich.text import Text
 from rich.tree import Tree
 
-from stemmy.constants import BOLD_GREEN, BOLD_RED, CYAN, STEMS_4
+from stemmy.constants import BOLD_GREEN, BOLD_RED, CYAN, STEMS_4, TARGET_CHANNELS
 from stemmy.inference import (
     InferenceConfig,
     config_from_checkpoint,
@@ -145,7 +136,7 @@ def _load_model_and_cfg(
 
     Notes:
         - For .pth: loads PyTorch model weights and derives cfg from checkpoint metadata.
-        - For .pt: loads TorchScript and uses default InferenceConfig (no checkpoint metadata).
+        - For .pt: loads TorchScript and uses default InferenceConfig.
     """
     ckpt_in = checkpoint.strip() if isinstance(checkpoint, str) and checkpoint is not None else ""
     ts_in = torchscript.strip() if isinstance(torchscript, str) and torchscript is not None else ""
@@ -179,28 +170,24 @@ def _load_model_and_cfg(
         raise IsADirectoryError("Expected a TorchScript file, got a directory: %s" % str(ts_path))
 
     model = load_torchscript_model(str(ts_path), device=resolved_device)
-    cfg = InferenceConfig()
+    cfg = InferenceConfig(audio_channels=TARGET_CHANNELS)
     return model, cfg, None
 
 
-# NOTE: Root CLI command group
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
     setup_logging(level=os.getenv("LOG_LEVEL", "ERROR"))
 
 
-# NOTE: `stemmy dev` command group
 @cli.group(help="Developer commands.")
 def dev() -> None:
     """Developer command group."""
 
 
-# NOTE: `stemmy dev train` — registered from stemmy.train as a first-class Click command
 dev.add_command(train_command)
 
 
-# NOTE: `stemmy dev eval` command
 @dev.command(
     "eval",
     context_settings={
@@ -244,7 +231,6 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     fullsong_eval_masked_main()
 
 
-# NOTE: `stemmy spinner` command
 @cli.command("spinner", help="Generate EQ spinner frames and update src/stemmy/constants.py.")
 def spinner() -> None:
     """Regenerate EQ_FRAMES and write them to constants.py."""
@@ -259,7 +245,6 @@ def spinner() -> None:
         click.echo("EQ_FRAMES already up to date in src/stemmy/constants.py")
 
 
-# NOTE: `stemmy separate` command
 @cli.command(
     help=(
         "Separate an audio file into stems.\n\n"
@@ -309,7 +294,7 @@ def spinner() -> None:
 @click.option(
     "--chunk-frames",
     type=int,
-    default=256,  # NOTE: Changed from 0
+    default=256,
     show_default=True,
     help=(
         "If > 0, run inference in time chunks of this many STFT frames to "
@@ -319,7 +304,7 @@ def spinner() -> None:
 @click.option(
     "--overlap-frames",
     type=int,
-    default=64,  # NOTE: Changed from 0
+    default=64,
     show_default=True,
     help="Overlap (in STFT frames) between chunks when --chunk-frames > 0.",
 )
@@ -381,22 +366,28 @@ def separate(
 
     resolved_device = _resolve_device(device)
 
+    renorm_masks = bool(cfg.renorm_masks)
+    if getattr(cfg, "pred_activation", "softmax") == "sigmoid":
+        renorm_masks = False
+
     try:
         cfg = replace(
             cfg,
             device=resolved_device,
+            audio_channels=TARGET_CHANNELS,
             stems=stems,
             export_files=True,
-            renorm_masks=True,
+            renorm_masks=renorm_masks,
             chunk_frames=int(chunk_frames),
             overlap_frames=int(overlap_frames),
             amp=bool(amp),
         )
     except TypeError:
         cfg.device = resolved_device
+        cfg.audio_channels = TARGET_CHANNELS
         cfg.stems = stems
         cfg.export_files = True
-        cfg.renorm_masks = True
+        cfg.renorm_masks = renorm_masks
         cfg.chunk_frames = int(chunk_frames)
         cfg.overlap_frames = int(overlap_frames)
         cfg.amp = bool(amp)

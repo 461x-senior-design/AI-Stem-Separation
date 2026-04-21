@@ -4,6 +4,7 @@
 This module defines:
 - StftConfig: a small configuration object used across training code.
 - stft_mag_phase_mono: compute mono STFT magnitude and phase using torch.stft.
+- stft_mag_phase_stereo: compute stereo STFT magnitude and phase channel-wise.
 - freq_minmax_normalize: per-frequency min/max normalization used for model inputs.
 
 The key requirement is that STFT framing is consistent across the project.
@@ -83,8 +84,8 @@ def stft_mag_phase_mono(
 
     Returns:
         Tuple of (magnitude, phase):
-            magnitude: [F, T] float32/float64
-            phase: [F, T] float32/float64 (radians)
+            magnitude: [F, T]
+            phase: [F, T]
     """
     if not isinstance(waveform, torch.Tensor):
         raise ValueError("waveform must be a torch.Tensor.")
@@ -112,29 +113,69 @@ def stft_mag_phase_mono(
     return magnitude, phase
 
 
+def stft_mag_phase_stereo(
+    waveform: torch.Tensor,
+    cfg: StftConfig,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute stereo STFT magnitude and phase channel-wise.
+
+    Args:
+        waveform: Stereo waveform tensor with shape [C, N], where C is usually 2.
+        cfg: STFT configuration.
+
+    Returns:
+        Tuple of (magnitude, phase):
+            magnitude: [C, F, T]
+            phase: [C, F, T]
+    """
+    if not isinstance(waveform, torch.Tensor):
+        raise ValueError("waveform must be a torch.Tensor.")
+    if waveform.ndim != 2:
+        raise ValueError("waveform must have shape [C, N].")
+    if waveform.shape[0] <= 0:
+        raise ValueError("waveform must contain at least one channel.")
+
+    cfg.validate()
+
+    mags: list[torch.Tensor] = []
+    phases: list[torch.Tensor] = []
+    for ch in range(int(waveform.shape[0])):
+        mag, phase = stft_mag_phase_mono(waveform[ch], cfg)
+        mags.append(mag)
+        phases.append(phase)
+
+    magnitude = torch.stack(mags, dim=0)
+    phase = torch.stack(phases, dim=0)
+    return magnitude, phase
+
+
 def freq_minmax_normalize(
     magnitude: torch.Tensor,
     eps: Optional[float] = 1e-8,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Per-frequency min/max normalization.
 
+    Supported input shapes:
+      [F, T]
+      [C, F, T]
+
     This normalizes each frequency bin independently across time, mapping
     values to [0, 1] based on per-bin min/max.
 
     Args:
-        magnitude: STFT magnitude with shape [F, T]
+        magnitude: STFT magnitude with shape [F, T] or [C, F, T]
         eps: Small value to avoid division by zero. If None, uses torch.finfo(dtype).eps.
 
     Returns:
         Tuple of (normalized, f_min, f_max):
-            normalized: [F, T]
-            f_min: [F, 1]
-            f_max: [F, 1]
+            normalized: same shape as magnitude
+            f_min: [F, 1] or [C, F, 1]
+            f_max: [F, 1] or [C, F, 1]
     """
     if not isinstance(magnitude, torch.Tensor):
         raise ValueError("magnitude must be a torch.Tensor.")
-    if magnitude.ndim != 2:
-        raise ValueError("magnitude must have shape [F, T].")
+    if magnitude.ndim not in (2, 3):
+        raise ValueError("magnitude must have shape [F, T] or [C, F, T].")
     if not torch.is_floating_point(magnitude):
         raise ValueError("magnitude must be a floating-point tensor.")
 
@@ -148,8 +189,13 @@ def freq_minmax_normalize(
         if eps_val <= 0.0:
             raise ValueError("eps must be > 0.")
 
-    f_min = magnitude.min(dim=1, keepdim=True).values
-    f_max = magnitude.max(dim=1, keepdim=True).values
+    if magnitude.ndim == 2:
+        f_min = magnitude.min(dim=1, keepdim=True).values
+        f_max = magnitude.max(dim=1, keepdim=True).values
+    else:
+        f_min = magnitude.min(dim=2, keepdim=True).values
+        f_max = magnitude.max(dim=2, keepdim=True).values
+
     denom = torch.clamp(f_max - f_min, min=eps_val)
     normalized = (magnitude - f_min) / denom
     normalized = torch.clamp(normalized, 0.0, 1.0)

@@ -14,8 +14,10 @@ from stemmy.constants import (
     HOP_LENGTH,
     N_FFT,
     STFT_CENTER,
+    TARGET_CHANNELS,
     TARGET_SAMPLE_RATE,
     WIN_LENGTH,
+    WINDOW,
 )
 
 from .audio import ensure_stereo, load_audio, normalize_waveform
@@ -29,12 +31,11 @@ class PreprocessingMetadata:
     Stores all info needed to reconstruct audio after separation.
 
     Notes on sample rates:
-      - original_sr: The sample rate returned by load_audio(). In this pipeline, load_audio()
-        is called with sr=self.sample_rate, so audio is resampled on load and original_sr will
-        typically equal processed_sr. (The native file sample rate is not preserved.)
+      - original_sr: The sample rate returned by load_audio(). In this pipeline,
+        load_audio() is called with sr=self.sample_rate, so audio is resampled on load.
       - processed_sr: The target sample rate used throughout preprocessing/inference.
 
-    We preserve phase (split_magnitude_phase) for ISTFT reconstruction.
+    We preserve stereo phase for ISTFT reconstruction.
     """
 
     original_path: str
@@ -59,102 +60,131 @@ class Preprocessor:
 
     Example:
         prep = Preprocessor()
-        tenseor, metadata = prep.process("song.wav")
+        tensor, metadata = prep.process("song.wav")
     """
 
     def __init__(
         self,
         sample_rate: int = TARGET_SAMPLE_RATE,
+        audio_channels: int = TARGET_CHANNELS,
         n_fft: int = N_FFT,
         hop_length: int = HOP_LENGTH,
         win_length: int = WIN_LENGTH,
         center: bool = STFT_CENTER,
+        window: str = WINDOW,
         waveform_norm: str = DEFAULT_WAVEFORM_NORM,
         spectrogram_norm: str = DEFAULT_SPECTROGRAM_NORM,
+        eps: float = 1e-8,
     ):
+        if not isinstance(sample_rate, int) or sample_rate <= 0:
+            raise ValueError("sample_rate must be a positive integer.")
+        if not isinstance(audio_channels, int) or audio_channels <= 0:
+            raise ValueError("audio_channels must be a positive integer.")
+        if not isinstance(n_fft, int) or n_fft <= 0:
+            raise ValueError("n_fft must be a positive integer.")
+        if not isinstance(hop_length, int) or hop_length <= 0:
+            raise ValueError("hop_length must be a positive integer.")
+        if not isinstance(win_length, int) or win_length <= 0:
+            raise ValueError("win_length must be a positive integer.")
+        if win_length > n_fft:
+            raise ValueError("win_length must be <= n_fft.")
+        if not isinstance(center, bool):
+            raise TypeError("center must be a bool.")
+        if not isinstance(window, str) or window.strip() == "":
+            raise ValueError("window must be a non-empty string.")
+        if not isinstance(waveform_norm, str) or waveform_norm.strip() == "":
+            raise ValueError("waveform_norm must be a non-empty string.")
+        if not isinstance(spectrogram_norm, str) or spectrogram_norm.strip() == "":
+            raise ValueError("spectrogram_norm must be a non-empty string.")
+        if not isinstance(eps, (float, int)) or float(eps) <= 0.0:
+            raise ValueError("eps must be > 0.")
+
         self.sample_rate = sample_rate
+        self.audio_channels = audio_channels
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.win_length = win_length
         self.center = center
+        self.window = window
         self.waveform_norm = waveform_norm
         self.spectrogram_norm = spectrogram_norm
+        self.eps = float(eps)
 
     def process(self, audio_path: Union[str, Path]) -> tuple[torch.Tensor, PreprocessingMetadata]:
         """
         Run full preprocessing pipeline.
 
         Args:
-            audio_path Path to input audio file
+            audio_path: Path to input audio file
 
         Returns:
             Tuple of (tensor, metadata)
-            tensor: [1, 1, F, T] normalized magnitude
+            tensor: [1, 2, F, T] normalized stereo magnitude
         """
         audio_path = Path(audio_path)
 
-        # Use Haedon's validation system
         validator = AudioFileValidator(str(audio_path))
         is_valid, message = validator.validate()
         if not is_valid:
             raise AudioValidationException(message)
 
-        # load_audio resamples to self.sample_rate
-        waveform, sr = load_audio(audio_path, sr=self.sample_rate)
-        original_length = waveform.shape[-1]
+        waveform, sr = load_audio(audio_path, sr=self.sample_rate, mono=False)
+        original_length = int(waveform.shape[-1])
 
-        # Ensure Stereo
         waveform = ensure_stereo(waveform)
 
-        mono_waveform = waveform.mean(axis=0)
-        _mono_norm, waveform_params = normalize_waveform(mono_waveform, method=self.waveform_norm)
+        if waveform.ndim != 2 or waveform.shape[0] != self.audio_channels:
+            raise ValueError(
+                "Expected stereo waveform with shape [%d, N], got %s"
+                % (int(self.audio_channels), str(waveform.shape))
+            )
 
-        scale = float(waveform_params.get("scale_factor", 1.0))
-        if scale == 0.0:
-            scale = 1.0
-        waveform = waveform / scale
-        processed_length = waveform.shape[-1]
+        waveform, waveform_params = normalize_waveform(waveform, method=self.waveform_norm)
+        processed_length = int(waveform.shape[-1])
 
-        # Compute STFT
         stft = compute_stft(
             waveform,
             n_fft=self.n_fft,
             hop_length=self.hop_length,
             win_length=self.win_length,
             center=self.center,
+            window=self.window,
         )
 
-        # Split magnitude and phase
         magnitude, phase = split_magnitude_phase(stft)
 
-        mix_magnitude = magnitude
-        if mix_magnitude.ndim == 3 and mix_magnitude.shape[0] == 2:
-            mono_magnitude = mix_magnitude.mean(axis=0)
-        elif mix_magnitude.ndim == 2:
-            mono_magnitude = mix_magnitude
-        else:
-            raise ValueError(f"Unexpected magnitude shape {mix_magnitude.shape}")
+        if magnitude.ndim != 3 or magnitude.shape[0] != self.audio_channels:
+            raise ValueError(
+                "Expected stereo magnitude with shape [%d, F, T], got %s"
+                % (int(self.audio_channels), str(magnitude.shape))
+            )
 
-        # Normalize spectrogram
-        mono_magnitude, spec_params = normalize_spectrogram(
-            mono_magnitude, method=self.spectrogram_norm
+        mix_magnitude = magnitude.copy()
+
+        normalized_magnitude, spec_params = normalize_spectrogram(
+            magnitude,
+            method=self.spectrogram_norm,
         )
 
-        # Convert to tensor
-        tensor = torch.from_numpy(mono_magnitude).float().unsqueeze(0).unsqueeze(0)
+        if normalized_magnitude.ndim != 3 or normalized_magnitude.shape[0] != self.audio_channels:
+            raise ValueError(
+                "Expected normalized stereo magnitude with shape [%d, F, T], got %s"
+                % (int(self.audio_channels), str(normalized_magnitude.shape))
+            )
 
-        # Build metadata
+        tensor = torch.from_numpy(normalized_magnitude).float().unsqueeze(0)
+
         metadata = PreprocessingMetadata(
             original_path=str(audio_path),
-            original_sr=sr,
-            processed_sr=self.sample_rate,
-            original_length=original_length,
-            processed_length=processed_length,
-            n_fft=self.n_fft,
-            hop_length=self.hop_length,
-            win_length=self.win_length,
-            center=self.center,
-            n_frames=int(mono_magnitude.shape[-1]),
+            original_sr=int(sr),
+            processed_sr=int(self.sample_rate),
+            original_length=int(original_length),
+            processed_length=int(processed_length),
+            n_fft=int(self.n_fft),
+            hop_length=int(self.hop_length),
+            win_length=int(self.win_length),
+            center=bool(self.center),
+            n_frames=int(normalized_magnitude.shape[-1]),
             phase=phase,
             waveform_norm_params=waveform_params,
             spectrogram_norm_params=spec_params,

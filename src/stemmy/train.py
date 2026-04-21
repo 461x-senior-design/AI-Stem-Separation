@@ -1,41 +1,35 @@
 # src/stemmy/train.py
-"""Training entry point for the spectrogram-mask U-Net on MUSDB18-HQ.
+"""Training entry point for the stereo spectrogram-mask U-Net on MUSDB18-HQ.
 
-This script trains a UNet2D to predict per-stem ratio masks from a normalized mono
-mixture magnitude spectrogram.
+This script trains a UNet2D to predict per-stem stereo masks from a normalized
+stereo mixture magnitude spectrogram.
 
-Key invariants:
-- STFT configuration is centralized in stemmy.constants.
-- The STFT `center` setting (stemmy.constants.STFT_CENTER) must match across
-  preprocessing, training, inference, and reconstruction.
-- Dataset crops are chosen so each example produces exactly T time frames.
+Supported target / activation / loss combinations:
 
-Outputs:
-- Checkpoints (*.pth) written to --checkpoint-dir, containing model+optimizer state
-  and a small config dict for reproducibility.
-- Optional TorchScript export (*.pt) via --export-ts.
+Baseline:
+- target_mode=sum_to_one
+- pred_activation=softmax
+- loss_mode=kl_div
 
-Training changes in this version:
-- Model outputs are treated as logits over stems.
-- Predicted masks are computed with softmax across stems (sum-to-one, differentiable).
-- Loss is KL divergence between target distribution and predicted distribution.
+Alternative experiment:
+- target_mode=mix_ratio
+- pred_activation=sigmoid
+- loss_mode=l1_mask
 """
 
 import argparse
 import os
-
-import click
 import random
-
-from dotenv import dotenv_values
 import time
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Optional
 
+import click
 import numpy as np
 import torch
 import torch.nn.functional as F
+from dotenv import dotenv_values
 from rich.console import Console
 from rich.table import Table
 from torch.utils.data import DataLoader
@@ -45,8 +39,9 @@ from stemmy.constants import (
     BAR_FINISHED_STYLE,
     BOLD_PURPLE,
     BOLD_VIOLET,
-    DEFAULT_SPECTROGRAM_NORM,
-    DEFAULT_WAVEFORM_NORM,
+    DEFAULT_LOSS_MODE,
+    DEFAULT_PRED_ACTIVATION,
+    DEFAULT_TARGET_MODE,
     HOP_LENGTH,
     LAVENDER,
     LOSS_STYLE,
@@ -55,6 +50,10 @@ from stemmy.constants import (
     ROSE_RED,
     STEMS_4,
     STFT_CENTER,
+    SUPPORTED_LOSS_MODES,
+    SUPPORTED_PRED_ACTIVATIONS,
+    SUPPORTED_TARGET_MODES,
+    TARGET_CHANNELS,
     TARGET_SAMPLE_RATE,
     WHITE,
     WIN_LENGTH,
@@ -93,124 +92,6 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     raise NotImplementedError(
         "parse_args() is deprecated. Use the Click command: stemmy dev train --help"
     )
-    # --- Original argparse implementation (preserved for reference) ---
-    p = argparse.ArgumentParser(description="Train U-Net on MUSDB18-HQ (baseline).")
-
-    p.add_argument(
-        # Root folder location for musdb18hq dataset
-        "--data-root",
-        type=str,
-        default="",
-        help="Root directory containing the dataset splits used by the dataset class.",
-    )
-
-    p.add_argument("--epochs", type=int, default=1, help="Number of training epochs.")
-    p.add_argument("--batch-size", type=int, default=4, help="Mini-batch size.")
-    p.add_argument("--lr", type=float, default=1e-4, help="Learning rate.")
-    p.add_argument(
-        "--weight-decay",
-        type=float,
-        default=0.0,
-        help="Weight decay for AdamW (>= 0).",
-    )
-
-    p.add_argument("--num-workers", type=int, default=2, help="DataLoader worker processes.")
-
-    p.add_argument(
-        "--waveform-norm",
-        type=str,
-        default=DEFAULT_WAVEFORM_NORM,
-        choices=["peak", "rms", "none"],
-        help="Waveform normalization method (applies to mix and stems).",
-    )
-
-    p.add_argument(
-        "--spectrogram-norm",
-        type=str,
-        default=DEFAULT_SPECTROGRAM_NORM,
-        choices=["freq_minmax", "none"],
-        help="Spectrogram normalization method for model inputs.",
-    )
-
-    p.add_argument(
-        "--time-frames",
-        type=int,
-        default=256,
-        help="Fixed STFT time frames T (256 or 512).",
-    )
-    p.add_argument(
-        "--max-tracks",
-        type=int,
-        default=0,
-        help="If >0, limit number of tracks per split.",
-    )
-
-    p.add_argument(
-        "--base-channels",
-        type=int,
-        default=64,
-        help="Base channel count for the U-Net (architecture width).",
-    )
-
-    p.add_argument(
-        "--lr-factor",
-        type=float,
-        default=0.5,
-        help="ReduceLROnPlateau factor in (0,1).",
-    )
-    p.add_argument(
-        "--lr-patience",
-        type=int,
-        default=10,
-        help="ReduceLROnPlateau patience (epochs).",
-    )
-    p.add_argument(
-        "--min-lr",
-        type=float,
-        default=1e-6,
-        help="ReduceLROnPlateau minimum LR (> 0).",
-    )
-
-    p.add_argument("--checkpoint-dir", type=str, default="checkpoints", help="Output directory.")
-    p.add_argument(
-        "--resume",
-        type=str,
-        default="",
-        help="Path to a .pth checkpoint to resume from.",
-    )
-    p.add_argument(
-        "--save-every-epochs",
-        type=int,
-        default=1,
-        help="Save a checkpoint every N epochs.",
-    )
-
-    p.add_argument(
-        "--export-ts",
-        action="store_true",
-        help="Export TorchScript .pt after each checkpoint save.",
-    )
-    p.add_argument(
-        "--device",
-        type=str,
-        default="",
-        help="cpu, cuda, or leave empty for auto selection.",
-    )
-
-    p.add_argument(
-        "--seed",
-        type=int,
-        default=-1,
-        help="If >= 0, seed RNGs for reproducible training behavior.",
-    )
-
-    p.add_argument(
-        "--amp",
-        action="store_true",
-        help="Enable AMP (only applies on CUDA).",
-    )
-
-    return p.parse_args(argv)
 
 
 def pick_device(arg: str) -> torch.device:
@@ -226,69 +107,8 @@ def pick_device(arg: str) -> torch.device:
     return torch.device("cpu")
 
 
-def validate_args(args: argparse.Namespace) -> None:
-    """Deprecated: Validation is now inline in ``main()``. Will be removed."""
-    raise NotImplementedError("validate_args() is deprecated. Validation is now inline in main().")
-    # --- Original validation (preserved for reference) ---
-    if args.epochs <= 0:
-        raise ValueError("--epochs must be > 0")
-    if args.batch_size <= 0:
-        raise ValueError("--batch-size must be > 0")
-    if args.lr <= 0:
-        raise ValueError("--lr must be > 0")
-    if args.weight_decay < 0:
-        raise ValueError("--weight-decay must be >= 0")
-    if args.num_workers < 0:
-        raise ValueError("--num-workers must be >= 0")
-    if args.time_frames not in [256, 512]:
-        raise ValueError("--time-frames must be 256 or 512 for this baseline.")
-    if args.save_every_epochs <= 0:
-        raise ValueError("--save-every-epochs must be > 0")
-    if args.max_tracks < 0:
-        raise ValueError("--max-tracks must be >= 0")
-    if args.base_channels <= 0:
-        raise ValueError("--base-channels must be > 0")
-
-    if args.lr_factor <= 0.0 or args.lr_factor >= 1.0:
-        raise ValueError("--lr-factor must be in (0, 1)")
-    if args.lr_patience < 0:
-        raise ValueError("--lr-patience must be >= 0")
-    if args.min_lr <= 0:
-        raise ValueError("--min-lr must be > 0")
-
-    if not isinstance(args.data_root, str) or args.data_root.strip() == "":
-        raise ValueError("--data-root must be a non-empty string")
-    if not isinstance(args.checkpoint_dir, str) or args.checkpoint_dir.strip() == "":
-        raise ValueError("--checkpoint-dir must be a non-empty string")
-
-    data_root_p = Path(args.data_root.strip()).expanduser()
-    if not data_root_p.exists():
-        raise FileNotFoundError(f"--data-root not found: {data_root_p}")
-    if not data_root_p.is_dir():
-        raise NotADirectoryError(f"--data-root must be a directory: {data_root_p}")
-
-    ckpt_dir_p = Path(args.checkpoint_dir.strip()).expanduser()
-    ckpt_dir_p.mkdir(parents=True, exist_ok=True)
-    if not ckpt_dir_p.is_dir():
-        raise NotADirectoryError(f"--checkpoint-dir must be a directory: {ckpt_dir_p}")
-
-    if args.resume.strip():
-        resume_p = Path(args.resume.strip()).expanduser()
-        if not resume_p.exists():
-            raise FileNotFoundError(f"--resume checkpoint not found: {resume_p}")
-        if resume_p.is_dir():
-            raise IsADirectoryError(
-                f"--resume must point to a .pth file, got directory: {resume_p}"
-            )
-
-    if not isinstance(args.seed, int):
-        raise ValueError("--seed must be an int")
-    if args.seed < -1:
-        raise ValueError("--seed must be -1 (disabled) or >= 0")
-
-
 def set_seed(seed: int) -> None:
-    """Seed RNGs for reproducible behavior (without forcing full determinism)."""
+    """Seed RNGs for reproducible behavior without forcing full determinism."""
     if seed < 0:
         return
 
@@ -299,11 +119,40 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def validate_mask_learning_modes(
+    target_mode: str,
+    pred_activation: str,
+    loss_mode: str,
+) -> None:
+    """Validate supported target / activation / loss combinations."""
+    if target_mode not in SUPPORTED_TARGET_MODES:
+        raise click.ClickException("Unsupported --target-mode: %s" % target_mode)
+    if pred_activation not in SUPPORTED_PRED_ACTIVATIONS:
+        raise click.ClickException("Unsupported --pred-activation: %s" % pred_activation)
+    if loss_mode not in SUPPORTED_LOSS_MODES:
+        raise click.ClickException("Unsupported --loss-mode: %s" % loss_mode)
+
+    if target_mode == "sum_to_one":
+        if pred_activation != "softmax" or loss_mode != "kl_div":
+            raise click.ClickException(
+                "target_mode=sum_to_one must be paired with pred_activation=softmax "
+                "and loss_mode=kl_div."
+            )
+
+    if target_mode == "mix_ratio":
+        if pred_activation != "sigmoid" or loss_mode != "l1_mask":
+            raise click.ClickException(
+                "target_mode=mix_ratio must be paired with pred_activation=sigmoid "
+                "and loss_mode=l1_mask."
+            )
+
+
 def build_dataloaders(
     data_root: str,
     max_tracks: int,
     waveform_norm: str,
     spectrogram_norm: str,
+    target_mode: str,
     batch_size: int,
     num_workers: int,
     stft_cfg: StftConfig,
@@ -323,6 +172,7 @@ def build_dataloaders(
         deterministic=False,
         waveform_norm=waveform_norm,
         spectrogram_norm=spectrogram_norm,
+        target_mode=target_mode,
         seed=0,
     )
     val_ds = Musdb18HQDataset(
@@ -335,6 +185,7 @@ def build_dataloaders(
         deterministic=True,
         waveform_norm=waveform_norm,
         spectrogram_norm=spectrogram_norm,
+        target_mode=target_mode,
         seed=0,
     )
 
@@ -378,16 +229,22 @@ def build_run_config(
     max_tracks: int,
     waveform_norm: str,
     spectrogram_norm: str,
+    target_mode: str,
+    pred_activation: str,
+    loss_mode: str,
     seed: int,
     amp: bool,
     device: torch.device,
     stft_cfg: StftConfig,
     crop_cfg: CropConfig,
-) -> dict:
+) -> dict[str, Any]:
     """Build a small config dict stored inside checkpoints for reproducibility."""
+    renorm_masks = bool(pred_activation == "softmax")
+
     return {
         "data_root": data_root,
         "sample_rate": stft_cfg.sample_rate,
+        "audio_channels": TARGET_CHANNELS,
         "n_fft": stft_cfg.n_fft,
         "hop_length": stft_cfg.hop_length,
         "win_length": stft_cfg.win_length,
@@ -406,24 +263,22 @@ def build_run_config(
         "max_tracks": max_tracks,
         "waveform_norm": waveform_norm,
         "spectrogram_norm": spectrogram_norm,
-        "loss": "kl_div(target||pred)",
-        "pred_activation": "softmax_over_stems",
-        "target_mask_mode": "stem_mag / sum_stem_mags",
+        "target_mode": target_mode,
+        "pred_activation": pred_activation,
+        "loss_mode": loss_mode,
+        "renorm_masks": renorm_masks,
         "seed": int(seed),
         "amp": bool(amp),
+        "eps": float(_LOSS_EPS),
     }
 
 
 def kl_div_loss_from_logits(logits: torch.Tensor, target: torch.Tensor, eps: float) -> torch.Tensor:
     """KL divergence KL(target || pred) with pred derived from logits via softmax.
 
-    Args:
-        logits: [B, S, F, T]
-        target: [B, S, F, T] distribution over stems (sum-to-one across S)
-        eps: small positive float for numerical stability
-
-    Returns:
-        Scalar loss (mean over B,F,T; sum over S).
+    Expected shapes:
+      logits: [B, S, C, F, T]
+      target: [B, S, C, F, T]
     """
     if logits.shape != target.shape:
         raise ValueError(
@@ -434,8 +289,44 @@ def kl_div_loss_from_logits(logits: torch.Tensor, target: torch.Tensor, eps: flo
     target_safe = torch.clamp(target, min=float(eps))
 
     loss_map = target_safe * (torch.log(target_safe) - log_pred)
-    loss = torch.sum(loss_map, dim=1).mean()
-    return loss
+    return torch.sum(loss_map, dim=1).mean()
+
+
+def l1_mask_loss_from_logits(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """L1 loss between sigmoid(logits) and target masks.
+
+    Expected shapes:
+      logits: [B, S, C, F, T]
+      target: [B, S, C, F, T]
+    """
+    if logits.shape != target.shape:
+        raise ValueError(
+            f"logits and target must have same shape, got {logits.shape} vs {target.shape}"
+        )
+
+    pred = torch.sigmoid(logits)
+    pred = torch.clamp(pred, 0.0, 1.0)
+    return F.l1_loss(pred, target)
+
+
+def compute_mask_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    pred_activation: str,
+    loss_mode: str,
+    eps: float,
+) -> torch.Tensor:
+    """Compute the configured loss from raw logits and target masks."""
+    if pred_activation == "softmax" and loss_mode == "kl_div":
+        return kl_div_loss_from_logits(logits, target, eps=eps)
+
+    if pred_activation == "sigmoid" and loss_mode == "l1_mask":
+        return l1_mask_loss_from_logits(logits, target)
+
+    raise ValueError(
+        "Unsupported loss combination: pred_activation=%s loss_mode=%s"
+        % (pred_activation, loss_mode)
+    )
 
 
 def _make_grad_scaler(device: torch.device, use_amp: bool) -> Any:
@@ -530,6 +421,8 @@ def train_one_epoch(
     use_amp: bool,
     scaler: Any,
     epoch_index: int,
+    pred_activation: str,
+    loss_mode: str,
 ) -> tuple[float, int]:
     """Run one training epoch and return (mean_loss, num_batches)."""
     model.train()
@@ -547,20 +440,32 @@ def train_one_epoch(
             if use_amp:
                 with _autocast_context(device, use_amp):
                     logits = model(mix_norm)
-                    loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                    loss = compute_mask_loss(
+                        logits=logits,
+                        target=targets_norm,
+                        pred_activation=pred_activation,
+                        loss_mode=loss_mode,
+                        eps=_LOSS_EPS,
+                    )
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
             else:
                 logits = model(mix_norm)
-                loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                loss = compute_mask_loss(
+                    logits=logits,
+                    target=targets_norm,
+                    pred_activation=pred_activation,
+                    loss_mode=loss_mode,
+                    eps=_LOSS_EPS,
+                )
                 loss.backward()
                 optimizer.step()
 
             running += float(loss.detach().cpu().item())
             batches += 1
-        mean_loss = running / max(1, batches)
-        return mean_loss, batches
+
+        return running / max(1, batches), batches
 
     with create_themed_progress(
         "Epoch {task.fields[epoch]} Train", title_style=BOLD_PURPLE
@@ -582,13 +487,25 @@ def train_one_epoch(
                 if use_amp:
                     with _autocast_context(device, use_amp):
                         logits = model(mix_norm)
-                        loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                        loss = compute_mask_loss(
+                            logits=logits,
+                            target=targets_norm,
+                            pred_activation=pred_activation,
+                            loss_mode=loss_mode,
+                            eps=_LOSS_EPS,
+                        )
                     scaler.scale(loss).backward()
                     scaler.step(optimizer)
                     scaler.update()
                 else:
                     logits = model(mix_norm)
-                    loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                    loss = compute_mask_loss(
+                        logits=logits,
+                        target=targets_norm,
+                        pred_activation=pred_activation,
+                        loss_mode=loss_mode,
+                        eps=_LOSS_EPS,
+                    )
                     loss.backward()
                     optimizer.step()
 
@@ -600,8 +517,7 @@ def train_one_epoch(
             train_anim_thread.join()
             progress.update(train_task, eq="▁▁▁▁▁")
 
-    mean_loss = running / max(1, batches)
-    return mean_loss, batches
+    return running / max(1, batches), batches
 
 
 def eval_one_epoch(
@@ -609,6 +525,8 @@ def eval_one_epoch(
     val_loader: DataLoader,
     device: torch.device,
     epoch_index: int,
+    pred_activation: str,
+    loss_mode: str,
 ) -> tuple[float, int]:
     """Run validation and return (mean_loss, num_batches)."""
     model.eval()
@@ -623,12 +541,18 @@ def eval_one_epoch(
                 targets_norm = targets_norm.to(device, non_blocking=True)
 
                 logits = model(mix_norm)
-                v_loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                loss = compute_mask_loss(
+                    logits=logits,
+                    target=targets_norm,
+                    pred_activation=pred_activation,
+                    loss_mode=loss_mode,
+                    eps=_LOSS_EPS,
+                )
 
-                running += float(v_loss.cpu().item())
+                running += float(loss.cpu().item())
                 batches += 1
-        mean_loss = running / max(1, batches)
-        return mean_loss, batches
+
+        return running / max(1, batches), batches
 
     with torch.no_grad():
         with create_themed_progress(
@@ -647,9 +571,15 @@ def eval_one_epoch(
                     targets_norm = targets_norm.to(device, non_blocking=True)
 
                     logits = model(mix_norm)
-                    v_loss = kl_div_loss_from_logits(logits, targets_norm, eps=_LOSS_EPS)
+                    loss = compute_mask_loss(
+                        logits=logits,
+                        target=targets_norm,
+                        pred_activation=pred_activation,
+                        loss_mode=loss_mode,
+                        eps=_LOSS_EPS,
+                    )
 
-                    running += float(v_loss.cpu().item())
+                    running += float(loss.cpu().item())
                     batches += 1
                     progress.update(val_task, advance=1)
             finally:
@@ -657,13 +587,33 @@ def eval_one_epoch(
                 val_anim_thread.join()
                 progress.update(val_task, eq="▁▁▁▁▁")
 
-    mean_loss = running / max(1, batches)
-    return mean_loss, batches
+    return running / max(1, batches), batches
 
 
 @click.command("train")
 @add_options(processing_options)
 @add_options(training_options)
+@click.option(
+    "--target-mode",
+    type=click.Choice(SUPPORTED_TARGET_MODES, case_sensitive=False),
+    default=DEFAULT_TARGET_MODE,
+    show_default=True,
+    help="Target mask mode used by the dataset.",
+)
+@click.option(
+    "--pred-activation",
+    type=click.Choice(SUPPORTED_PRED_ACTIVATIONS, case_sensitive=False),
+    default=DEFAULT_PRED_ACTIVATION,
+    show_default=True,
+    help="Prediction activation applied to raw model outputs.",
+)
+@click.option(
+    "--loss-mode",
+    type=click.Choice(SUPPORTED_LOSS_MODES, case_sensitive=False),
+    default=DEFAULT_LOSS_MODE,
+    show_default=True,
+    help="Loss mode used during training and validation.",
+)
 @wandb_run(job_type="training", name="training")
 def main(
     data_root: str,
@@ -688,14 +638,15 @@ def main(
     seed: int,
     amp: bool,
     potato: bool,
+    target_mode: str,
+    pred_activation: str,
+    loss_mode: str,
 ) -> None:
     """Main training loop."""
-    # Fall back to .env when --data-root is not provided via flag or env var
     if not data_root.strip():
         env_values = dotenv_values(".env")
         data_root = env_values.get("TRAIN_DATA_ROOT", data_root)
 
-    # Potato mode: disable progress bars, force INFO logs
     if potato:
         os.environ["LOG_LEVEL"] = "INFO"
         os.environ["STEMMY_DISABLE_PROGRESS"] = "1"
@@ -708,7 +659,10 @@ def main(
     if progress_disabled:
         logger.info("Progress bars disabled (STEMMY_DISABLE_PROGRESS=1)")
 
-    # --- Inline validation (replaces validate_args) ---
+    target_mode = target_mode.strip().lower()
+    pred_activation = pred_activation.strip().lower()
+    loss_mode = loss_mode.strip().lower()
+
     if epochs <= 0:
         raise click.ClickException("--epochs must be > 0")
     if batch_size <= 0:
@@ -738,6 +692,12 @@ def main(
     if not isinstance(checkpoint_dir, str) or checkpoint_dir.strip() == "":
         raise click.ClickException("--checkpoint-dir must be a non-empty string")
 
+    validate_mask_learning_modes(
+        target_mode=target_mode,
+        pred_activation=pred_activation,
+        loss_mode=loss_mode,
+    )
+
     data_root_p = Path(data_root.strip()).expanduser()
     if not data_root_p.exists():
         raise click.ClickException(f"--data-root not found: {data_root_p}")
@@ -763,25 +723,35 @@ def main(
     if seed < -1:
         raise click.ClickException("--seed must be -1 (disabled) or >= 0")
 
-    # NOTE: Could be worth extracting setup to its own function
-    # Initialize summary_rows for Training Summary Table
     summary_rows: list[dict[str, Any]] = []
     with create_setup_progress("Setup", title_style=BOLD_PURPLE) as setup_progress:
         setup_task = setup_progress.add_task(
-            "Setup", total=11, step="Validating Args...", step_style=LOSS_STYLE
+            "Setup",
+            total=11,
+            step="Validating Args...",
+            step_style=LOSS_STYLE,
         )
+
         setup_progress.update(setup_task, advance=1, step="Seeding RNG...", step_style=LOSS_STYLE)
         if progress_disabled:
             logger.info("Setup: seeding RNG")
         set_seed(seed)
+
         setup_progress.update(
-            setup_task, advance=1, step="Picking device...", step_style=LOSS_STYLE
+            setup_task,
+            advance=1,
+            step="Picking device...",
+            step_style=LOSS_STYLE,
         )
         if progress_disabled:
             logger.info("Setup: picking device")
         dev = pick_device(device)
+
         setup_progress.update(
-            setup_task, advance=1, step="Building STFT config...", step_style=LOSS_STYLE
+            setup_task,
+            advance=1,
+            step="Building STFT config...",
+            step_style=LOSS_STYLE,
         )
         if progress_disabled:
             logger.info("Setup: building STFT config")
@@ -794,8 +764,12 @@ def main(
             window=WINDOW,
         )
         crop_cfg = CropConfig(time_frames=time_frames)
+
         setup_progress.update(
-            setup_task, advance=1, step="Loading datasets...", step_style=LOSS_STYLE
+            setup_task,
+            advance=1,
+            step="Loading datasets...",
+            step_style=LOSS_STYLE,
         )
         if progress_disabled:
             logger.info("Setup: loading datasets")
@@ -804,20 +778,33 @@ def main(
             max_tracks=max_tracks,
             waveform_norm=waveform_norm,
             spectrogram_norm=spectrogram_norm,
+            target_mode=target_mode,
             batch_size=batch_size,
             num_workers=num_workers,
             stft_cfg=stft_cfg,
             crop_cfg=crop_cfg,
             device=dev,
         )
+
         setup_progress.update(
-            setup_task, advance=1, step="Initializing model...", step_style=LOSS_STYLE
+            setup_task,
+            advance=1,
+            step="Initializing model...",
+            step_style=LOSS_STYLE,
         )
         if progress_disabled:
             logger.info("Setup: initializing model")
-        model = UNet2D(stems=len(STEMS_4), base_channels=base_channels).to(dev)
+        model = UNet2D(
+            stems=len(STEMS_4),
+            base_channels=base_channels,
+            audio_channels=TARGET_CHANNELS,
+        ).to(dev)
+
         setup_progress.update(
-            setup_task, advance=1, step="Initializing optimizer...", step_style=LOSS_STYLE
+            setup_task,
+            advance=1,
+            step="Initializing optimizer...",
+            step_style=LOSS_STYLE,
         )
         if progress_disabled:
             logger.info("Setup: initializing optimizer")
@@ -826,8 +813,12 @@ def main(
             lr=lr,
             weight_decay=weight_decay,
         )
+
         setup_progress.update(
-            setup_task, advance=1, step="Initializing scheduler...", step_style=LOSS_STYLE
+            setup_task,
+            advance=1,
+            step="Initializing scheduler...",
+            step_style=LOSS_STYLE,
         )
         if progress_disabled:
             logger.info("Setup: initializing scheduler")
@@ -838,8 +829,12 @@ def main(
             patience=lr_patience,
             min_lr=min_lr,
         )
+
         setup_progress.update(
-            setup_task, advance=1, step="Initializing amp...", step_style=LOSS_STYLE
+            setup_task,
+            advance=1,
+            step="Initializing amp...",
+            step_style=LOSS_STYLE,
         )
         if progress_disabled:
             logger.info("Setup: initializing amp")
@@ -850,7 +845,10 @@ def main(
         global_step = 0
 
         setup_progress.update(
-            setup_task, advance=1, step="Restoring checkpoint...", step_style=LOSS_STYLE
+            setup_task,
+            advance=1,
+            step="Restoring checkpoint...",
+            step_style=LOSS_STYLE,
         )
         if progress_disabled:
             logger.info("Setup: restoring checkpoint (if requested)")
@@ -871,7 +869,10 @@ def main(
             )
 
         setup_progress.update(
-            setup_task, advance=1, step="Building run config...", step_style=LOSS_STYLE
+            setup_task,
+            advance=1,
+            step="Building run config...",
+            step_style=LOSS_STYLE,
         )
         if progress_disabled:
             logger.info("Setup: building run config")
@@ -887,6 +888,9 @@ def main(
             max_tracks=max_tracks,
             waveform_norm=waveform_norm,
             spectrogram_norm=spectrogram_norm,
+            target_mode=target_mode,
+            pred_activation=pred_activation,
+            loss_mode=loss_mode,
             seed=seed,
             amp=amp,
             device=dev,
@@ -898,9 +902,13 @@ def main(
 
         ckpt_dir = Path(checkpoint_dir).expanduser().resolve()
         ckpt_dir.mkdir(parents=True, exist_ok=True)
-        setup_progress.update(setup_task, advance=1, step="▁▁▁▁▁", step_style=BAR_FINISHED_STYLE)
+        setup_progress.update(
+            setup_task,
+            advance=1,
+            step="▁▁▁▁▁",
+            step_style=BAR_FINISHED_STYLE,
+        )
 
-    # NOTE: Start of training & validation loop
     for epoch in range(start_epoch, epochs):
         t0 = time.time()
 
@@ -912,10 +920,19 @@ def main(
             use_amp=use_amp,
             scaler=scaler,
             epoch_index=epoch,
+            pred_activation=pred_activation,
+            loss_mode=loss_mode,
         )
         global_step += train_batches
 
-        val_loss, _val_batches = eval_one_epoch(model, val_loader, dev, epoch_index=epoch)
+        val_loss, _val_batches = eval_one_epoch(
+            model=model,
+            val_loader=val_loader,
+            device=dev,
+            epoch_index=epoch,
+            pred_activation=pred_activation,
+            loss_mode=loss_mode,
+        )
 
         scheduler.step(val_loss)
 

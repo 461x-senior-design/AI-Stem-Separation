@@ -25,6 +25,16 @@ DEFAULT_WAVEFORM_NORM: str = "peak"
 DEFAULT_SPECTROGRAM_NORM: str = "freq_minmax"
 FREQ_MINMAX_EPS: float = 1e-8
 
+# ── Training / Inference Target + Activation Defaults ───────────────────────
+DEFAULT_TARGET_MODE: str = "sum_to_one"
+DEFAULT_PRED_ACTIVATION: str = "softmax"
+DEFAULT_LOSS_MODE: str = "kl_div"
+DEFAULT_RENORM_MASKS: bool = True
+
+SUPPORTED_TARGET_MODES: list[str] = ["sum_to_one", "mix_ratio"]
+SUPPORTED_PRED_ACTIVATIONS: list[str] = ["softmax", "sigmoid"]
+SUPPORTED_LOSS_MODES: list[str] = ["kl_div", "l1_mask"]
+
 # ── Stem Configuration ───────────────────────────────────────────────────────
 STEMS_4: list[str] = ["drums", "bass", "vocals", "other"]
 

@@ -1,18 +1,20 @@
 # src/stemmy/training/musdb18hq_dataset.py
-"""MUSDB18-HQ dataset for training a spectrogram-mask U-Net.
+"""MUSDB18-HQ dataset for training a stereo spectrogram-mask U-Net.
 
 This dataset:
 - loads aligned mixture + stem audio from the MUSDB18-HQ folder layout
-- extracts a fixed-length mono waveform segment
-- computes mono STFT magnitude (using StftConfig, including `center`)
-- computes per-stem ratio masks as:
-      target_s = stem_mag_s / (sum_s(stem_mag_s) + eps)
-  which yields a per-(F,T) distribution over stems (sum-to-one across stems)
-- optionally normalizes the mixture magnitude spectrogram for model input
+- extracts a fixed-length stereo waveform segment
+- computes stereo STFT magnitude using StftConfig, including `center`
+- computes per-stem training masks using one of two modes:
+      sum_to_one:
+          target_s = stem_mag_s / (sum_s(stem_mags_s) + eps)
+      mix_ratio:
+          target_s = clamp(stem_mag_s / (mix_mag + eps), 0, 1)
+- optionally normalizes the stereo mixture magnitude spectrogram for model input
 
 Returned tensors:
-- mix_norm:     [1, F, T] float32 normalized mixture magnitude
-- targets_norm: [S, F, T] float32 per-stem ratio masks (S=4), sum-to-one across stems
+- mix_norm:     [2, F, T] float32 normalized stereo mixture magnitude
+- targets_norm: [S, 2, F, T] float32 per-stem stereo target masks
 """
 
 import random
@@ -25,21 +27,20 @@ import torch
 
 from stemmy.constants import (
     DEFAULT_SPECTROGRAM_NORM,
+    DEFAULT_TARGET_MODE,
     DEFAULT_WAVEFORM_NORM,
     STEMS_4,
+    SUPPORTED_TARGET_MODES,
+    TARGET_CHANNELS,
 )
-from stemmy.preprocessing import normalize_waveform
-from stemmy.training.stft import StftConfig, freq_minmax_normalize, stft_mag_phase_mono
+from stemmy.training.stft import StftConfig, freq_minmax_normalize, stft_mag_phase_stereo
 
 
 @dataclass(frozen=True)
 class CropConfig:
-    """Fixed-size STFT crop configuration.
+    """Fixed-size STFT crop configuration."""
 
-    time_frames determines the number of STFT frames T returned by the dataset.
-    """
-
-    time_frames: int = 256  # T
+    time_frames: int = 256
 
 
 class Musdb18HQDataset(torch.utils.data.Dataset):
@@ -62,22 +63,10 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         deterministic: bool = False,
         waveform_norm: str = DEFAULT_WAVEFORM_NORM,
         spectrogram_norm: str = DEFAULT_SPECTROGRAM_NORM,
+        target_mode: str = DEFAULT_TARGET_MODE,
         seed: int = 0,
     ) -> None:
-        """Initialize the dataset.
-
-        Args:
-            root_dir: MUSDB18-HQ root directory containing train/ and test/
-            split: "train" or "test"
-            stft_cfg: STFT configuration (including center)
-            crop_cfg: Crop configuration (fixed number of time frames)
-            stems: Optional subset of stems, defaults to STEMS_4
-            max_tracks: If set, limit number of tracks in this split
-            deterministic: If True, choose a centered crop for each track
-            waveform_norm: Waveform normalization method ("peak", "rms", "none")
-            spectrogram_norm: Spectrogram normalization method (expected "freq_minmax" or "none")
-            seed: Random seed for selecting crop start positions
-        """
+        """Initialize the dataset."""
         if split not in ["train", "test"]:
             raise ValueError("split must be 'train' or 'test'.")
 
@@ -106,11 +95,20 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         if not isinstance(waveform_norm, str) or waveform_norm.strip() == "":
             raise ValueError("waveform_norm must be a non-empty string.")
-        self.waveform_norm = waveform_norm
+        self.waveform_norm = waveform_norm.strip().lower()
 
         if not isinstance(spectrogram_norm, str) or spectrogram_norm.strip() == "":
             raise ValueError("spectrogram_norm must be a non-empty string.")
         self.spectrogram_norm = spectrogram_norm.strip().lower()
+
+        if not isinstance(target_mode, str) or target_mode.strip() == "":
+            raise ValueError("target_mode must be a non-empty string.")
+        self.target_mode = target_mode.strip().lower()
+        if self.target_mode not in SUPPORTED_TARGET_MODES:
+            raise ValueError(
+                "Unsupported target_mode '%s'. Expected one of %s."
+                % (self.target_mode, SUPPORTED_TARGET_MODES)
+            )
 
         self.rng = random.Random(int(seed))
 
@@ -134,19 +132,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         self._validate_track_files()
 
     def _segment_samples_required(self) -> int:
-        """Compute waveform samples required to yield exactly T STFT frames.
-
-        With torch.stft:
-        - center=False:
-            T = 1 + floor((N - n_fft) / hop)  => choose N = n_fft + hop*(T-1)
-        - center=True:
-            padding is n_fft//2 on both sides, effective length N + n_fft
-            T = 1 + floor((N + n_fft - n_fft) / hop) = 1 + floor(N / hop)
-            => choose N = hop*(T-1)
-
-        Returns:
-            Required number of samples N for a crop producing crop_cfg.time_frames frames.
-        """
+        """Compute waveform samples required to yield exactly T STFT frames."""
         t_frames = int(self.crop_cfg.time_frames)
         n_fft = int(self.stft_cfg.n_fft)
         hop = int(self.stft_cfg.hop_length)
@@ -181,16 +167,16 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         """Return number of tracks in this dataset split."""
         return len(self.track_dirs)
 
-    def _read_mono_segment(self, wav_path: Path, start_frame: int, num_frames: int) -> torch.Tensor:
-        """Read a mono segment (downmixed) from a wav file.
-
-        Args:
-            wav_path: Path to the wav file
-            start_frame: Starting frame offset (samples) within the file
-            num_frames: Number of frames (samples) to read
+    def _read_stereo_segment(
+        self,
+        wav_path: Path,
+        start_frame: int,
+        num_frames: int,
+    ) -> torch.Tensor:
+        """Read a stereo segment from a wav file.
 
         Returns:
-            Mono waveform tensor [num_frames] float32
+            Tensor [2, N]
         """
         if not isinstance(start_frame, int) or start_frame < 0:
             raise ValueError("start_frame must be a non-negative int.")
@@ -201,8 +187,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         expected_sr = int(self.stft_cfg.sample_rate)
         if int(info.samplerate) != expected_sr:
             raise ValueError(
-                f"Sample rate mismatch for {wav_path}: got {info.samplerate}, expected "
-                f"{expected_sr}"
+                f"Sample rate mismatch for {wav_path}: "
+                f"got {info.samplerate}, expected {expected_sr}"
             )
 
         audio, sr = sf.read(
@@ -217,21 +203,57 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 f"Sample rate mismatch for {wav_path}: got {sr}, expected {expected_sr}"
             )
 
-        mono = audio.mean(axis=1)
-        mono_t = torch.from_numpy(mono).to(torch.float32)
-
-        if int(mono_t.numel()) != int(num_frames):
-            raise RuntimeError(
-                f"Short read for {wav_path}: expected {num_frames}, got {mono_t.numel()}"
+        if int(audio.shape[1]) != int(TARGET_CHANNELS):
+            raise ValueError(
+                f"Channel count mismatch for {wav_path}: "
+                f"got {audio.shape[1]}, expected {TARGET_CHANNELS}"
             )
 
-        return mono_t
+        stereo = torch.from_numpy(audio.T).to(torch.float32)
 
-    def _dtype_eps(self, t: torch.Tensor) -> float:
+        if int(stereo.shape[1]) != int(num_frames):
+            raise RuntimeError(
+                f"Short read for {wav_path}: expected {num_frames}, got {stereo.shape[1]}"
+            )
+
+        return stereo
+
+    def _normalize_stereo_waveform(
+        self,
+        waveform: torch.Tensor,
+    ) -> tuple[torch.Tensor, float]:
+        """Normalize a stereo waveform with one shared scale across both channels."""
+        if waveform.ndim != 2:
+            raise ValueError("waveform must have shape [C, N].")
+        if waveform.shape[0] != TARGET_CHANNELS:
+            raise ValueError(
+                "waveform must have %d channels, got %d."
+                % (int(TARGET_CHANNELS), int(waveform.shape[0]))
+            )
+
+        method = self.waveform_norm
+        if method == "none":
+            return waveform, 1.0
+
+        if method == "peak":
+            scale = float(waveform.abs().max().item())
+        elif method == "rms":
+            scale = float(torch.sqrt(torch.mean(waveform * waveform)).item())
+        else:
+            raise ValueError(
+                "Unsupported waveform_norm '%s'. Expected 'peak', 'rms', or 'none'." % method
+            )
+
+        if scale <= 0.0:
+            return waveform, 1.0
+
+        return waveform / scale, scale
+
+    def _dtype_eps(self, tensor: torch.Tensor) -> float:
         """Get a small epsilon appropriate for the tensor dtype."""
-        if not torch.is_floating_point(t):
+        if not torch.is_floating_point(tensor):
             return 1e-8
-        return float(torch.finfo(t.dtype).eps)
+        return float(torch.finfo(tensor.dtype).eps)
 
     def _validate_spectrogram_norm(self) -> None:
         """Validate spectrogram normalization mode for this dataset path."""
@@ -241,17 +263,41 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 % (self.spectrogram_norm,)
             )
 
+    def _build_target_masks(
+        self,
+        mix_mag: torch.Tensor,
+        stem_mags: List[torch.Tensor],
+    ) -> List[torch.Tensor]:
+        """Build per-stem stereo target masks according to the configured target mode."""
+        if len(stem_mags) == 0:
+            raise RuntimeError("stem_mags cannot be empty.")
+
+        if self.target_mode == "sum_to_one":
+            denom = torch.zeros_like(stem_mags[0])
+            for stem_mag in stem_mags:
+                denom = denom + stem_mag
+
+            eps = max(self._dtype_eps(denom), 1e-8)
+            denom_safe = denom + float(eps)
+
+            target_masks: List[torch.Tensor] = []
+            for stem_mag in stem_mags:
+                target_masks.append(stem_mag / denom_safe)
+            return target_masks
+
+        if self.target_mode == "mix_ratio":
+            eps = max(self._dtype_eps(mix_mag), 1e-8)
+            denom_safe = mix_mag + float(eps)
+
+            target_masks = []
+            for stem_mag in stem_mags:
+                target_masks.append(torch.clamp(stem_mag / denom_safe, min=0.0, max=1.0))
+            return target_masks
+
+        raise RuntimeError("Unsupported target_mode encountered: %s" % self.target_mode)
+
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """Get a single training example.
-
-        Args:
-            idx: Track index
-
-        Returns:
-            Tuple of:
-              mix_norm: [1, F, T] float32
-              targets_norm: [S, F, T] float32
-        """
+        """Get a single training example."""
         if not isinstance(idx, int):
             raise IndexError("idx must be an int.")
         if idx < 0 or idx >= len(self.track_dirs):
@@ -276,17 +322,13 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         else:
             start = self.rng.randint(0, total_frames - self.segment_samples)
 
-        mix_wav = self._read_mono_segment(mix_path, start, self.segment_samples)
+        mix_wav = self._read_stereo_segment(mix_path, start, self.segment_samples)
+        mix_wav, mix_scale = self._normalize_stereo_waveform(mix_wav)
 
-        mix_wav_np = mix_wav.detach().cpu().numpy()
-        mix_wav_np, mix_norm_params = normalize_waveform(mix_wav_np, method=self.waveform_norm)
-        mix_scale = float(mix_norm_params.get("scale_factor", 1.0))
-        mix_wav = torch.from_numpy(mix_wav_np).to(torch.float32)
-
-        mix_mag, _mix_phase = stft_mag_phase_mono(mix_wav, self.stft_cfg)
-        if int(mix_mag.shape[1]) != int(self.crop_cfg.time_frames):
+        mix_mag, _mix_phase = stft_mag_phase_stereo(mix_wav, self.stft_cfg)
+        if int(mix_mag.shape[2]) != int(self.crop_cfg.time_frames):
             raise RuntimeError(
-                f"Unexpected time frames: got {mix_mag.shape[1]}, expected "
+                f"Unexpected time frames: got {mix_mag.shape[2]}, expected "
                 f"{self.crop_cfg.time_frames}"
             )
 
@@ -298,30 +340,19 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         stem_mags: List[torch.Tensor] = []
         for stem in self.stems:
             stem_path = track_dir / f"{stem}.wav"
-            stem_wav = self._read_mono_segment(stem_path, start, self.segment_samples)
+            stem_wav = self._read_stereo_segment(stem_path, start, self.segment_samples)
 
             if mix_scale != 0.0:
                 stem_wav = stem_wav / mix_scale
 
-            stem_mag, _ = stft_mag_phase_mono(stem_wav, self.stft_cfg)
+            stem_mag, _stem_phase = stft_mag_phase_stereo(stem_wav, self.stft_cfg)
             stem_mags.append(stem_mag)
 
-        denom = torch.zeros_like(stem_mags[0])
-        for sm in stem_mags:
-            denom = denom + sm
+        target_masks = self._build_target_masks(mix_mag=mix_mag, stem_mags=stem_mags)
 
-        eps = max(self._dtype_eps(denom), 1e-8)
-        denom_safe = denom + float(eps)
+        targets_norm = torch.stack(target_masks, dim=0)
 
-        target_masks: List[torch.Tensor] = []
-        for sm in stem_mags:
-            target_masks.append(sm / denom_safe)
-
-        mix_norm = mix_norm.unsqueeze(0)  # [1, F, T]
-        targets_norm = torch.stack(target_masks, dim=0)  # [S, F, T]
-
-        targets_sum = targets_norm.sum(dim=0, keepdim=False)
-        if not torch.isfinite(targets_sum).all():
+        if not torch.isfinite(targets_norm).all():
             raise RuntimeError("Non-finite target masks encountered.")
 
         return mix_norm, targets_norm

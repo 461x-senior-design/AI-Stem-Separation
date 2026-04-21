@@ -4,14 +4,16 @@
 This module provides a stable, end-to-end inference path that:
 1) Loads a trained model checkpoint (TorchScript .pt or training .pth dict)
 2) Constructs an InferenceConfig (optionally derived from checkpoint metadata)
-3) Runs preprocessing to produce a model input tensor [B, 1, F, T]
-4) Runs the model to predict per-stem ratio masks [B, S, F, T]
-5) Optionally renormalizes masks so they sum-to-one across stems
-6) Runs postprocessing to reconstruct time-domain stems and optionally export files
+3) Runs preprocessing to produce a model input tensor [B, 2, F, T]
+4) Runs the model to predict per-stem masks [B, S, 2, F, T]
+5) Applies the configured prediction activation
+6) Optionally renormalizes masks when that mode is compatible
+7) Runs postprocessing to reconstruct time-domain stems and optionally export files
 
 Critical project invariant:
 - STFT framing settings must match across training and inference.
-  In particular, the `center` setting must be consistent with `stemmy.constants.STFT_CENTER`.
+  In particular, the `center` setting must be consistent with
+  `stemmy.constants.STFT_CENTER`.
 """
 
 import contextlib
@@ -24,12 +26,20 @@ import torch
 
 from stemmy.constants import (
     BOLD_PURPLE,
+    DEFAULT_LOSS_MODE,
+    DEFAULT_PRED_ACTIVATION,
+    DEFAULT_RENORM_MASKS,
     DEFAULT_SPECTROGRAM_NORM,
+    DEFAULT_TARGET_MODE,
     DEFAULT_WAVEFORM_NORM,
     HOP_LENGTH,
     N_FFT,
     STEMS_4,
     STFT_CENTER,
+    SUPPORTED_LOSS_MODES,
+    SUPPORTED_PRED_ACTIVATIONS,
+    SUPPORTED_TARGET_MODES,
+    TARGET_CHANNELS,
     TARGET_SAMPLE_RATE,
     WIN_LENGTH,
     WINDOW,
@@ -51,60 +61,39 @@ class InferenceException(Exception):
 
 @dataclass(frozen=True)
 class InferenceConfig:
-    """Configuration for running separation inference.
+    """Configuration for running separation inference."""
 
-    This config intentionally mirrors the STFT + normalization knobs used in training.
-    If you build this from a checkpoint (config_from_checkpoint), it helps prevent
-    training/inference drift in STFT settings and normalization.
-    """
-
-    # STFT configuration (must match training/reconstruction expectations)
     sample_rate: int = TARGET_SAMPLE_RATE
+    audio_channels: int = TARGET_CHANNELS
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
     win_length: int = WIN_LENGTH
     window: str = WINDOW
     center: bool = STFT_CENTER
 
-    # Preprocessing normalization defaults
     waveform_norm: str = DEFAULT_WAVEFORM_NORM
     spectrogram_norm: str = DEFAULT_SPECTROGRAM_NORM
 
-    # Numerical stability (used for renorm + any downstream safe-divisions)
     eps: float = 1e-8
-
-    # Device used for model execution (string to keep config serializable)
     device: str = "cpu"
-
-    # Stem ordering is important: it must match training target ordering
     stems: Optional[list[str]] = None
 
-    # Output behavior controls
     export_files: bool = True
-    renorm_masks: bool = True
+    renorm_masks: bool = DEFAULT_RENORM_MASKS
     validate_outputs: bool = True
 
-    # Optional low-memory inference controls (time-chunked model execution)
     chunk_frames: int = 0
     overlap_frames: int = 0
-
-    # Optional mixed precision inference control (only applicable on CUDA)
     amp: bool = False
+
+    target_mode: str = DEFAULT_TARGET_MODE
+    pred_activation: str = DEFAULT_PRED_ACTIVATION
+    loss_mode: str = DEFAULT_LOSS_MODE
 
 
 @dataclass(frozen=True)
 class StemOutputs:
-    """Container for separated outputs.
-
-    Stable API:
-      waveforms: mapping stem -> waveform (implementation-defined array/tensor)
-      paths: mapping stem -> exported file path (empty if export disabled)
-      sample_rate: integer sample rate for returned waveforms
-
-    Compatibility:
-      Some older scripts expect `stem_waveforms` and `stem_paths`. Provide those
-      as read-only properties mapped onto the stable fields.
-    """
+    """Container for separated outputs."""
 
     waveforms: Mapping[str, Any]
     paths: Mapping[str, Path]
@@ -127,14 +116,11 @@ def _default_stems() -> list[str]:
 
 
 def _ensure_cfg_stems(cfg: InferenceConfig) -> InferenceConfig:
-    """Ensure cfg.stems is populated.
-
-    We keep InferenceConfig immutable (frozen dataclass). If cfg.stems is None,
-    create a new InferenceConfig with default stems filled in.
-    """
+    """Ensure cfg.stems is populated."""
     if cfg.stems is None:
         return InferenceConfig(
             sample_rate=cfg.sample_rate,
+            audio_channels=cfg.audio_channels,
             n_fft=cfg.n_fft,
             hop_length=cfg.hop_length,
             win_length=cfg.win_length,
@@ -151,6 +137,9 @@ def _ensure_cfg_stems(cfg: InferenceConfig) -> InferenceConfig:
             chunk_frames=cfg.chunk_frames,
             overlap_frames=cfg.overlap_frames,
             amp=cfg.amp,
+            target_mode=cfg.target_mode,
+            pred_activation=cfg.pred_activation,
+            loss_mode=cfg.loss_mode,
         )
     return cfg
 
@@ -192,6 +181,7 @@ def load_pth_model(
         raise InferenceException("Checkpoint dict missing 'model_state'.")
 
     ckpt_cfg = _parse_checkpoint_config(ckpt)
+
     if base_channels is None:
         cfg_base_channels = ckpt_cfg.get("base_channels", None)
         if isinstance(cfg_base_channels, int) and cfg_base_channels > 0:
@@ -202,8 +192,22 @@ def load_pth_model(
     if not isinstance(base_channels, int) or base_channels <= 0:
         raise ValueError("base_channels must be a positive int")
 
+    cfg_audio_channels = ckpt_cfg.get("audio_channels", TARGET_CHANNELS)
+    try:
+        audio_channels = int(cfg_audio_channels)
+    except (TypeError, ValueError) as exc:
+        raise InferenceException(
+            "Invalid checkpoint audio_channels value: %r" % (cfg_audio_channels,)
+        ) from exc
+    if audio_channels <= 0:
+        raise InferenceException("audio_channels must be positive.")
+
     dev = torch.device(str(device))
-    model = UNet2D(stems=int(stems), base_channels=int(base_channels)).to(dev)
+    model = UNet2D(
+        stems=int(stems),
+        base_channels=int(base_channels),
+        audio_channels=int(audio_channels),
+    ).to(dev)
 
     missing, unexpected = model.load_state_dict(ckpt["model_state"], strict=False)
     if missing or unexpected:
@@ -212,7 +216,7 @@ def load_pth_model(
         )
 
     model.eval()
-    logger.info(f"Loaded model checkpoint: {path}")
+    logger.info("Loaded model checkpoint: %s", str(path))
     return model, ckpt
 
 
@@ -255,6 +259,19 @@ def _coerce_str(value: Any, default: str) -> str:
     return str(value)
 
 
+def _validate_cfg_modes(cfg: InferenceConfig) -> None:
+    """Validate target/activation/loss modes."""
+    if cfg.target_mode not in SUPPORTED_TARGET_MODES:
+        raise InferenceException("Unsupported target_mode: %s" % cfg.target_mode)
+    if cfg.pred_activation not in SUPPORTED_PRED_ACTIVATIONS:
+        raise InferenceException("Unsupported pred_activation: %s" % cfg.pred_activation)
+    if cfg.loss_mode not in SUPPORTED_LOSS_MODES:
+        raise InferenceException("Unsupported loss_mode: %s" % cfg.loss_mode)
+
+    if not isinstance(cfg.audio_channels, int) or cfg.audio_channels <= 0:
+        raise InferenceException("audio_channels must be a positive int.")
+
+
 def config_from_checkpoint(ckpt: Mapping[str, Any]) -> InferenceConfig:
     """Build an InferenceConfig from a training checkpoint dict."""
     cfg = _parse_checkpoint_config(ckpt)
@@ -266,6 +283,7 @@ def config_from_checkpoint(ckpt: Mapping[str, Any]) -> InferenceConfig:
 
     inferred = InferenceConfig(
         sample_rate=_coerce_int(cfg.get("sample_rate", TARGET_SAMPLE_RATE), TARGET_SAMPLE_RATE),
+        audio_channels=_coerce_int(cfg.get("audio_channels", TARGET_CHANNELS), TARGET_CHANNELS),
         n_fft=_coerce_int(cfg.get("n_fft", N_FFT), N_FFT),
         hop_length=_coerce_int(cfg.get("hop_length", HOP_LENGTH), HOP_LENGTH),
         win_length=_coerce_int(cfg.get("win_length", WIN_LENGTH), WIN_LENGTH),
@@ -282,19 +300,39 @@ def config_from_checkpoint(ckpt: Mapping[str, Any]) -> InferenceConfig:
         device=_coerce_str(cfg.get("device", "cpu"), "cpu"),
         stems=stems_list,
         export_files=_coerce_bool(cfg.get("export_files", True), True),
-        renorm_masks=_coerce_bool(cfg.get("renorm_masks", True), True),
+        renorm_masks=_coerce_bool(
+            cfg.get("renorm_masks", DEFAULT_RENORM_MASKS), DEFAULT_RENORM_MASKS
+        ),
         validate_outputs=_coerce_bool(cfg.get("validate_outputs", True), True),
         chunk_frames=_coerce_int(cfg.get("chunk_frames", 0), 0),
         overlap_frames=_coerce_int(cfg.get("overlap_frames", 0), 0),
         amp=_coerce_bool(cfg.get("amp", False), False),
+        target_mode=_coerce_str(cfg.get("target_mode", DEFAULT_TARGET_MODE), DEFAULT_TARGET_MODE),
+        pred_activation=_coerce_str(
+            cfg.get("pred_activation", DEFAULT_PRED_ACTIVATION),
+            DEFAULT_PRED_ACTIVATION,
+        ),
+        loss_mode=_coerce_str(cfg.get("loss_mode", DEFAULT_LOSS_MODE), DEFAULT_LOSS_MODE),
     )
     inferred = _ensure_cfg_stems(inferred)
+    _validate_cfg_modes(inferred)
 
     logger.info(
         "Inference config from checkpoint: "
-        f"sr={inferred.sample_rate} n_fft={inferred.n_fft} hop={inferred.hop_length} "
-        f"win={inferred.win_length} window={inferred.window} center={inferred.center} "
-        f"stems={','.join(inferred.stems or [])} device={inferred.device}"
+        "sr=%s channels=%s n_fft=%s hop=%s win=%s window=%s center=%s "
+        "stems=%s device=%s target_mode=%s pred_activation=%s loss_mode=%s",
+        inferred.sample_rate,
+        inferred.audio_channels,
+        inferred.n_fft,
+        inferred.hop_length,
+        inferred.win_length,
+        inferred.window,
+        inferred.center,
+        ",".join(inferred.stems or []),
+        inferred.device,
+        inferred.target_mode,
+        inferred.pred_activation,
+        inferred.loss_mode,
     )
     return inferred
 
@@ -340,6 +378,7 @@ def _validate_checkpoint_alignment(
             )
 
     _maybe_check_int("sample_rate", cfg.sample_rate)
+    _maybe_check_int("audio_channels", cfg.audio_channels)
     _maybe_check_int("n_fft", cfg.n_fft)
     _maybe_check_int("hop_length", cfg.hop_length)
     _maybe_check_int("win_length", cfg.win_length)
@@ -347,6 +386,9 @@ def _validate_checkpoint_alignment(
     _maybe_check_bool("center", cfg.center)
     _maybe_check_str("waveform_norm", cfg.waveform_norm)
     _maybe_check_str("spectrogram_norm", cfg.spectrogram_norm)
+    _maybe_check_str("target_mode", cfg.target_mode)
+    _maybe_check_str("pred_activation", cfg.pred_activation)
+    _maybe_check_str("loss_mode", cfg.loss_mode)
 
     ckpt_stems = ckpt_cfg.get("stems", None)
     if isinstance(ckpt_stems, list) and all(isinstance(s, str) for s in ckpt_stems):
@@ -381,12 +423,10 @@ def _call_with_supported_kwargs(callable_obj: Any, kwargs: dict[str, Any]) -> An
 
 
 def _build_preprocessor(cfg: InferenceConfig) -> Preprocessor:
-    """Construct a Preprocessor instance using runtime config.
-
-    This filters kwargs to whatever Preprocessor.__init__ actually accepts in this repo.
-    """
+    """Construct a Preprocessor instance using runtime config."""
     kwargs: dict[str, Any] = {
         "sample_rate": cfg.sample_rate,
+        "audio_channels": cfg.audio_channels,
         "n_fft": cfg.n_fft,
         "hop_length": cfg.hop_length,
         "win_length": cfg.win_length,
@@ -402,7 +442,9 @@ def _build_preprocessor(cfg: InferenceConfig) -> Preprocessor:
         raise InferenceException("Failed to construct Preprocessor: %s" % str(exc)) from exc
 
 
-def _preprocess_audio(pre: Preprocessor, audio_path: Path) -> tuple[torch.Tensor, Any]:
+def _preprocess_audio(
+    pre: Preprocessor, audio_path: Path, cfg: InferenceConfig
+) -> tuple[torch.Tensor, Any]:
     """Run the preprocessing pipeline and normalize expected return types."""
     try:
         out = pre.process(audio_path)
@@ -416,17 +458,17 @@ def _preprocess_audio(pre: Preprocessor, audio_path: Path) -> tuple[torch.Tensor
         metadata = out.get("metadata", None)
     else:
         raise InferenceException(
-            f"Preprocessor returned an unsupported output type: {type(out).__name__}"
+            "Preprocessor returned an unsupported output type: %s" % type(out).__name__
         )
 
     if not isinstance(input_tensor, torch.Tensor):
         raise InferenceException("Preprocessor did not return a torch.Tensor input tensor.")
     if input_tensor.ndim != 4:
-        raise InferenceException("Preprocessor output must have shape [B, 1, F, T].")
-    if input_tensor.shape[1] != 1:
+        raise InferenceException("Preprocessor output must have shape [B, C, F, T].")
+    if int(input_tensor.shape[1]) != int(cfg.audio_channels):
         raise InferenceException(
-            "Preprocessor output must have shape [B, 1, F, T] (mono channel dimension). "
-            f"Got shape: {tuple(input_tensor.shape)}"
+            "Preprocessor output must have shape [B, %d, F, T]. Got shape: %s"
+            % (int(cfg.audio_channels), str(tuple(input_tensor.shape)))
         )
 
     return input_tensor, metadata
@@ -510,13 +552,13 @@ def _adapt_postprocess_result(result: Any) -> StemOutputs:
                 sample_rate=int(sample_rate),
             )
 
-    raise InferenceException(f"Unsupported postprocessor result type: {type(result).__name__}")
+    raise InferenceException("Unsupported postprocessor result type: %s" % type(result).__name__)
 
 
 def _validate_stem_outputs(outputs: StemOutputs, stems: Sequence[str], export_files: bool) -> None:
     """Validate the stable separation output contract."""
     if not isinstance(outputs.sample_rate, int) or outputs.sample_rate <= 0:
-        raise InferenceException(f"Invalid sample_rate in outputs: {outputs.sample_rate!r}")
+        raise InferenceException("Invalid sample_rate in outputs: %r" % (outputs.sample_rate,))
 
     if not isinstance(outputs.waveforms, Mapping):
         raise InferenceException("outputs.waveforms must be a mapping stem -> waveform")
@@ -551,14 +593,15 @@ def _validate_stem_outputs(outputs: StemOutputs, stems: Sequence[str], export_fi
             )
 
         for stem in stems:
-            p = outputs.paths.get(stem)
-            if not isinstance(p, Path):
+            path = outputs.paths.get(stem)
+            if not isinstance(path, Path):
                 raise InferenceException(
-                    "Invalid path type in outputs.paths for stem %s: %s" % (stem, type(p).__name__)
+                    "Invalid path type in outputs.paths for stem %s: %s"
+                    % (stem, type(path).__name__)
                 )
-            if not p.exists():
+            if not path.exists():
                 raise InferenceException(
-                    "Export path does not exist for stem %s: %s" % (stem, str(p))
+                    "Export path does not exist for stem %s: %s" % (stem, str(path))
                 )
     else:
         if isinstance(outputs.paths, Mapping) and len(outputs.paths) != 0:
@@ -607,17 +650,7 @@ def _run_model_forward(
     device: torch.device,
     cfg: InferenceConfig,
 ) -> torch.Tensor:
-    """Run model forward, optionally with chunking and AMP.
-
-    Correct chunking behavior:
-    - If overlap_frames == 0, we concatenate non-overlapping chunk outputs.
-    - If overlap_frames > 0, we use overlap-add with a linear crossfade so overlapped
-      regions are blended instead of duplicated.
-
-    Implementation notes:
-    - Accumulate weights in float32 for numerical stability even under AMP.
-    - Use ramps that avoid exact 0 and exact 1 at boundaries to reduce edge artifacts.
-    """
+    """Run model forward, optionally with chunking and AMP."""
     t_frames = int(input_tensor.shape[-1])
     chunk, overlap = _validate_chunk_settings(cfg, t_frames)
 
@@ -643,28 +676,36 @@ def _run_model_forward(
                 out_chunk = model(x_chunk)
                 if not isinstance(out_chunk, torch.Tensor):
                     raise InferenceException("Model did not return a torch.Tensor.")
+                if out_chunk.ndim != 5:
+                    raise InferenceException(
+                        "Chunked model output must have shape [B, S, C, F, T]."
+                    )
 
                 if out_full is None:
                     out_full = torch.zeros(
-                        (out_chunk.shape[0], out_chunk.shape[1], out_chunk.shape[2], t_frames),
+                        (
+                            out_chunk.shape[0],
+                            out_chunk.shape[1],
+                            out_chunk.shape[2],
+                            out_chunk.shape[3],
+                            t_frames,
+                        ),
                         device=out_chunk.device,
                         dtype=out_chunk.dtype,
                     )
                     weight_full = torch.zeros(
-                        (t_frames,),
-                        device=out_chunk.device,
-                        dtype=torch.float32,
+                        (t_frames,), device=out_chunk.device, dtype=torch.float32
                     )
 
-                L = int(end - start)
+                length = int(end - start)
 
                 if overlap <= 0:
-                    w = torch.ones((L,), device=out_chunk.device, dtype=torch.float32)
+                    weights = torch.ones((length,), device=out_chunk.device, dtype=torch.float32)
                 else:
-                    w = torch.ones((L,), device=out_chunk.device, dtype=torch.float32)
+                    weights = torch.ones((length,), device=out_chunk.device, dtype=torch.float32)
 
                     if start > 0:
-                        n = min(overlap, L)
+                        n = min(overlap, length)
                         if n > 0:
                             ramp = torch.arange(
                                 1,
@@ -672,10 +713,10 @@ def _run_model_forward(
                                 device=out_chunk.device,
                                 dtype=torch.float32,
                             ) / float(n + 1)
-                            w[:n] = ramp
+                            weights[:n] = ramp
 
                     if end < t_frames:
-                        n = min(overlap, L)
+                        n = min(overlap, length)
                         if n > 0:
                             ramp = torch.arange(
                                 n,
@@ -684,12 +725,15 @@ def _run_model_forward(
                                 device=out_chunk.device,
                                 dtype=torch.float32,
                             ) / float(n + 1)
-                            w[L - n : L] = torch.minimum(w[L - n : L], ramp)
+                            weights[length - n : length] = torch.minimum(
+                                weights[length - n : length],
+                                ramp,
+                            )
 
-                out_full[..., start:end] += out_chunk * w.to(dtype=out_chunk.dtype).view(
-                    1, 1, 1, -1
+                out_full[..., start:end] += out_chunk * weights.to(dtype=out_chunk.dtype).view(
+                    1, 1, 1, 1, -1
                 )
-                weight_full[start:end] += w
+                weight_full[start:end] += weights
 
             if out_full is None or weight_full is None:
                 raise InferenceException("Chunked inference produced no output.")
@@ -697,19 +741,35 @@ def _run_model_forward(
             denom = (
                 weight_full.clamp_min(float(cfg.eps))
                 .to(device=out_full.device, dtype=out_full.dtype)
-                .view(1, 1, 1, -1)
+                .view(1, 1, 1, 1, -1)
             )
             out_full = out_full / denom
 
-            expected = t_frames
             got = int(out_full.shape[-1])
-            if got != expected:
+            if got != t_frames:
                 raise InferenceException(
                     "Chunked inference produced unexpected frame count: expected %d got %d."
-                    % (expected, got)
+                    % (t_frames, got)
                 )
 
             return out_full
+
+
+def _apply_prediction_activation(model_output: torch.Tensor, cfg: InferenceConfig) -> torch.Tensor:
+    """Apply the configured prediction activation to raw model outputs."""
+    if cfg.pred_activation == "softmax":
+        masks = torch.softmax(model_output, dim=1)
+        masks = torch.clamp(masks, 0.0, 1.0)
+        if cfg.renorm_masks:
+            masks = _renorm_sum_to_one(masks, eps=cfg.eps)
+        return masks
+
+    if cfg.pred_activation == "sigmoid":
+        masks = torch.sigmoid(model_output)
+        masks = torch.clamp(masks, 0.0, 1.0)
+        return masks
+
+    raise InferenceException("Unsupported pred_activation: %s" % cfg.pred_activation)
 
 
 def separate_audio_file(
@@ -723,6 +783,7 @@ def separate_audio_file(
 ) -> StemOutputs:
     """Run end-to-end separation on a single audio file."""
     cfg = _ensure_cfg_stems(cfg)
+    _validate_cfg_modes(cfg)
 
     audio_path_p = Path(audio_path).expanduser().resolve()
     output_dir_p = Path(output_dir).expanduser().resolve()
@@ -740,6 +801,35 @@ def separate_audio_file(
     if checkpoint is not None:
         _validate_checkpoint_alignment(checkpoint, cfg, stem_list)
 
+    if cfg.pred_activation == "sigmoid" and cfg.renorm_masks:
+        logger.warning(
+            "renorm_masks=True with sigmoid prediction is incompatible with independent masks. "
+            "Disabling renorm for this inference call."
+        )
+        cfg = InferenceConfig(
+            sample_rate=cfg.sample_rate,
+            audio_channels=cfg.audio_channels,
+            n_fft=cfg.n_fft,
+            hop_length=cfg.hop_length,
+            win_length=cfg.win_length,
+            window=cfg.window,
+            center=cfg.center,
+            waveform_norm=cfg.waveform_norm,
+            spectrogram_norm=cfg.spectrogram_norm,
+            eps=cfg.eps,
+            device=cfg.device,
+            stems=list(cfg.stems or []),
+            export_files=cfg.export_files,
+            renorm_masks=False,
+            validate_outputs=cfg.validate_outputs,
+            chunk_frames=cfg.chunk_frames,
+            overlap_frames=cfg.overlap_frames,
+            amp=cfg.amp,
+            target_mode=cfg.target_mode,
+            pred_activation=cfg.pred_activation,
+            loss_mode=cfg.loss_mode,
+        )
+
     with create_themed_progress(
         "Separate {task.fields[phase]}", title_style=BOLD_PURPLE
     ) as progress:
@@ -751,47 +841,35 @@ def separate_audio_file(
         )
         anim_stop, anim_thread = start_eq_animator(progress, separate_task, fps=8)
         try:
-            progress.update(
-                separate_task,
-                advance=1,
-                phase="Init",
-            )
+            progress.update(separate_task, advance=1, phase="Init")
 
             pre = _build_preprocessor(cfg)
             post = Postprocessor()
 
-            progress.update(
-                separate_task,
-                advance=1,
-                phase="Pre",
-            )
-            input_tensor, metadata = _preprocess_audio(pre, audio_path_p)
+            progress.update(separate_task, advance=1, phase="Pre")
+            input_tensor, metadata = _preprocess_audio(pre, audio_path_p, cfg)
 
-            progress.update(
-                separate_task,
-                advance=1,
-                phase="Device",
-            )
+            progress.update(separate_task, advance=1, phase="Device")
             device = torch.device(str(cfg.device))
             model = model.to(device)
             input_tensor = input_tensor.to(device)
 
-            progress.update(
-                separate_task,
-                advance=1,
-                phase="Infer",
-            )
+            progress.update(separate_task, advance=1, phase="Infer")
             model_output = _run_model_forward(model, input_tensor, device, cfg)
 
-            if model_output.ndim != 4:
-                raise InferenceException("Model output must have shape [B, S, F, T].")
+            if model_output.ndim != 5:
+                raise InferenceException("Model output must have shape [B, S, C, F, T].")
             if model_output.shape[0] != input_tensor.shape[0]:
                 raise InferenceException(
                     "Model batch dimension does not match input batch dimension."
                 )
+            if int(model_output.shape[2]) != int(cfg.audio_channels):
+                raise InferenceException(
+                    "Model output channel dimension does not match cfg.audio_channels."
+                )
             if (
-                model_output.shape[2] != input_tensor.shape[2]
-                or model_output.shape[3] != input_tensor.shape[3]
+                model_output.shape[3] != input_tensor.shape[2]
+                or model_output.shape[4] != input_tensor.shape[3]
             ):
                 raise InferenceException("Model output [F, T] does not match input [F, T].")
             if model_output.shape[1] != len(stem_list):
@@ -800,21 +878,16 @@ def separate_audio_file(
                     % (int(model_output.shape[1]), int(len(stem_list)))
                 )
 
-            # Training optimizes KL(target || softmax(logits)); inference must mirror that.
-            model_output = torch.softmax(model_output, dim=1)
-            model_output = torch.clamp(model_output, 0.0, 1.0)
-            if cfg.renorm_masks:
-                model_output = _renorm_sum_to_one(model_output, eps=cfg.eps)
+            model_output = _apply_prediction_activation(model_output, cfg)
 
-            progress.update(
-                separate_task,
-                advance=1,
-                phase="Export",
-            )
+            progress.update(separate_task, advance=1, phase="Export")
             stem_name = audio_path_p.stem
             logger.info(
-                f"Separating audio file: {audio_path_p} -> output_dir={output_dir_p} "
-                f"export={bool(export_files)} stems={','.join(stem_list)}"
+                "Separating audio file: %s -> output_dir=%s export=%s stems=%s",
+                str(audio_path_p),
+                str(output_dir_p),
+                bool(export_files),
+                ",".join(stem_list),
             )
 
             result = _postprocess_masks(
@@ -831,11 +904,7 @@ def separate_audio_file(
             if cfg.validate_outputs:
                 _validate_stem_outputs(outputs, stems=stem_list, export_files=bool(export_files))
 
-            progress.update(
-                separate_task,
-                advance=1,
-                phase="Done",
-            )
+            progress.update(separate_task, advance=1, phase="Done")
             return outputs
         finally:
             anim_stop.set()
