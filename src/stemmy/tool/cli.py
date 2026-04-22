@@ -200,6 +200,29 @@ def dev() -> None:
 dev.add_command(train_command)
 
 
+# NOTE: HPC launcher subcommands — run/matrix/ls/show/compare/config/deploy
+from stemmy.tool.launcher.commands import (  # noqa: E402
+    compare,
+    config as _launcher_config,
+    deploy,
+    ls_cmd,
+    matrix,
+    run,
+    show,
+)
+
+for _launcher_cmd in (
+    run,
+    matrix,
+    ls_cmd,
+    show,
+    compare,
+    _launcher_config,
+    deploy,
+):
+    cli.add_command(_launcher_cmd)
+
+
 # NOTE: `stemmy dev eval` command
 @dev.command(
     "eval",

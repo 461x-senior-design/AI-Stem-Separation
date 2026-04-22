@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# scripts/train_eval_export.sh
+# scripts/_train_inner.sh
+#
+# Inner training+eval+export pipeline. Invoked by scripts/stemmy (via the
+# rendered sbatch template) which creates the run directory and pre-renders
+# the config env file. Can also be invoked directly for ad-hoc runs.
 set -euo pipefail
 
 usage() {
@@ -8,8 +12,8 @@ Usage:
   scripts/train_eval_export.sh [--env PATH] --partition dgx2|dgxh|gpu|ampere [overrides...]
 
 This runs:
-  1) training
-  2) evaluation
+  1+2) training + parallel eval watcher (concurrent)
+  2.5) upload eval metrics to wandb
   3) best checkpoint selection
   4) torchscript export (.pt)
 
@@ -73,7 +77,8 @@ Example (minimal run):
 EOF
 }
 
-ENV_FILE="scripts/stemmy.env"
+ENV_FILE=""
+RUN_DIR_ARG=""
 
 PARTITION=""
 
@@ -98,9 +103,15 @@ DEVICE=""
 
 N_EVAL_TRACKS=""
 MAX_SECONDS=""
+EVAL_EVERY_N_CKPTS=""
+CHUNK_FRAMES=""
 
 NUM_WORKERS=""
 BATCH_SIZE=""   # if set, skip probing
+
+RESUME=""          # explicit path to a .pth checkpoint to resume from
+RESUME_LATEST=""   # if 1, resolve RUNS_BASE/latest_best_<partition>.pth automatically
+RESUME_LAST=""     # if 1, resolve RUNS_BASE/latest_last_<partition>.pth (highest epoch)
 
 # Optional LR backoff / retry (default OFF)
 LR_BACKOFF=""
@@ -113,6 +124,7 @@ EVAL_PRINT_METRICS=""
 EVAL_FLUSH_EVERY=""
 EVAL_FSYNC_EVERY=""
 EVAL_PRINT_EVERY_TRACKS=""
+EVAL_WATCH_POLL_SECONDS=""
 
 # Load env defaults FIRST so CLI flags override.
 if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
@@ -136,6 +148,7 @@ while [[ $# -gt 0 ]]; do
       ;;
 
     --partition) PARTITION="${2:-}"; shift 2 ;;
+    --run-dir) RUN_DIR_ARG="${2:-}"; shift 2 ;;
 
     --onid) ONID="${2:-}"; shift 2 ;;
     --data-root) DATA_ROOT="${2:-}"; shift 2 ;;
@@ -158,9 +171,14 @@ while [[ $# -gt 0 ]]; do
 
     --n-eval-tracks) N_EVAL_TRACKS="${2:-}"; shift 2 ;;
     --max-seconds) MAX_SECONDS="${2:-}"; shift 2 ;;
+    --eval-every-n-ckpts) EVAL_EVERY_N_CKPTS="${2:-}"; shift 2 ;;
+    --chunk-frames) CHUNK_FRAMES="${2:-}"; shift 2 ;;
 
     --num-workers) NUM_WORKERS="${2:-}"; shift 2 ;;
     --batch-size) BATCH_SIZE="${2:-}"; shift 2 ;;
+    --resume) RESUME="${2:-}"; shift 2 ;;
+    --resume-latest) RESUME_LATEST="1"; shift ;;
+    --resume-last) RESUME_LAST="1"; shift ;;
 
     --lr-backoff) LR_BACKOFF="${2:-}"; shift 2 ;;
     --lr-backoff-factor) LR_BACKOFF_FACTOR="${2:-}"; shift 2 ;;
@@ -171,6 +189,7 @@ while [[ $# -gt 0 ]]; do
     --eval-flush-every) EVAL_FLUSH_EVERY="${2:-}"; shift 2 ;;
     --eval-fsync-every) EVAL_FSYNC_EVERY="${2:-}"; shift 2 ;;
     --eval-print-every-tracks) EVAL_PRINT_EVERY_TRACKS="${2:-}"; shift 2 ;;
+    --eval-watch-poll-seconds) EVAL_WATCH_POLL_SECONDS="${2:-}"; shift 2 ;;
 
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2 ;;
@@ -222,8 +241,8 @@ fi
 
 # Require GPU if device is cuda*
 if [[ "${DEVICE}" == "cuda" || "${DEVICE}" == cuda:* ]]; then
-  if ! command -v nvidia-smi >/dev/null 2>&1; then
-    echo "ERROR: nvidia-smi not found. Run this inside a GPU allocation." >&2
+  if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+    echo "ERROR: CUDA not available (torch.cuda.is_available() is False). Run this inside a GPU allocation." >&2
     exit 2
   fi
 fi
@@ -235,8 +254,15 @@ export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
 GPU_NAME=""
 GPU_MEM_MIB=""
 if command -v nvidia-smi >/dev/null 2>&1; then
-  GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1 | tr -d '\r')"
-  GPU_MEM_MIB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n 1 | tr -d '\r')"
+  GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 | tr -d '\r' || true)"
+  GPU_MEM_MIB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n 1 | tr -d '\r' || true)"
+fi
+# Fall back to torch if nvidia-smi failed or returned nothing (e.g. MIG slices)
+if [[ -z "${GPU_NAME}" && ("${DEVICE}" == "cuda" || "${DEVICE}" == cuda:*) ]]; then
+  GPU_NAME="$(python -c "import torch; print(torch.cuda.get_device_name(0))" 2>/dev/null || true)"
+fi
+if [[ -z "${GPU_MEM_MIB}" && ("${DEVICE}" == "cuda" || "${DEVICE}" == cuda:*) ]]; then
+  GPU_MEM_MIB="$(python -c "import torch; print(int(torch.cuda.get_device_properties(0).total_memory / 1024**2))" 2>/dev/null || true)"
 fi
 
 # Defaults (env can override, CLI overrides env already)
@@ -253,9 +279,12 @@ SAVE_EVERY_EPOCHS="${SAVE_EVERY_EPOCHS:-1}"
 WAVEFORM_NORM="${WAVEFORM_NORM:-peak}"
 SPECTROGRAM_NORM="${SPECTROGRAM_NORM:-freq_minmax}"
 AMP="${AMP:-0}"
+RESUME_LATEST="${RESUME_LATEST:-0}"
 
 N_EVAL_TRACKS="${N_EVAL_TRACKS:-30}"
 MAX_SECONDS="${MAX_SECONDS:-30}"
+EVAL_EVERY_N_CKPTS="${EVAL_EVERY_N_CKPTS:-1}"
+CHUNK_FRAMES="${CHUNK_FRAMES:-0}"
 
 # Optional LR backoff defaults (OFF)
 LR_BACKOFF="${LR_BACKOFF:-0}"
@@ -268,6 +297,7 @@ EVAL_PRINT_METRICS="${EVAL_PRINT_METRICS:-0}"
 EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY:-1}"
 EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY:-0}"
 EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS:-1}"
+EVAL_WATCH_POLL_SECONDS="${EVAL_WATCH_POLL_SECONDS:-60}"
 
 # Validate key ints
 if [[ "${TIME_FRAMES}" != "256" && "${TIME_FRAMES}" != "512" ]]; then
@@ -275,7 +305,7 @@ if [[ "${TIME_FRAMES}" != "256" && "${TIME_FRAMES}" != "512" ]]; then
   exit 2
 fi
 
-for vname in EPOCHS BASE_CHANNELS LR_PATIENCE SAVE_EVERY_EPOCHS N_EVAL_TRACKS MAX_SECONDS MAX_TRACKS LR_BACKOFF_MAX_TRIES; do
+for vname in EPOCHS BASE_CHANNELS LR_PATIENCE SAVE_EVERY_EPOCHS N_EVAL_TRACKS MAX_SECONDS EVAL_EVERY_N_CKPTS MAX_TRACKS LR_BACKOFF_MAX_TRIES; do
   val="${!vname}"
   if ! [[ "${val}" =~ ^[0-9]+$ ]]; then
     echo "ERROR: ${vname} must be an integer (got: ${val})" >&2
@@ -306,6 +336,10 @@ if [[ "${EPOCHS}" -le 0 ]]; then
 fi
 if [[ "${N_EVAL_TRACKS}" -le 0 ]]; then
   echo "ERROR: N_EVAL_TRACKS must be > 0" >&2
+  exit 2
+fi
+if [[ "${EVAL_EVERY_N_CKPTS}" -lt 1 ]]; then
+  echo "ERROR: EVAL_EVERY_N_CKPTS must be >= 1" >&2
   exit 2
 fi
 if [[ "${MAX_SECONDS}" -lt 0 ]]; then
@@ -392,6 +426,42 @@ else
   fi
 fi
 
+# Resolve --resume-latest to the actual symlink path
+if [[ "${RESUME_LATEST}" == "1" ]]; then
+  if [[ -n "${RESUME}" ]]; then
+    echo "ERROR: --resume and --resume-latest are mutually exclusive" >&2
+    exit 2
+  fi
+  LATEST_PTH_CANDIDATE="${RUNS_BASE}/latest_best_${PARTITION}.pth"
+  if [[ ! -e "${LATEST_PTH_CANDIDATE}" ]]; then
+    echo "ERROR: --resume-latest: no previous run found at ${LATEST_PTH_CANDIDATE}" >&2
+    exit 2
+  fi
+  RESUME="$(realpath "${LATEST_PTH_CANDIDATE}")"
+  echo "Resuming from latest best checkpoint: ${RESUME}"
+fi
+
+# Resolve --resume-last (highest epoch, not best SI-SDR) — preferred for
+# continuing training.
+if [[ "${RESUME_LAST}" == "1" ]]; then
+  if [[ -n "${RESUME}" ]]; then
+    echo "ERROR: --resume and --resume-last are mutually exclusive" >&2
+    exit 2
+  fi
+  LAST_PTH_CANDIDATE="${RUNS_BASE}/latest_last_${PARTITION}.pth"
+  if [[ ! -e "${LAST_PTH_CANDIDATE}" ]]; then
+    echo "ERROR: --resume-last: no previous run found at ${LAST_PTH_CANDIDATE}" >&2
+    exit 2
+  fi
+  RESUME="$(realpath "${LAST_PTH_CANDIDATE}")"
+  echo "Resuming from latest (highest-epoch) checkpoint: ${RESUME}"
+fi
+
+if [[ -n "${RESUME}" && ! -f "${RESUME}" ]]; then
+  echo "ERROR: --resume checkpoint not found: ${RESUME}" >&2
+  exit 2
+fi
+
 # Batch size selection: probe unless BATCH_SIZE provided
 if [[ -n "${BATCH_SIZE:-}" ]]; then
   if ! [[ "${BATCH_SIZE}" =~ ^[0-9]+$ ]] || [[ "${BATCH_SIZE}" -le 0 ]]; then
@@ -473,8 +543,16 @@ fi
 # --------------------------
 # Single run directory layout
 # --------------------------
-STAMP="$(date +%Y%m%d_%H%M%S)"
-RUN_DIR="${RUNS_BASE}/run_${PARTITION}_${STAMP}"
+# If the caller (scripts/stemmy) provided --run-dir, trust it as-is. Otherwise
+# create a fresh timestamped directory under RUNS_BASE for backward-compatible
+# ad-hoc invocation.
+if [[ -n "${RUN_DIR_ARG}" ]]; then
+  RUN_DIR="${RUN_DIR_ARG}"
+  STAMP="$(basename "${RUN_DIR}")"
+else
+  STAMP="$(date +%Y%m%d_%H%M%S)"
+  RUN_DIR="${RUNS_BASE}/run_${PARTITION}_${STAMP}"
+fi
 LOG_DIR="${RUN_DIR}/logs"
 CKPT_DIR="${RUN_DIR}/checkpoints"
 EVAL_DIR="${RUN_DIR}/eval"
@@ -488,9 +566,19 @@ CONSOLE_LOG="${LOG_DIR}/console.log"
 # This covers the entire script and all child processes.
 exec > >(tee -a "${CONSOLE_LOG}") 2>&1
 
+SCRIPT_START=$(date +%s)
+TIMING_FILE="${RUN_DIR}/timing.txt"
+printf "script_start_epoch=%s\n" "${SCRIPT_START}" > "${TIMING_FILE}"
+
+# Print HH:MM:SS elapsed since SCRIPT_START
+fmt_elapsed() {
+  local secs=$(( $(date +%s) - SCRIPT_START ))
+  printf "%02d:%02d:%02d" $(( secs / 3600 )) $(( (secs % 3600) / 60 )) $(( secs % 60 ))
+}
+
 RUN_INFO="${RUN_DIR}/run_info.txt"
 
-echo "=== RUN INFO ==="
+echo "=== RUN INFO === [$(date '+%Y-%m-%d %H:%M:%S')]"
 {
   echo "timestamp=${STAMP}"
   echo "onid=${ONID}"
@@ -525,6 +613,8 @@ echo "=== RUN INFO ==="
   echo
   echo "n_eval_tracks=${N_EVAL_TRACKS}"
   echo "max_seconds=${MAX_SECONDS}"
+  echo "eval_every_n_ckpts=${EVAL_EVERY_N_CKPTS}"
+  echo "chunk_frames=${CHUNK_FRAMES}"
   echo
   echo "lr_backoff=${LR_BACKOFF}"
   echo "lr_backoff_factor=${LR_BACKOFF_FACTOR}"
@@ -542,10 +632,15 @@ echo "=== RUN INFO ==="
   echo "checkpoints_dir=${CKPT_DIR}"
   echo "eval_dir=${EVAL_DIR}"
   echo "best_dir=${BEST_DIR}"
+  echo
+  echo "start_time=$(date '+%Y-%m-%d %H:%M:%S')"
+  echo "start_epoch=${SCRIPT_START}"
 } | tee "${RUN_INFO}"
 echo
 
-echo "=== Phase 1/4: Train ==="
+PHASE12_START=$(date +%s)
+printf "phase12_start_epoch=%s\n" "${PHASE12_START}" >> "${TIMING_FILE}"
+echo "=== Phase 1+2/4: Train + Eval watcher (parallel) === [$(date '+%Y-%m-%d %H:%M:%S'), elapsed: $(fmt_elapsed)]"
 
 run_train_once() {
   local lr_val="$1"
@@ -573,13 +668,52 @@ run_train_once() {
     train_args+=(--amp)
   fi
 
+  if [[ -n "${RESUME}" ]]; then
+    train_args+=(--resume "${RESUME}")
+  fi
+
   python -m stemmy.train "${train_args[@]}"
 }
 
+# File touched by training-done signal so the eval watcher knows when to stop.
+TRAIN_DONE_FILE="${RUN_DIR}/training_done.flag"
+EVAL_WATCH_POLL_SECONDS="${EVAL_WATCH_POLL_SECONDS:-60}"
+
+# Eval watcher: single Python process that holds one wandb run open for the full training
+# duration. It polls CKPT_DIR for new checkpoints, evaluates each as it appears, and exits
+# when TRAIN_DONE_FILE is written.
+EVAL_WATCH_MODE="1" \
+TRAIN_DONE_FILE="${TRAIN_DONE_FILE}" \
+EVAL_WATCH_POLL_SECONDS="${EVAL_WATCH_POLL_SECONDS}" \
+EVAL_PROGRESS="${EVAL_PROGRESS}" \
+EVAL_PRINT_METRICS="${EVAL_PRINT_METRICS}" \
+EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY}" \
+EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY}" \
+EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS}" \
+CHUNK_FRAMES="${CHUNK_FRAMES}" \
+DATA="${DATA_ROOT}" \
+CKPT_DIR="${CKPT_DIR}" \
+EVAL_DIR="${EVAL_DIR}" \
+DEVICE="${DEVICE}" \
+N_EVAL_TRACKS="${N_EVAL_TRACKS}" \
+MAX_SECONDS="${MAX_SECONDS}" \
+PYTHONUNBUFFERED=1 python -u -m stemmy.tool.fullsong_eval_masked &
+EVAL_WATCHER_PID=$!
+
+# Give the watcher a moment to start, then verify it didn't crash immediately.
+sleep 5
+if ! kill -0 "${EVAL_WATCHER_PID}" 2>/dev/null; then
+  echo "ERROR: Eval watcher (PID ${EVAL_WATCHER_PID}) died immediately after launch. Check logs above." >&2
+  exit 1
+fi
+echo "Eval watcher started (PID ${EVAL_WATCHER_PID})."
+
+# Run training in foreground (existing retry logic preserved).
 TRAIN_LR="${LR}"
+TRAIN_RC=0
 
 if [[ "${LR_BACKOFF}" == "0" ]]; then
-  run_train_once "${TRAIN_LR}"
+  run_train_once "${TRAIN_LR}" || TRAIN_RC=$?
 else
   attempt=1
   while [[ "${attempt}" -le "${LR_BACKOFF_MAX_TRIES}" ]]; do
@@ -593,8 +727,8 @@ else
     fi
 
     if [[ "${attempt}" -ge "${LR_BACKOFF_MAX_TRIES}" ]]; then
-      echo "ERROR: Training failed after ${LR_BACKOFF_MAX_TRIES} attempt(s)." >&2
-      exit "${rc}"
+      TRAIN_RC="${rc}"
+      break
     fi
 
     next_lr="$(python - <<PY
@@ -611,7 +745,8 @@ PY
 )"
     if [[ "${below_min}" == "1" ]]; then
       echo "ERROR: Next lr (${next_lr}) would fall below min_lr (${MIN_LR})." >&2
-      exit 2
+      TRAIN_RC=2
+      break
     fi
 
     TRAIN_LR="${next_lr}"
@@ -619,21 +754,29 @@ PY
   done
 fi
 
-echo "=== Phase 2/4: Evaluate checkpoints ==="
-EVAL_PROGRESS="${EVAL_PROGRESS}" \
-EVAL_PRINT_METRICS="${EVAL_PRINT_METRICS}" \
-EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY}" \
-EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY}" \
-EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS}" \
-DATA="${DATA_ROOT}" \
-CKPT_DIR="${CKPT_DIR}" \
-EVAL_DIR="${EVAL_DIR}" \
-DEVICE="${DEVICE}" \
-N_EVAL_TRACKS="${N_EVAL_TRACKS}" \
-MAX_SECONDS="${MAX_SECONDS}" \
-PYTHONUNBUFFERED=1 python -u -m stemmy.tool.fullsong_eval_masked
+# Signal eval watcher that training is done, then wait for it to finish.
+touch "${TRAIN_DONE_FILE}"
+WATCHER_RC=0
+wait "${EVAL_WATCHER_PID}" || WATCHER_RC=$?
+if [[ "${WATCHER_RC}" -ne 0 ]]; then
+  echo "WARNING: Eval watcher exited with code ${WATCHER_RC} — SI-SDR metrics may be incomplete." >&2
+fi
 
-echo "=== Phase 3/4: Select best checkpoint ==="
+PHASE12_END=$(date +%s)
+PHASE12_SECS=$(( PHASE12_END - PHASE12_START ))
+printf "phase12_end_epoch=%s\nphase12_seconds=%s\n" "${PHASE12_END}" "${PHASE12_SECS}" >> "${TIMING_FILE}"
+printf "Phase 1+2 done in %02d:%02d:%02d (total elapsed: %s)\n" \
+  $(( PHASE12_SECS / 3600 )) $(( (PHASE12_SECS % 3600) / 60 )) $(( PHASE12_SECS % 60 )) \
+  "$(fmt_elapsed)"
+
+if [[ "${TRAIN_RC}" -ne 0 ]]; then
+  echo "ERROR: Training failed with exit code ${TRAIN_RC}." >&2
+  exit "${TRAIN_RC}"
+fi
+
+PHASE3_START=$(date +%s)
+printf "phase3_start_epoch=%s\n" "${PHASE3_START}" >> "${TIMING_FILE}"
+echo "=== Phase 3/4: Select best checkpoint === [$(date '+%Y-%m-%d %H:%M:%S'), elapsed: $(fmt_elapsed)]"
 SUMMARY_CSV="${EVAL_DIR}/fullsong_eval_summary.csv"
 if [[ ! -f "${SUMMARY_CSV}" ]]; then
   echo "ERROR: Expected summary CSV not found: ${SUMMARY_CSV}" >&2
@@ -649,7 +792,16 @@ python -m stemmy.tool.select_best_checkpoint \
   --top-k 10 \
   --copy-to "${BEST_PTH}"
 
-echo "=== Phase 4/4: Export TorchScript (.pt) ==="
+PHASE3_END=$(date +%s)
+PHASE3_SECS=$(( PHASE3_END - PHASE3_START ))
+printf "phase3_end_epoch=%s\nphase3_seconds=%s\n" "${PHASE3_END}" "${PHASE3_SECS}" >> "${TIMING_FILE}"
+printf "Phase 3 done in %02d:%02d:%02d (total elapsed: %s)\n" \
+  $(( PHASE3_SECS / 3600 )) $(( (PHASE3_SECS % 3600) / 60 )) $(( PHASE3_SECS % 60 )) \
+  "$(fmt_elapsed)"
+
+PHASE4_START=$(date +%s)
+printf "phase4_start_epoch=%s\n" "${PHASE4_START}" >> "${TIMING_FILE}"
+echo "=== Phase 4/4: Export TorchScript (.pt) === [$(date '+%Y-%m-%d %H:%M:%S'), elapsed: $(fmt_elapsed)]"
 BEST_PT="${BEST_DIR}/unet_best_${PARTITION}_${STAMP}.pt"
 
 python - <<PY
@@ -695,7 +847,70 @@ ln -sfn "${BEST_PT}" "${LATEST_PT}"
   echo "LATEST_PT=${LATEST_PT}"
 } > "${LATEST_ENV}"
 
-echo "Done."
+PHASE4_END=$(date +%s)
+PHASE4_SECS=$(( PHASE4_END - PHASE4_START ))
+printf "phase4_end_epoch=%s\nphase4_seconds=%s\n" "${PHASE4_END}" "${PHASE4_SECS}" >> "${TIMING_FILE}"
+printf "Phase 4 done in %02d:%02d:%02d (total elapsed: %s)\n" \
+  $(( PHASE4_SECS / 3600 )) $(( (PHASE4_SECS % 3600) / 60 )) $(( PHASE4_SECS % 60 )) \
+  "$(fmt_elapsed)"
+
+TOTAL_SECS=$(( $(date +%s) - SCRIPT_START ))
+TOTAL_HMS=$(printf "%02d:%02d:%02d" $(( TOTAL_SECS / 3600 )) $(( (TOTAL_SECS % 3600) / 60 )) $(( TOTAL_SECS % 60 )))
+printf "total_seconds=%s\ntotal_minutes=%s\n" \
+  "${TOTAL_SECS}" \
+  "$(python -c "print(round(${TOTAL_SECS}/60, 2))")" >> "${TIMING_FILE}"
+
+echo "end_time=$(date '+%Y-%m-%d %H:%M:%S')" >> "${RUN_INFO}"
+echo "total_runtime_seconds=${TOTAL_SECS}" >> "${RUN_INFO}"
+echo "total_runtime=${TOTAL_HMS}" >> "${RUN_INFO}"
+
+echo "=== Uploading timing metrics to wandb ==="
+python - <<PY
+import os, sys
+
+if os.environ.get("NO_WANDB", "0") == "1":
+    print("NO_WANDB=1 — skipping timing upload.")
+    sys.exit(0)
+
+timing = {}
+with open(r"${TIMING_FILE}") as f:
+    for line in f:
+        line = line.strip()
+        if "=" in line:
+            k, _, v = line.partition("=")
+            try:
+                timing[k.strip()] = float(v.strip())
+            except ValueError:
+                pass
+
+import wandb
+from stemmy.wandb_config import get_wandb_project, get_wandb_environment, WANDB_ENTITY
+from datetime import datetime
+
+env = get_wandb_environment()
+project = os.environ.get("WANDB_PROJECT", get_wandb_project(env))
+entity  = os.environ.get("WANDB_ENTITY", WANDB_ENTITY)
+base    = os.environ.get("WANDB_RUN_NAME", "job")
+date_str = datetime.now().strftime("%Y%m%d")
+run_name = f"{base}_timing_{date_str}" if base else f"job_timing_{date_str}"
+
+try:
+    run = wandb.init(
+        entity=entity,
+        project=project,
+        name=run_name,
+        job_type="job_timing",
+        settings=wandb.Settings(_disable_stats=True),
+    )
+    metrics = {f"time/{k}": v for k, v in timing.items()}
+    wandb.log(metrics)
+    run.finish()
+    print(f"Timing uploaded to wandb run: {run_name}")
+except Exception as exc:
+    print(f"WARNING: wandb timing upload failed: {exc}", file=sys.stderr)
+PY
+
+echo "Done. Total runtime: ${TOTAL_HMS}"
 echo "Run dir:      ${RUN_DIR}"
 echo "Console log:  ${CONSOLE_LOG}"
 echo "Run info:     ${RUN_INFO}"
