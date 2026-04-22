@@ -1,4 +1,5 @@
 """Click command definitions for `stemmy`."""
+
 from __future__ import annotations
 
 import os
@@ -83,9 +84,7 @@ def run(
     if dry_run:
         click.echo("--- resolved config ---")
         for k in sorted(resolved.values):
-            click.echo(
-                f"{k}={resolved.values[k]}  # {resolved.sources.get(k, '?')}"
-            )
+            click.echo(f"{k}={resolved.values[k]}  # {resolved.sources.get(k, '?')}")
         click.echo("\n--- sbatch script ---")
         click.echo(script)
         entry.status = "dry-run"
@@ -111,9 +110,7 @@ def run(
     type=click.Choice(["created_at", "best_sisdr", "name"]),
     default="created_at",
 )
-def ls_cmd(
-    name_pat: str | None, status_pat: str | None, sort_key: str
-) -> None:
+def ls_cmd(name_pat: str | None, status_pat: str | None, sort_key: str) -> None:
     """List runs in the local registry."""
     runs = registry.list_all()
     for r in runs:
@@ -136,7 +133,9 @@ def ls_cmd(
         click.echo("(no runs)")
         return
 
-    header = f"{'run_id':44} {'name':18} {'status':12} {'best_sisdr':>11} {'epoch':>6} {'branch':20}"
+    header = (
+        f"{'run_id':44} {'name':18} {'status':12} {'best_sisdr':>11} {'epoch':>6} {'branch':20}"
+    )
     click.echo(header)
     click.echo("-" * len(header))
     for r in runs:
@@ -191,9 +190,7 @@ def show(run_id: str) -> None:
             click.echo(f"    {k}: {v}")
     click.echo("  config:")
     for k in sorted(entry.config):
-        click.echo(
-            f"    {k}={entry.config[k]}  # {entry.config_sources.get(k, '?')}"
-        )
+        click.echo(f"    {k}={entry.config[k]}  # {entry.config_sources.get(k, '?')}")
     log = entry.dir / "logs" / "console.log"
     if log.is_file():
         click.echo("\n--- console.log (tail) ---")
@@ -209,9 +206,7 @@ def compare(run_ids: tuple[str, ...]) -> None:
     for e in entries:
         registry.update_metrics_from_eval_csv(e)
     all_keys = sorted({k for e in entries for k in e.config})
-    diff_keys = [
-        k for k in all_keys if len({e.config.get(k) for e in entries}) > 1
-    ]
+    diff_keys = [k for k in all_keys if len({e.config.get(k) for e in entries}) > 1]
 
     col_w = max(24, max((len(e.run_id) for e in entries), default=24))
     click.secho("-- differing config keys --", bold=True)
@@ -224,9 +219,7 @@ def compare(run_ids: tuple[str, ...]) -> None:
         click.echo(row)
 
     click.secho("\n-- final metrics --", bold=True)
-    metric_keys = sorted(
-        {k for e in entries for k in e.metrics_snapshot}
-    )
+    metric_keys = sorted({k for e in entries for k in e.metrics_snapshot})
     click.echo("metric".ljust(30) + "".join(e.run_id[:col_w].ljust(col_w + 2) for e in entries))
     for k in metric_keys:
         row = k.ljust(30) + "".join(
@@ -260,9 +253,7 @@ def config_new(name: str, from_: str | None, shared: bool) -> None:
             raise click.ClickException(f"base config '{from_}' not found")
         shutil.copyfile(src, target)
     else:
-        target.write_text(
-            f"# {name}.env — overrides on top of scripts/defaults.env\n"
-        )
+        target.write_text(f"# {name}.env — overrides on top of scripts/defaults.env\n")
 
     click.secho(f"created {target}", fg="green")
     editor = os.environ.get("EDITOR", "vi")
@@ -316,9 +307,7 @@ def config_edit(name: str, shared: bool) -> None:
         if not found:
             raise click.ClickException(f"config '{name}' not found")
         if cfg.config_is_shared(found) and not shared:
-            raise click.ClickException(
-                f"'{name}' is a shared config — pass --shared to edit it"
-            )
+            raise click.ClickException(f"'{name}' is a shared config — pass --shared to edit it")
         target = found
     editor = os.environ.get("EDITOR", "vi")
     subprocess.call([editor, str(target)])

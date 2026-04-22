@@ -9,6 +9,7 @@ Layers (earliest first, later wins):
 Sourcing is delegated to bash so `${VAR}` expansion, quoting, and
 comments all work the way the existing env files expect.
 """
+
 from __future__ import annotations
 
 import os

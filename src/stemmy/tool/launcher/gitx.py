@@ -1,4 +1,5 @@
 """Thin wrappers around git for SHA / branch / dirty-tree lookups."""
+
 from __future__ import annotations
 
 import subprocess
@@ -9,9 +10,7 @@ from . import paths
 
 def _git(*args: str, cwd: Path | None = None) -> str:
     cwd = cwd or paths.project_root()
-    out = subprocess.check_output(
-        ["git", *args], cwd=str(cwd), text=True, stderr=subprocess.STDOUT
-    )
+    out = subprocess.check_output(["git", *args], cwd=str(cwd), text=True, stderr=subprocess.STDOUT)
     return out.strip()
 
 

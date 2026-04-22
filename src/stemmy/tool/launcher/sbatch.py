@@ -1,4 +1,5 @@
 """Render and submit the sbatch template for a single run."""
+
 from __future__ import annotations
 
 import re
@@ -48,9 +49,7 @@ def submit(rendered_script: str, run_dir: Path) -> str:
             ["sbatch", str(sbatch_file)], text=True, stderr=subprocess.STDOUT
         )
     except FileNotFoundError as e:
-        raise SbatchSubmitError(
-            "sbatch not found on PATH — run this on an HPC login node"
-        ) from e
+        raise SbatchSubmitError("sbatch not found on PATH — run this on an HPC login node") from e
     except subprocess.CalledProcessError as e:
         raise SbatchSubmitError(f"sbatch failed:\n{e.output}") from e
     m = re.search(r"(\d+)", out)

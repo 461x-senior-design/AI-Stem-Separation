@@ -1,4 +1,5 @@
 """The run.json registry: create/read/update/compare entries under runs/."""
+
 from __future__ import annotations
 
 import csv

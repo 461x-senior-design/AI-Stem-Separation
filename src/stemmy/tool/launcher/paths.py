@@ -1,4 +1,5 @@
 """Path resolution: project root, scripts dir, configs, registry."""
+
 from __future__ import annotations
 
 import os
