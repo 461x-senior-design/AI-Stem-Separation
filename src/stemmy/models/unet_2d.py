@@ -1,11 +1,11 @@
 # src/stemmy/models/unet_2d.py
-"""2D U-Net for spectrogram mask-logit prediction.
+"""2D U-Net for stereo spectrogram mask-logit prediction.
 
 Input:
-  x: [B, 1, F, T]  (mono magnitude spectrogram)
+  x: [B, C, F, T]  (stereo magnitude spectrogram, C=2)
 
 Output:
-  logits: [B, S, F, T] (unnormalized stem logits)
+  logits: [B, S, C, F, T] (unnormalized stem logits)
 
 Notes:
 - Spatial padding is applied so the encoder/decoder pooling hierarchy works for
@@ -17,6 +17,8 @@ Notes:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from stemmy.constants import TARGET_CHANNELS
 
 
 class ConvBlock(nn.Module):
@@ -160,26 +162,35 @@ def _upsample_to(x: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
 
 
 class UNet2D(nn.Module):
-    """U-Net for spectrogram mask-logit prediction."""
+    """U-Net for stereo spectrogram mask-logit prediction."""
 
-    def __init__(self, stems: int = 4, base_channels: int = 64) -> None:
+    def __init__(
+        self,
+        stems: int = 4,
+        base_channels: int = 64,
+        audio_channels: int = TARGET_CHANNELS,
+    ) -> None:
         """Initialize the U-Net.
 
         Args:
-            stems: Number of output mask channels (stems).
+            stems: Number of output stems.
             base_channels: Base channel width for the first encoder level.
+            audio_channels: Number of input/output audio channels.
 
         Raises:
-            ValueError: If stems or base_channels is non-positive.
+            ValueError: If stems, base_channels, or audio_channels is non-positive.
         """
         super().__init__()
         if stems <= 0:
             raise ValueError("stems must be positive.")
         if base_channels <= 0:
             raise ValueError("base_channels must be positive.")
+        if audio_channels <= 0:
+            raise ValueError("audio_channels must be positive.")
 
         self.stems = int(stems)
         self.base_channels = int(base_channels)
+        self.audio_channels = int(audio_channels)
 
         c1 = self.base_channels
         c2 = c1 * 2
@@ -187,7 +198,7 @@ class UNet2D(nn.Module):
         c4 = c3 * 2
         c5 = c4 * 2
 
-        self.enc1 = ConvBlock(1, c1)
+        self.enc1 = ConvBlock(self.audio_channels, c1)
         self.pool1 = nn.MaxPool2d(2)
 
         self.enc2 = ConvBlock(c1, c2)
@@ -213,26 +224,28 @@ class UNet2D(nn.Module):
         self.up1 = nn.Conv2d(c2, c1, kernel_size=1)
         self.dec1 = ConvBlock(c2, c1)
 
-        self.out_conv = nn.Conv2d(c1, self.stems, kernel_size=1)
+        self.out_conv = nn.Conv2d(c1, self.stems * self.audio_channels, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run the U-Net forward.
 
         Args:
-            x: Input tensor [B, 1, F, T].
+            x: Input tensor [B, C, F, T].
 
         Returns:
-            Output logits [B, S, F, T] (unnormalized).
+            Output logits [B, S, C, F, T] (unnormalized).
 
         Raises:
             ValueError: If x does not have expected shape.
         """
         if x.ndim != 4:
-            raise ValueError("Expected input x to be 4D [B, 1, F, T].")
-        if x.shape[1] != 1:
-            raise ValueError("Expected channel dimension to be 1 (mono).")
+            raise ValueError("Expected input x to be 4D [B, C, F, T].")
+        if int(x.shape[1]) != int(self.audio_channels):
+            raise ValueError(
+                "Expected channel dimension to be %d, got %d."
+                % (int(self.audio_channels), int(x.shape[1]))
+            )
 
-        # Pad so repeated /2 pooling works cleanly. 4 pools -> multiple of 16.
         x_pad, pad = pad_to_multiple(x, multiple_h=16, multiple_w=16)
 
         e1 = self.enc1(x_pad)
@@ -267,4 +280,20 @@ class UNet2D(nn.Module):
 
         out = self.out_conv(d1)
         out = unpad(out, pad)
+
+        batch, channels, freq, time = out.shape
+        expected_channels = self.stems * self.audio_channels
+        if int(channels) != int(expected_channels):
+            raise RuntimeError(
+                "Unexpected output channels: got %d, expected %d."
+                % (int(channels), int(expected_channels))
+            )
+
+        out = out.contiguous().view(
+            int(batch),
+            int(self.stems),
+            int(self.audio_channels),
+            int(freq),
+            int(time),
+        )
         return out

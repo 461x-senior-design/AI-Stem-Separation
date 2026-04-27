@@ -138,15 +138,7 @@ def _load_model_and_cfg(
     device: str,
     stems: list[str],
 ) -> tuple[torch.nn.Module, InferenceConfig, object]:
-    """Load a model and construct an InferenceConfig.
-
-    Returns:
-        (model, cfg, checkpoint_obj)
-
-    Notes:
-        - For .pth: loads PyTorch model weights and derives cfg from checkpoint metadata.
-        - For .pt: loads TorchScript and uses default InferenceConfig (no checkpoint metadata).
-    """
+    """Load a model and construct an InferenceConfig."""
     ckpt_in = checkpoint.strip() if isinstance(checkpoint, str) and checkpoint is not None else ""
     ts_in = torchscript.strip() if isinstance(torchscript, str) and torchscript is not None else ""
 
@@ -183,24 +175,20 @@ def _load_model_and_cfg(
     return model, cfg, None
 
 
-# NOTE: Root CLI command group
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
     setup_logging(level=os.getenv("LOG_LEVEL", "ERROR"))
 
 
-# NOTE: `stemmy dev` command group
 @cli.group(help="Developer commands.")
 def dev() -> None:
     """Developer command group."""
 
 
-# NOTE: `stemmy dev train` — registered from stemmy.train as a first-class Click command
 dev.add_command(train_command)
 
 
-# NOTE: `stemmy dev eval` command
 @dev.command(
     "eval",
     context_settings={
@@ -244,7 +232,6 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     fullsong_eval_masked_main()
 
 
-# NOTE: `stemmy spinner` command
 @cli.command("spinner", help="Generate EQ spinner frames and update src/stemmy/constants.py.")
 def spinner() -> None:
     """Regenerate EQ_FRAMES and write them to constants.py."""
@@ -259,7 +246,6 @@ def spinner() -> None:
         click.echo("EQ_FRAMES already up to date in src/stemmy/constants.py")
 
 
-# NOTE: `stemmy separate` command
 @cli.command(
     help=(
         "Separate an audio file into stems.\n\n"
@@ -309,7 +295,7 @@ def spinner() -> None:
 @click.option(
     "--chunk-frames",
     type=int,
-    default=256,  # NOTE: Changed from 0
+    default=256,
     show_default=True,
     help=(
         "If > 0, run inference in time chunks of this many STFT frames to "
@@ -319,15 +305,15 @@ def spinner() -> None:
 @click.option(
     "--overlap-frames",
     type=int,
-    default=64,  # NOTE: Changed from 0
+    default=64,
     show_default=True,
-    help="Overlap (in STFT frames) between chunks when --chunk-frames > 0.",
+    help="Overlap in STFT frames between chunks when --chunk-frames > 0.",
 )
 @click.option(
     "--amp/--no-amp",
     default=False,
     show_default=True,
-    help="Enable CUDA autocast (AMP) during inference to reduce memory usage.",
+    help="Enable CUDA autocast during inference to reduce memory usage.",
 )
 @click.option(
     "--potato",

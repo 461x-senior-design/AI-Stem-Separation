@@ -1,7 +1,7 @@
 # src/stemmy/train.py
 """Training entry point for the spectrogram-mask U-Net on MUSDB18-HQ.
 
-This script trains a UNet2D to predict per-stem ratio masks from a normalized mono
+This script trains a UNet2D to predict per-stem ratio masks from a normalized stereo
 mixture magnitude spectrogram.
 
 Key invariants:
@@ -46,6 +46,7 @@ from stemmy.constants import (
     ROSE_RED,
     STEMS_4,
     STFT_CENTER,
+    TARGET_CHANNELS,
     TARGET_SAMPLE_RATE,
     WHITE,
     WIN_LENGTH,
@@ -256,6 +257,7 @@ def build_run_config(
     return {
         "data_root": data_root,
         "sample_rate": stft_cfg.sample_rate,
+        "audio_channels": TARGET_CHANNELS,
         "n_fft": stft_cfg.n_fft,
         "hop_length": stft_cfg.hop_length,
         "win_length": stft_cfg.win_length,
@@ -776,7 +778,11 @@ def main(
         int(len(val_ds)),
     )
 
-    model = UNet2D(stems=len(STEMS_4), base_channels=base_channels).to(dev)
+    model = UNet2D(
+        stems=len(STEMS_4),
+        base_channels=base_channels,
+        audio_channels=TARGET_CHANNELS,
+    ).to(dev)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,

@@ -452,6 +452,7 @@ else
     python - <<PY
 import sys
 import torch
+from stemmy.constants import TARGET_CHANNELS
 from stemmy.models.unet_2d import UNet2D
 
 bs = int("${bs}")
@@ -467,9 +468,13 @@ if device.type == "cuda" and not torch.cuda.is_available():
     print("cuda requested but not available")
     sys.exit(10)
 
-model = UNet2D(stems=4, base_channels=base_channels).to(device)
+model = UNet2D(
+    stems=4,
+    base_channels=base_channels,
+    audio_channels=TARGET_CHANNELS,
+).to(device)
 model.train()
-x = torch.randn((bs, 1, F, T), device=device, dtype=torch.float32)
+x = torch.randn((bs, TARGET_CHANNELS, F, T), device=device, dtype=torch.float32)
 
 try:
     y = model(x)
@@ -672,6 +677,7 @@ BEST_PTH="${BEST_DIR}/unet_best_${PARTITION}_${STAMP}.pth"
 python -m stemmy.tool.select_best_checkpoint \
   --summary-csv "${SUMMARY_CSV}" \
   --ckpt-dir "${CKPT_DIR}" \
+  --prefer-ckpt-dir \
   --metric mean_sisdr \
   --top-k 10 \
   --copy-to "${BEST_PTH}"
@@ -680,13 +686,18 @@ echo "=== Phase 4/4: Export TorchScript (.pt) ==="
 BEST_PT="${BEST_DIR}/unet_best_${PARTITION}_${STAMP}.pt"
 
 python - <<PY
+from stemmy.constants import TARGET_CHANNELS
 from stemmy.models.unet_2d import UNet2D
 from stemmy.training.checkpointing import load_checkpoint, export_torchscript
 
 ckpt_path = r"${BEST_PTH}"
 out_path = r"${BEST_PT}"
 
-model = UNet2D(stems=4, base_channels=int("${BASE_CHANNELS}"))
+model = UNet2D(
+    stems=4,
+    base_channels=int("${BASE_CHANNELS}"),
+    audio_channels=TARGET_CHANNELS,
+)
 load_checkpoint(ckpt_path, model, optimizer=None, map_location="cpu")
 export_torchscript(out_path, model)
 print(out_path)

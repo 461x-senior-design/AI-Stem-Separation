@@ -22,6 +22,9 @@ EVAL_PRINT_METRICS:       1 to print per-track metrics lines (default: "0")
 EVAL_FLUSH_EVERY:         Flush CSV files every N per-track rows (default: "1")
 EVAL_FSYNC_EVERY:         fsync CSV files every N per-track rows (0 disables, default: "0")
 EVAL_PRINT_EVERY_TRACKS:  Print a progress line every N tracks (default: "1")
+EVAL_CHUNK_FRAMES:        Inference chunk size in STFT frames (default: "256", 0 disables)
+EVAL_OVERLAP_FRAMES:      Inference chunk overlap in STFT frames (default: "64")
+EVAL_AMP:                 1 to use CUDA autocast during evaluation inference (default: "1")
 """
 
 import csv
@@ -145,6 +148,25 @@ def _validate_eval_subset(eval_subset: str) -> str:
             "Unsupported EVAL_SUBSET '%s'. Expected one of %s." % (subset, SUPPORTED_EVAL_SUBSETS)
         )
     return subset
+
+
+def _validate_eval_inference_options(
+    eval_chunk_frames: int,
+    eval_overlap_frames: int,
+) -> None:
+    """Validate evaluation inference chunking options."""
+    if eval_chunk_frames < 0:
+        raise EvaluationException("EVAL_CHUNK_FRAMES must be >= 0, got %d" % int(eval_chunk_frames))
+    if eval_overlap_frames < 0:
+        raise EvaluationException(
+            "EVAL_OVERLAP_FRAMES must be >= 0, got %d" % int(eval_overlap_frames)
+        )
+    if eval_chunk_frames == 0 and eval_overlap_frames != 0:
+        raise EvaluationException("EVAL_OVERLAP_FRAMES must be 0 when EVAL_CHUNK_FRAMES is 0.")
+    if eval_chunk_frames > 0 and eval_overlap_frames >= eval_chunk_frames:
+        raise EvaluationException(
+            "EVAL_OVERLAP_FRAMES must be < EVAL_CHUNK_FRAMES when chunking is enabled."
+        )
 
 
 def _list_tracks(split_dir: Path) -> list[Path]:
@@ -342,6 +364,9 @@ def _maybe_truncate_mixture_wav(
 def _build_eval_inference_config(
     ckpt_obj: dict,
     device: str,
+    eval_chunk_frames: int,
+    eval_overlap_frames: int,
+    eval_amp: bool,
 ) -> InferenceConfig:
     """Build an InferenceConfig for evaluation based on checkpoint config."""
     cfg_from_ckpt = config_from_checkpoint(ckpt_obj)
@@ -351,6 +376,9 @@ def _build_eval_inference_config(
         device=device,
         export_files=False,
         renorm_masks=True,
+        chunk_frames=int(eval_chunk_frames),
+        overlap_frames=int(eval_overlap_frames),
+        amp=bool(eval_amp),
     )
     return cfg
 
@@ -475,6 +503,14 @@ def main() -> None:
     max_seconds = _get_env_int("MAX_SECONDS", 30)
     eval_subset = _validate_eval_subset(_get_env_str("EVAL_SUBSET", "test"))
 
+    eval_chunk_frames = _get_env_int("EVAL_CHUNK_FRAMES", 256)
+    eval_overlap_frames = _get_env_int("EVAL_OVERLAP_FRAMES", 64)
+    eval_amp = _get_env_bool("EVAL_AMP", True)
+    _validate_eval_inference_options(
+        eval_chunk_frames=eval_chunk_frames,
+        eval_overlap_frames=eval_overlap_frames,
+    )
+
     if n_eval_tracks <= 0:
         raise EvaluationException("N_EVAL_TRACKS must be > 0, got %d" % int(n_eval_tracks))
     if max_seconds < 0:
@@ -489,6 +525,9 @@ def main() -> None:
                 "max_seconds": max_seconds,
                 "device": device,
                 "eval_subset": eval_subset,
+                "eval_chunk_frames": eval_chunk_frames,
+                "eval_overlap_frames": eval_overlap_frames,
+                "eval_amp": eval_amp,
             }
         )
 
@@ -506,6 +545,12 @@ def main() -> None:
         "Final evaluation using MUSDB subset '%s' with %d tracks.",
         eval_subset,
         int(len(tracks)),
+    )
+    logger.info(
+        "Evaluation inference settings: chunk_frames=%d overlap_frames=%d amp=%s",
+        int(eval_chunk_frames),
+        int(eval_overlap_frames),
+        str(bool(eval_amp)),
     )
 
     per_track_csv = eval_dir / "fullsong_eval_per_track.csv"
@@ -583,7 +628,13 @@ def main() -> None:
                     )
                     model.eval()
 
-                    cfg = _build_eval_inference_config(ckpt_obj, device=device)
+                    cfg = _build_eval_inference_config(
+                        ckpt_obj=ckpt_obj,
+                        device=device,
+                        eval_chunk_frames=eval_chunk_frames,
+                        eval_overlap_frames=eval_overlap_frames,
+                        eval_amp=eval_amp,
+                    )
 
                     sisdr_accum: dict[str, list[float]] = {s: [] for s in STEMS}
                     recon_accum: list[float] = []
