@@ -69,7 +69,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         augment: bool = False,
         remix: bool = False,
         gain_db: float = 6.0,
-        polarity_prob: float = 0.5,
+        polarity_prob: float = 0.0,
     ) -> None:
         """Initialize the dataset.
 
@@ -202,12 +202,15 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         if self.augment:
             from audiomentations import Compose, Gain, PolarityInversion
 
-            self._stem_augment = Compose(
-                [
-                    Gain(min_gain_db=-self.gain_db, max_gain_db=self.gain_db, p=1.0),
-                    PolarityInversion(p=self.polarity_prob),
-                ]
-            )
+            transforms = [Gain(min_gain_db=-self.gain_db, max_gain_db=self.gain_db, p=1.0)]
+            # Polarity flip is intentionally off by default for this magnitude-domain
+            # ratio-mask model: flipping a stem doesn't change |stem|, so the target
+            # ratio is unchanged, but the reconstructed mix waveform gets phase
+            # cancellations the model can't disambiguate from a magnitude-only input.
+            # See Demucs (waveform-domain) for where per-stem polarity helps.
+            if self.polarity_prob > 0.0:
+                transforms.append(PolarityInversion(p=self.polarity_prob))
+            self._stem_augment = Compose(transforms)
         else:
             self._stem_augment = None
 
