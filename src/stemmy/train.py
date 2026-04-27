@@ -167,6 +167,8 @@ def build_dataloaders(
     val_split: str,
     valid_fraction: float,
     train_split_seed: int,
+    augment: bool,
+    remix: bool,
 ) -> tuple[Musdb18HQDataset, Musdb18HQDataset, DataLoader, DataLoader]:
     """Build train/val datasets and DataLoaders."""
     effective_max_tracks = max_tracks if max_tracks > 0 else None
@@ -185,6 +187,8 @@ def build_dataloaders(
         waveform_norm=waveform_norm,
         spectrogram_norm=spectrogram_norm,
         seed=0,
+        augment=augment,
+        remix=remix,
     )
     val_ds = Musdb18HQDataset(
         root_dir=data_root,
@@ -200,6 +204,8 @@ def build_dataloaders(
         waveform_norm=waveform_norm,
         spectrogram_norm=spectrogram_norm,
         seed=0,
+        augment=False,
+        remix=False,
     )
 
     train_drop_last = len(train_ds) >= batch_size
@@ -251,6 +257,8 @@ def build_run_config(
     val_split: str,
     valid_fraction: float,
     train_split_seed: int,
+    augment: bool,
+    remix: bool,
 ) -> dict[str, Any]:
     """Build a config dict stored inside checkpoints for reproducibility."""
     return {
@@ -285,6 +293,8 @@ def build_run_config(
         "valid_fraction": float(valid_fraction),
         "train_split_seed": int(train_split_seed),
         "reserved_eval_subset": "test",
+        "augment": bool(augment),
+        "remix": bool(remix),
     }
 
 
@@ -554,6 +564,8 @@ def main(
     seed: int,
     amp: bool,
     potato: bool,
+    augment: bool,
+    remix: bool,
 ) -> None:
     """Train the model."""
     if not data_root.strip():
@@ -660,6 +672,8 @@ def main(
             val_split=val_split,
             valid_fraction=valid_fraction,
             train_split_seed=train_split_seed,
+            augment=augment,
+            remix=remix,
         )
     else:
         with create_setup_progress("Setup", title_style=BOLD_PURPLE) as setup_progress:
@@ -723,6 +737,8 @@ def main(
                     val_split=val_split,
                     valid_fraction=valid_fraction,
                     train_split_seed=train_split_seed,
+                    augment=augment,
+                    remix=remix,
                 )
 
                 setup_progress.update(
@@ -818,6 +834,8 @@ def main(
         val_split=val_split,
         valid_fraction=valid_fraction,
         train_split_seed=train_split_seed,
+        augment=augment,
+        remix=remix,
     )
     if wandb.run is not None:
         wandb.config.update(config)

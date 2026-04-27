@@ -19,6 +19,7 @@ dependencies = [
   "rich>=13.0.0",
   "python-dotenv>=1.0.0",
   "wandb>=0.16.0",
+  "audiomentations>=0.40,<1.0",
 ]
 
 [project.optional-dependencies]

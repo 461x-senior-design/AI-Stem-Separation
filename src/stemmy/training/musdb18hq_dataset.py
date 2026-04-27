@@ -66,6 +66,10 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         partition: Optional[str] = None,
         valid_fraction: float = 0.2,
         split_seed: int = 0,
+        augment: bool = False,
+        remix: bool = False,
+        gain_db: float = 6.0,
+        polarity_prob: float = 0.5,
     ) -> None:
         """Initialize the dataset.
 
@@ -83,6 +87,10 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             partition: "train" or "valid" when subset="train"; None when subset="test"
             valid_fraction: Fraction of MUSDB train tracks reserved for validation
             split_seed: Seed used to deterministically split MUSDB train into train/valid
+            augment: If True, apply per-stem random gain + polarity flip before STFT
+            remix: If True, sample each stem from an independently chosen track
+            gain_db: Symmetric gain range in decibels for per-stem augmentation
+            polarity_prob: Probability of flipping polarity per stem when augmenting
         """
         if subset not in ["train", "test"]:
             raise ValueError("subset must be 'train' or 'test'.")
@@ -180,6 +188,29 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         self.segment_samples = self._segment_samples_required()
         self._validate_track_files()
 
+        if (augment or remix) and self.deterministic:
+            raise ValueError(
+                "augment/remix cannot be enabled together with deterministic=True; "
+                "validation must not randomize."
+            )
+
+        self.augment = bool(augment)
+        self.remix = bool(remix)
+        self.gain_db = float(gain_db)
+        self.polarity_prob = float(polarity_prob)
+
+        if self.augment:
+            from audiomentations import Compose, Gain, PolarityInversion
+
+            self._stem_augment = Compose(
+                [
+                    Gain(min_gain_db=-self.gain_db, max_gain_db=self.gain_db, p=1.0),
+                    PolarityInversion(p=self.polarity_prob),
+                ]
+            )
+        else:
+            self._stem_augment = None
+
     def _segment_samples_required(self) -> int:
         """Compute waveform samples required to yield exactly T STFT frames.
 
@@ -276,6 +307,23 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 % (self.spectrogram_norm,)
             )
 
+    def _pick_offset(self, track_dir: Path) -> int:
+        """Pick a valid waveform offset for a track, respecting determinism."""
+        mix_path = track_dir / "mixture.wav"
+        info = sf.info(str(mix_path))
+        total_frames = int(info.frames)
+
+        if total_frames < self.segment_samples:
+            raise ValueError(
+                f"Track too short for crop: {mix_path} has {total_frames} frames, "
+                f"need {self.segment_samples}"
+            )
+
+        if self.deterministic:
+            return (total_frames - self.segment_samples) // 2
+
+        return self.rng.randint(0, total_frames - self.segment_samples)
+
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Get a single training example.
 
@@ -290,25 +338,38 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         self._validate_spectrogram_norm()
 
-        track_dir = self.track_dirs[idx]
-        mix_path = track_dir / "mixture.wav"
+        # 1. For each stem, decide which track to pull from + valid offset.
+        base_track_dir = self.track_dirs[idx]
+        if self.remix:
+            stem_track_dirs = [self.rng.choice(self.track_dirs) for _ in self.stems]
+        else:
+            stem_track_dirs = [base_track_dir] * len(self.stems)
+        stem_starts = [self._pick_offset(td) for td in stem_track_dirs]
 
-        info = sf.info(str(mix_path))
-        total_frames = int(info.frames)
+        # 2. Load each stem waveform from its (track, start).
+        stem_wavs: List[torch.Tensor] = []
+        for stem, td, s in zip(self.stems, stem_track_dirs, stem_starts):
+            sw = self._read_mono_segment(td / f"{stem}.wav", s, self.segment_samples)
+            stem_wavs.append(sw)
 
-        if total_frames < self.segment_samples:
-            raise ValueError(
-                f"Track too short for crop: {mix_path} has {total_frames} frames, "
-                f"need {self.segment_samples}"
+        # 3. Per-stem augmentation (independent random params per stem).
+        if self._stem_augment is not None:
+            sr = int(self.stft_cfg.sample_rate)
+            for i, sw in enumerate(stem_wavs):
+                sw_np = sw.detach().cpu().numpy().astype("float32")
+                sw_np = self._stem_augment(samples=sw_np, sample_rate=sr)
+                stem_wavs[i] = torch.from_numpy(sw_np).to(torch.float32)
+
+        # 4. Mixture: reconstruct from stems when augmenting / remixing,
+        #    otherwise load mixture.wav from disk (existing behavior).
+        if self.augment or self.remix:
+            mix_wav = torch.stack(stem_wavs, dim=0).sum(dim=0)
+        else:
+            mix_wav = self._read_mono_segment(
+                base_track_dir / "mixture.wav", stem_starts[0], self.segment_samples
             )
 
-        if self.deterministic:
-            start = (total_frames - self.segment_samples) // 2
-        else:
-            start = self.rng.randint(0, total_frames - self.segment_samples)
-
-        mix_wav = self._read_mono_segment(mix_path, start, self.segment_samples)
-
+        # 5. Normalize mixture waveform → STFT (existing logic).
         mix_wav_np = mix_wav.detach().cpu().numpy()
         mix_wav_np, mix_norm_params = normalize_waveform(mix_wav_np, method=self.waveform_norm)
         mix_scale = float(mix_norm_params.get("scale_factor", 1.0))
@@ -326,17 +387,15 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         else:
             mix_norm, _f_min, _f_max = freq_minmax_normalize(mix_mag)
 
+        # 6. STFT each (already-augmented) stem with mix_scale coupling preserved.
         stem_mags: List[torch.Tensor] = []
-        for stem in self.stems:
-            stem_path = track_dir / f"{stem}.wav"
-            stem_wav = self._read_mono_segment(stem_path, start, self.segment_samples)
-
+        for sw in stem_wavs:
             if mix_scale != 0.0:
-                stem_wav = stem_wav / mix_scale
-
-            stem_mag, _ = stft_mag_phase_mono(stem_wav, self.stft_cfg)
+                sw = sw / mix_scale
+            stem_mag, _ = stft_mag_phase_mono(sw, self.stft_cfg)
             stem_mags.append(stem_mag)
 
+        # 7. Ratio mask computation.
         denom = torch.zeros_like(stem_mags[0])
         for sm in stem_mags:
             denom = denom + sm

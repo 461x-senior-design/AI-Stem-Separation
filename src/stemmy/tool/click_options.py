@@ -61,6 +61,18 @@ processing_options = [
         show_default=True,
         help="Fixed STFT time frames T (256 or 512).",
     ),
+    click.option(
+        "--augment/--no-augment",
+        default=True,
+        show_default=True,
+        help="Apply per-stem random gain + polarity flip to the train partition.",
+    ),
+    click.option(
+        "--remix/--no-remix",
+        default=True,
+        show_default=True,
+        help="Cross-track random remixing on the train partition.",
+    ),
 ]
 
 training_options = [
