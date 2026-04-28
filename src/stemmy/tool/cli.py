@@ -259,6 +259,21 @@ def spinner() -> None:
         click.echo("EQ_FRAMES already up to date in src/stemmy/constants.py")
 
 
+# NOTE: `stemmy gui` command
+@cli.command("gui", help="Launch the Stemmy graphical front end.")
+def gui() -> None:
+    """Launch the PySide6 GUI."""
+    try:
+        from stemmy.gui.gui import main as gui_main
+    except ImportError as exc:
+        raise click.ClickException(
+            "Unable to import the GUI. Install the GUI dependency with: "
+            'pip install -e ".[gui]"'
+        ) from exc
+
+    raise SystemExit(gui_main())
+
+
 # NOTE: `stemmy separate` command
 @cli.command(
     help=(
