@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-# src/stemmy/tool/cli.py
 """Command-line interface for running stem separation inference.
 
 This module provides a Click-based CLI that can:
@@ -12,6 +9,8 @@ This module provides a Click-based CLI that can:
 Outputs are written as <base>_<stem>.wav files under the chosen output directory.
 """
 
+from __future__ import annotations
+
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -20,8 +19,6 @@ from typing import Sequence
 import click
 
 CHKPT: str = str((Path(__file__).resolve().parent / "default.pth").resolve())
-DIR: str = Path.cwd().name
-STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 TRAIN_DATA_ROOT_KEY: str = "TRAIN_DATA_ROOT"
 DATA_KEY: str = "DATA"
 CKPT_DIR_KEY: str = "CKPT_DIR"
