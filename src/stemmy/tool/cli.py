@@ -17,12 +17,30 @@ from pathlib import Path
 from typing import Sequence
 
 import click
+from dotenv import dotenv_values
+
+from stemmy.tool.click_options import add_options, processing_options, training_options
+from stemmy.tool.launcher.commands import (
+    compare,
+    ls_cmd,
+    matrix,
+    run,
+    show,
+)
+from stemmy.tool.launcher.commands import (
+    config as _launcher_config,
+)
 
 CHKPT: str = str((Path(__file__).resolve().parent / "default.pth").resolve())
 TRAIN_DATA_ROOT_KEY: str = "TRAIN_DATA_ROOT"
 DATA_KEY: str = "DATA"
 CKPT_DIR_KEY: str = "CKPT_DIR"
 EVAL_DIR_KEY: str = "EVAL_DIR"
+
+# Global placeholders for test mocking and lazy loading
+fullsong_eval_masked_main = None
+update_constants_eq_frames = None
+train_command = None
 
 
 def _apply_potato_mode(potato: bool) -> None:
@@ -39,8 +57,6 @@ def _apply_potato_mode(potato: bool) -> None:
 
 def _fullsong_eval_default_env() -> dict[str, str]:
     """Return default environment values for dev full-song evaluation."""
-    from dotenv import dotenv_values
-
     env_values = dotenv_values(".env")
 
     data_root = os.getenv(TRAIN_DATA_ROOT_KEY) or env_values.get(TRAIN_DATA_ROOT_KEY) or ""
@@ -195,24 +211,19 @@ def dev() -> None:
     "train",
     context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
 )
-@click.argument("args", nargs=-1, type=click.UNPROCESSED)
-def dev_train(args: tuple[str, ...]) -> None:
+@add_options(processing_options)
+@add_options(training_options)
+@click.pass_context
+def dev_train(ctx: click.Context, **kwargs: object) -> None:
     """Run the training command."""
-    from stemmy.train import main as train_command
+    global train_command
+    if train_command is None:
+        from stemmy.train import main as train_command
 
-    train_command.main(args=list(args), prog_name="stemmy dev train", standalone_mode=True)
+    ctx.invoke(train_command, **kwargs)
 
 
 # NOTE: HPC launcher subcommands — run/matrix/ls/show/compare/config
-from stemmy.tool.launcher.commands import (  # noqa: E402
-    compare,
-    config as _launcher_config,
-    ls_cmd,
-    matrix,
-    run,
-    show,
-)
-
 for _launcher_cmd in (
     run,
     matrix,
@@ -246,8 +257,7 @@ for _launcher_cmd in (
 @click.argument("env_args", nargs=-1, type=click.UNPROCESSED)
 def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     """Run full-song evaluation via stemmy.tool.fullsong_eval_masked."""
-    from stemmy.tool.fullsong_eval_masked import main as fullsong_eval_masked_main
-
+    global fullsong_eval_masked_main
     env_overrides = [arg for arg in env_args if arg != "--potato"]
     potato = bool(potato or ("--potato" in env_args))
     _apply_potato_mode(potato)
@@ -267,6 +277,9 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
             raise click.ClickException("Invalid argument '%s'. Empty environment key." % raw)
         os.environ[key] = value
 
+    if fullsong_eval_masked_main is None:
+        from stemmy.tool.fullsong_eval_masked import main as fullsong_eval_masked_main
+
     fullsong_eval_masked_main()
 
 
@@ -274,7 +287,9 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
 @cli.command("spinner", help="Generate EQ spinner frames and update src/stemmy/constants.py.")
 def spinner() -> None:
     """Regenerate EQ_FRAMES and write them to constants.py."""
-    from stemmy.tool.eq_frames import update_constants_eq_frames
+    global update_constants_eq_frames
+    if update_constants_eq_frames is None:
+        from stemmy.tool.eq_frames import update_constants_eq_frames
 
     try:
         changed = update_constants_eq_frames()
@@ -295,7 +310,7 @@ def spinner() -> None:
         "  -c/--checkpoint (.pth): preferred when you want config derived from training metadata.\n"
         "  -t/--torchscript (.pt): preferred when you want a frozen inference artifact.\n\n"
         "Outputs:\n"
-        "  Writes <base>_<stem>.wav under -o/--output-dir.\n\n"
+        "  Writes <base>_<stem>.wav files under -o/--output-dir.\n\n"
         "Use --preview to print expected output names without running inference."
     )
 )
@@ -337,7 +352,7 @@ def spinner() -> None:
 @click.option(
     "--chunk-frames",
     type=int,
-    default=256,  # NOTE: Changed from 0
+    default=256,
     show_default=True,
     help=(
         "If > 0, run inference in time chunks of this many STFT frames to "
@@ -347,7 +362,7 @@ def spinner() -> None:
 @click.option(
     "--overlap-frames",
     type=int,
-    default=64,  # NOTE: Changed from 0
+    default=64,
     show_default=True,
     help="Overlap (in STFT frames) between chunks when --chunk-frames > 0.",
 )

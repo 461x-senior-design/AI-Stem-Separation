@@ -12,7 +12,6 @@ import click
 from . import config as cfg
 from . import paths, registry, sbatch
 
-
 # ---------- helpers ----------
 
 
@@ -367,8 +366,7 @@ def matrix(matrix_yaml: str, dry_run: bool) -> None:
         entry.write()
         submitted.append((entry.run_id, job_id))
         click.secho(
-            f"  {entry.run_id}  job={job_id}  "
-            f"base={base_config or '-'} overrides={combo}",
+            f"  {entry.run_id}  job={job_id}  base={base_config or '-'} overrides={combo}",
             fg="green",
         )
 
