@@ -49,7 +49,7 @@ Common overrides:
   --n-eval-tracks N
   --max-seconds N
   --waveform-norm peak|rms|none
-  --spectrogram-norm log1p|freq_minmax|none
+  --spectrogram-norm freq_minmax|none
   --amp 0|1
 
 Optional training retry behavior (OFF by default):

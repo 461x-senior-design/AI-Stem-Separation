@@ -124,12 +124,12 @@ def update_metrics_from_eval_csv(entry: RunEntry) -> None:
         rows = list(csv.DictReader(f))
     if not rows:
         return
-    best = max(rows, key=lambda r: _float(r.get("mean_sisdr_db")))
+    best = max(rows, key=lambda r: _float(r.get("mean_sisdr")))
     last = rows[-1]
     entry.metrics_snapshot = {
-        "best_sisdr": _float(best.get("mean_sisdr_db")),
+        "best_sisdr": _float(best.get("mean_sisdr")),
         "best_epoch": _int(best.get("epoch")),
-        "final_sisdr": _float(last.get("mean_sisdr_db")),
+        "final_sisdr": _float(last.get("mean_sisdr")),
         "final_epoch": _int(last.get("epoch")),
         "n_checkpoints_evaluated": len(rows),
     }

@@ -321,24 +321,23 @@ def config_edit(name: str, shared: bool) -> None:
 @click.option("--dry-run", is_flag=True)
 def matrix(matrix_yaml: str, dry_run: bool) -> None:
     """Submit one run per cell of a YAML matrix (cartesian sweep)."""
-    try:
-        import yaml  # type: ignore
-    except ImportError as e:
-        raise click.ClickException("pyyaml not installed — `pip install pyyaml`") from e
-
-    spec = yaml.safe_load(Path(matrix_yaml).read_text())
+    spec = _load_matrix_spec(Path(matrix_yaml))
     name_prefix = spec.get("name", Path(matrix_yaml).stem)
-    base_config = spec.get("base")
+    base_configs = _base_configs(spec.get("base"))
     sweep: dict[str, list] = spec.get("sweep", {})
     partition = spec.get("partition", "dgxh")
 
     combos = _cartesian(sweep)
-    click.echo(f"{len(combos)} runs will be submitted")
+    total_runs = len(base_configs) * len(combos)
+    click.echo(f"{total_runs} runs will be submitted")
     submitted: list[tuple[str, str]] = []
-    for i, combo in enumerate(combos):
+    for i, (base_config, combo) in enumerate(
+        (base_config, combo) for base_config in base_configs for combo in combos
+    ):
         overrides = {k: str(v) for k, v in combo.items()}
         resolved = cfg.resolve_layers(base_config, overrides)
-        label = f"{name_prefix}-{i:02d}"
+        base_label = _label_part(base_config) if base_config else "default"
+        label = f"{name_prefix}-{base_label}-{i:02d}"
         entry = registry.new_entry(
             name=label,
             config_values=resolved.values,
@@ -355,7 +354,10 @@ def matrix(matrix_yaml: str, dry_run: bool) -> None:
             partition=partition,
         )
         if dry_run:
-            click.echo(f"[dry-run] would submit {entry.run_id} ({combo})")
+            click.echo(
+                f"[dry-run] would submit {entry.run_id} "
+                f"(base={base_config or '-'}, overrides={combo})"
+            )
             entry.status = "dry-run"
             entry.write()
             continue
@@ -364,7 +366,11 @@ def matrix(matrix_yaml: str, dry_run: bool) -> None:
         entry.status = "submitted"
         entry.write()
         submitted.append((entry.run_id, job_id))
-        click.secho(f"  {entry.run_id}  job={job_id}  {combo}", fg="green")
+        click.secho(
+            f"  {entry.run_id}  job={job_id}  "
+            f"base={base_config or '-'} overrides={combo}",
+            fg="green",
+        )
 
     if submitted:
         click.echo(f"\nsubmitted {len(submitted)} jobs")
@@ -384,3 +390,81 @@ def _cartesian(sweep: dict[str, list]) -> list[dict]:
                 new.append(cp)
         out = new
     return out
+
+
+def _base_configs(base: object) -> list[str | None]:
+    if base is None or base == "":
+        return [None]
+    if isinstance(base, list):
+        return [str(v) for v in base]
+    return [str(base)]
+
+
+def _label_part(value: str) -> str:
+    return "".join(c if c.isalnum() or c in ("-", "_") else "-" for c in value)
+
+
+def _load_matrix_spec(path: Path) -> dict:
+    """Parse the small matrix YAML subset used by scripts/v2/matrices/.
+
+    The HPC login environment must be able to expand and submit matrices
+    without relying on optional Python packages. Supported shape:
+
+      name: run-name
+      base: recon-p10
+      base: [recon-p10, kl-p10]
+      partition: dgxh
+      sweep:
+        KEY: [value1, value2]
+    """
+    spec: dict[str, object] = {}
+    sweep: dict[str, list[str]] = {}
+    in_sweep = False
+
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+
+        if not raw_line.startswith((" ", "\t")):
+            in_sweep = False
+            key, value = _parse_matrix_kv(line)
+            if key == "sweep":
+                if value:
+                    raise click.ClickException(f"{path}: sweep must be a mapping")
+                in_sweep = True
+                spec["sweep"] = sweep
+            elif key == "base" and value.startswith("["):
+                spec[key] = _parse_matrix_list(value)
+            else:
+                spec[key] = value
+            continue
+
+        if not in_sweep:
+            raise click.ClickException(f"{path}: unexpected indented line: {raw_line}")
+
+        key, value = _parse_matrix_kv(line.strip())
+        sweep[key] = _parse_matrix_list(value)
+
+    if "sweep" not in spec:
+        spec["sweep"] = sweep
+    return spec
+
+
+def _parse_matrix_kv(line: str) -> tuple[str, str]:
+    if ":" not in line:
+        raise click.ClickException(f"invalid matrix line: {line}")
+    key, value = line.split(":", 1)
+    key = key.strip()
+    if not key:
+        raise click.ClickException(f"invalid matrix line: {line}")
+    return key, value.strip()
+
+
+def _parse_matrix_list(value: str) -> list[str]:
+    if not (value.startswith("[") and value.endswith("]")):
+        raise click.ClickException(f"matrix sweep values must be inline lists: {value}")
+    inner = value[1:-1].strip()
+    if not inner:
+        return []
+    return [item.strip().strip("\"'") for item in inner.split(",")]

@@ -30,5 +30,5 @@ def current_branch() -> str:
 
 
 def is_dirty() -> bool:
-    out = _git("status", "--porcelain")
+    out = _git("status", "--porcelain", "--untracked-files=no")
     return bool(out.strip())

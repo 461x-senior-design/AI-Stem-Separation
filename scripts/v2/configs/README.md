@@ -1,17 +1,17 @@
-# scripts/configs
+# scripts/v2/configs
 
 Named env configs consumed by the `stemmy` CLI.
 
 ## Layout
 
 ```
-scripts/configs/
+scripts/v2/configs/
   shared/              committed — everyone sees these
     recon-p10.env
     kl-p10.env
     ...
   <user>/              per-user, git-ignored by default
-    defaults.env       your personal overrides on top of scripts/defaults.env
+    defaults.env       your personal overrides on top of scripts/v2/defaults.env
     <name>.env         your named experiments
 ```
 
@@ -19,9 +19,9 @@ scripts/configs/
 
 ## Resolution order 
 
-1. `scripts/defaults.env` — project baseline (committed)
-2. `scripts/configs/<user>/defaults.env` — your personal baseline
-3. `scripts/configs/<user>/<name>.env` **or** `scripts/configs/shared/<name>.env`
+1. `scripts/v2/defaults.env` — project baseline (committed)
+2. `scripts/v2/configs/<user>/defaults.env` — your personal baseline
+3. `scripts/v2/configs/<user>/<name>.env` **or** `scripts/v2/configs/shared/<name>.env`
    (the user dir wins on collision)
 4. CLI `KEY=VALUE` overrides passed to `stemmy run`
 
