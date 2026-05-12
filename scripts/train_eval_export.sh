@@ -13,7 +13,7 @@ This runs:
   3) best checkpoint selection
   4) torchscript export (.pt)
 
-Directory layout:
+Directory layout (single timestamped directory per run):
 
   RUNS_BASE/run_<partition>_<stamp>/
     logs/
@@ -25,11 +25,11 @@ Directory layout:
       unet_best_<partition>_<stamp>.pth
       unet_best_<partition>_<stamp>.pt
 
-It also writes stable pointers at RUNS_BASE:
-  RUNS_BASE/latest_run_<partition>
-  RUNS_BASE/latest_best_<partition>.pth
-  RUNS_BASE/latest_best_<partition>.pt
-  RUNS_BASE/latest_<partition>.env
+It also writes stable "latest" pointers at RUNS_BASE:
+  RUNS_BASE/latest_run_<partition>      (symlink to run directory)
+  RUNS_BASE/latest_best_<partition>.pth (symlink to best .pth within latest run)
+  RUNS_BASE/latest_best_<partition>.pt  (symlink to best .pt within latest run)
+  RUNS_BASE/latest_<partition>.env      (exports paths for downstream scripts)
 
 Defaults are loaded from scripts/stemmy.env if present. CLI flags override env.
 
@@ -41,10 +41,10 @@ Common overrides:
   --lr FLOAT
   --weight-decay FLOAT
   --time-frames 256|512
-  --max-tracks N
+  --max-tracks N          (train.py: limit number of tracks per split; 0 = no limit)
   --base-channels N
-  --num-workers N
-  --batch-size N
+  --num-workers N         (0 allowed)
+  --batch-size N          (skip probing)
   --device cpu|cuda|cuda:N
   --n-eval-tracks N
   --max-seconds N
@@ -52,24 +52,24 @@ Common overrides:
   --spectrogram-norm freq_minmax|none
   --amp 0|1
 
-Split controls:
-  --train-split train
-  --val-split valid
-  --valid-fraction FLOAT
-  --train-split-seed N
-  --eval-subset test
-
-Optional training retry behavior:
+Optional training retry behavior (OFF by default):
   --lr-backoff 0|1
-  --lr-backoff-factor FLOAT
-  --lr-backoff-max-tries N
+  --lr-backoff-factor FLOAT      (multiplier in (0,1); default 0.5)
+  --lr-backoff-max-tries N       (default 3)
 
-Eval output controls:
+Eval progress + durability overrides (passed into stemmy.tool.fullsong_eval_masked.py):
   --eval-progress 0|1
   --eval-print-metrics 0|1
   --eval-flush-every N
-  --eval-fsync-every N
+  --eval-fsync-every N     (0 disables)
   --eval-print-every-tracks N
+
+Example (minimal run):
+  PYTHONUNBUFFERED=1 scripts/train_eval_export.sh --partition gpu \
+    --epochs 1 --max-tracks 1 --time-frames 256 --batch-size 1 --num-workers 0 \
+    --save-every-epochs 1 --n-eval-tracks 1 --max-seconds 5 --device cuda \
+    --eval-progress 1 --eval-print-metrics 0 --eval-flush-every 1 --eval-fsync-every 0 \
+    --lr-backoff 0
 EOF
 }
 
@@ -96,28 +96,25 @@ SPECTROGRAM_NORM=""
 AMP=""
 DEVICE=""
 
-TRAIN_SPLIT=""
-VAL_SPLIT=""
-VALID_FRACTION=""
-TRAIN_SPLIT_SEED=""
-EVAL_SUBSET=""
-
 N_EVAL_TRACKS=""
 MAX_SECONDS=""
 
 NUM_WORKERS=""
-BATCH_SIZE=""
+BATCH_SIZE=""   # if set, skip probing
 
+# Optional LR backoff / retry (default OFF)
 LR_BACKOFF=""
 LR_BACKOFF_FACTOR=""
 LR_BACKOFF_MAX_TRIES=""
 
+# Eval controls (forwarded as env vars to stemmy.tool.fullsong_eval_masked.py)
 EVAL_PROGRESS=""
 EVAL_PRINT_METRICS=""
 EVAL_FLUSH_EVERY=""
 EVAL_FSYNC_EVERY=""
 EVAL_PRINT_EVERY_TRACKS=""
 
+# Load env defaults FIRST so CLI flags override.
 if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -159,12 +156,6 @@ while [[ $# -gt 0 ]]; do
     --amp) AMP="${2:-}"; shift 2 ;;
     --device) DEVICE="${2:-}"; shift 2 ;;
 
-    --train-split) TRAIN_SPLIT="${2:-}"; shift 2 ;;
-    --val-split) VAL_SPLIT="${2:-}"; shift 2 ;;
-    --valid-fraction) VALID_FRACTION="${2:-}"; shift 2 ;;
-    --train-split-seed) TRAIN_SPLIT_SEED="${2:-}"; shift 2 ;;
-    --eval-subset) EVAL_SUBSET="${2:-}"; shift 2 ;;
-
     --n-eval-tracks) N_EVAL_TRACKS="${2:-}"; shift 2 ;;
     --max-seconds) MAX_SECONDS="${2:-}"; shift 2 ;;
 
@@ -186,6 +177,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Partition required
 if [[ -z "${PARTITION}" ]]; then
   echo "ERROR: --partition required (dgx2|dgxh|gpu|ampere)" >&2
   exit 2
@@ -195,6 +187,7 @@ if [[ "${PARTITION}" != "dgx2" && "${PARTITION}" != "dgxh" && "${PARTITION}" != 
   exit 2
 fi
 
+# Pull from env if flags were not provided
 ONID="${ONID:-}"
 DATA_ROOT="${DATA_ROOT:-}"
 RUNS_BASE="${RUNS_BASE:-}"
@@ -227,6 +220,7 @@ if [[ "${DEVICE}" != "cpu" && "${DEVICE}" != "cuda" && "${DEVICE}" != cuda:* ]];
   exit 2
 fi
 
+# Require GPU if device is cuda*
 if [[ "${DEVICE}" == "cuda" || "${DEVICE}" == cuda:* ]]; then
   if ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "ERROR: nvidia-smi not found. Run this inside a GPU allocation." >&2
@@ -234,6 +228,7 @@ if [[ "${DEVICE}" == "cuda" || "${DEVICE}" == cuda:* ]]; then
   fi
 fi
 
+# Avoid CPU oversubscription from BLAS/OMP inside DataLoader workers.
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-1}"
 
@@ -244,6 +239,7 @@ if command -v nvidia-smi >/dev/null 2>&1; then
   GPU_MEM_MIB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | head -n 1 | tr -d '\r')"
 fi
 
+# Defaults (env can override, CLI overrides env already)
 EPOCHS="${EPOCHS:-300}"
 LR="${LR:-1e-4}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-1e-6}"
@@ -258,46 +254,28 @@ WAVEFORM_NORM="${WAVEFORM_NORM:-peak}"
 SPECTROGRAM_NORM="${SPECTROGRAM_NORM:-freq_minmax}"
 AMP="${AMP:-0}"
 
-TRAIN_SPLIT="${TRAIN_SPLIT:-train}"
-VAL_SPLIT="${VAL_SPLIT:-valid}"
-VALID_FRACTION="${VALID_FRACTION:-0.2}"
-TRAIN_SPLIT_SEED="${TRAIN_SPLIT_SEED:-0}"
-EVAL_SUBSET="${EVAL_SUBSET:-test}"
-
 N_EVAL_TRACKS="${N_EVAL_TRACKS:-30}"
 MAX_SECONDS="${MAX_SECONDS:-30}"
 
+# Optional LR backoff defaults (OFF)
 LR_BACKOFF="${LR_BACKOFF:-0}"
 LR_BACKOFF_FACTOR="${LR_BACKOFF_FACTOR:-0.5}"
 LR_BACKOFF_MAX_TRIES="${LR_BACKOFF_MAX_TRIES:-3}"
 
+# Eval controls default from env (or fallback)
 EVAL_PROGRESS="${EVAL_PROGRESS:-1}"
 EVAL_PRINT_METRICS="${EVAL_PRINT_METRICS:-0}"
 EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY:-1}"
 EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY:-0}"
 EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS:-1}"
 
+# Validate key ints
 if [[ "${TIME_FRAMES}" != "256" && "${TIME_FRAMES}" != "512" ]]; then
   echo "ERROR: TIME_FRAMES must be 256 or 512" >&2
   exit 2
 fi
 
-case "${TRAIN_SPLIT}" in
-  train) ;;
-  *) echo "ERROR: TRAIN_SPLIT must be train (got: ${TRAIN_SPLIT})" >&2; exit 2 ;;
-esac
-
-case "${VAL_SPLIT}" in
-  valid) ;;
-  *) echo "ERROR: VAL_SPLIT must be valid (got: ${VAL_SPLIT})" >&2; exit 2 ;;
-esac
-
-case "${EVAL_SUBSET}" in
-  test) ;;
-  *) echo "ERROR: EVAL_SUBSET must be test (got: ${EVAL_SUBSET})" >&2; exit 2 ;;
-esac
-
-for vname in EPOCHS BASE_CHANNELS LR_PATIENCE SAVE_EVERY_EPOCHS N_EVAL_TRACKS MAX_SECONDS MAX_TRACKS LR_BACKOFF_MAX_TRIES TRAIN_SPLIT_SEED; do
+for vname in EPOCHS BASE_CHANNELS LR_PATIENCE SAVE_EVERY_EPOCHS N_EVAL_TRACKS MAX_SECONDS MAX_TRACKS LR_BACKOFF_MAX_TRIES; do
   val="${!vname}"
   if ! [[ "${val}" =~ ^[0-9]+$ ]]; then
     echo "ERROR: ${vname} must be an integer (got: ${val})" >&2
@@ -305,16 +283,13 @@ for vname in EPOCHS BASE_CHANNELS LR_PATIENCE SAVE_EVERY_EPOCHS N_EVAL_TRACKS MA
   fi
 done
 
+if ! [[ "${LR_BACKOFF}" =~ ^[01]$ ]]; then
+  echo "ERROR: LR_BACKOFF must be 0 or 1 (got: ${LR_BACKOFF})" >&2
+  exit 2
+fi
+
 python - <<PY
 import sys
-try:
-    vf = float("${VALID_FRACTION}")
-except Exception:
-    print("ERROR: VALID_FRACTION must be a float in (0,1).", file=sys.stderr)
-    sys.exit(2)
-if not (0.0 < vf < 1.0):
-    print("ERROR: VALID_FRACTION must be in (0,1).", file=sys.stderr)
-    sys.exit(2)
 try:
     f = float("${LR_BACKOFF_FACTOR}")
 except Exception:
@@ -324,11 +299,6 @@ if not (0.0 < f < 1.0):
     print("ERROR: LR_BACKOFF_FACTOR must be in (0,1) (got: %s)" % "${LR_BACKOFF_FACTOR}", file=sys.stderr)
     sys.exit(2)
 PY
-
-if ! [[ "${LR_BACKOFF}" =~ ^[01]$ ]]; then
-  echo "ERROR: LR_BACKOFF must be 0 or 1 (got: ${LR_BACKOFF})" >&2
-  exit 2
-fi
 
 if [[ "${EPOCHS}" -le 0 ]]; then
   echo "ERROR: EPOCHS must be > 0" >&2
@@ -390,6 +360,7 @@ if [[ "${EVAL_PRINT_EVERY_TRACKS}" -le 0 ]]; then
   exit 2
 fi
 
+# Derive NUM_WORKERS if not explicitly set
 NUM_WORKERS_MAX="${NUM_WORKERS_MAX:-24}"
 if ! [[ "${NUM_WORKERS_MAX}" =~ ^[0-9]+$ ]]; then
   echo "ERROR: NUM_WORKERS_MAX must be an integer (got: ${NUM_WORKERS_MAX})" >&2
@@ -421,6 +392,7 @@ else
   fi
 fi
 
+# Batch size selection: probe unless BATCH_SIZE provided
 if [[ -n "${BATCH_SIZE:-}" ]]; then
   if ! [[ "${BATCH_SIZE}" =~ ^[0-9]+$ ]] || [[ "${BATCH_SIZE}" -le 0 ]]; then
     echo "ERROR: --batch-size must be a positive integer" >&2
@@ -498,6 +470,9 @@ PY
   fi
 fi
 
+# --------------------------
+# Single run directory layout
+# --------------------------
 STAMP="$(date +%Y%m%d_%H%M%S)"
 RUN_DIR="${RUNS_BASE}/run_${PARTITION}_${STAMP}"
 LOG_DIR="${RUN_DIR}/logs"
@@ -508,6 +483,9 @@ BEST_DIR="${RUN_DIR}/best"
 mkdir -p "${LOG_DIR}" "${CKPT_DIR}" "${EVAL_DIR}" "${BEST_DIR}"
 
 CONSOLE_LOG="${LOG_DIR}/console.log"
+
+# Capture all stdout/stderr into the run directory log while still showing it.
+# This covers the entire script and all child processes.
 exec > >(tee -a "${CONSOLE_LOG}") 2>&1
 
 RUN_INFO="${RUN_DIR}/run_info.txt"
@@ -527,11 +505,6 @@ echo "=== RUN INFO ==="
   echo "pwd=$(pwd)"
   echo
   echo "data_root=${DATA_ROOT}"
-  echo "train_split=${TRAIN_SPLIT}"
-  echo "val_split=${VAL_SPLIT}"
-  echo "valid_fraction=${VALID_FRACTION}"
-  echo "train_split_seed=${TRAIN_SPLIT_SEED}"
-  echo "eval_subset=${EVAL_SUBSET}"
   echo
   echo "epochs=${EPOCHS}"
   echo "batch_size=${BATCH_SIZE}"
@@ -576,29 +549,31 @@ echo "=== Phase 1/4: Train ==="
 
 run_train_once() {
   local lr_val="$1"
-  TRAIN_SPLIT="${TRAIN_SPLIT}" \
-  VAL_SPLIT="${VAL_SPLIT}" \
-  VALID_FRACTION="${VALID_FRACTION}" \
-  TRAIN_SPLIT_SEED="${TRAIN_SPLIT_SEED}" \
-  python -m stemmy.train \
-    --data-root "${DATA_ROOT}" \
-    --epochs "${EPOCHS}" \
-    --batch-size "${BATCH_SIZE}" \
-    --lr "${lr_val}" \
-    --weight-decay "${WEIGHT_DECAY}" \
-    --num-workers "${NUM_WORKERS}" \
-    --time-frames "${TIME_FRAMES}" \
-    --max-tracks "${MAX_TRACKS}" \
-    --base-channels "${BASE_CHANNELS}" \
-    --lr-factor "${LR_FACTOR}" \
-    --lr-patience "${LR_PATIENCE}" \
-    --min-lr "${MIN_LR}" \
-    --waveform-norm "${WAVEFORM_NORM}" \
-    --spectrogram-norm "${SPECTROGRAM_NORM}" \
-    --checkpoint-dir "${CKPT_DIR}" \
-    --save-every-epochs "${SAVE_EVERY_EPOCHS}" \
-    --device "${DEVICE}" \
-    $([[ "${AMP}" == "1" ]] && echo "--amp")
+  local -a train_args=(
+    --data-root "${DATA_ROOT}"
+    --epochs "${EPOCHS}"
+    --batch-size "${BATCH_SIZE}"
+    --lr "${lr_val}"
+    --weight-decay "${WEIGHT_DECAY}"
+    --num-workers "${NUM_WORKERS}"
+    --time-frames "${TIME_FRAMES}"
+    --max-tracks "${MAX_TRACKS}"
+    --base-channels "${BASE_CHANNELS}"
+    --lr-factor "${LR_FACTOR}"
+    --lr-patience "${LR_PATIENCE}"
+    --min-lr "${MIN_LR}"
+    --waveform-norm "${WAVEFORM_NORM}"
+    --spectrogram-norm "${SPECTROGRAM_NORM}"
+    --checkpoint-dir "${CKPT_DIR}"
+    --save-every-epochs "${SAVE_EVERY_EPOCHS}"
+    --device "${DEVICE}"
+  )
+
+  if [[ "${AMP}" == "1" ]]; then
+    train_args+=(--amp)
+  fi
+
+  python -m stemmy.train "${train_args[@]}"
 }
 
 TRAIN_LR="${LR}"
@@ -650,15 +625,13 @@ EVAL_PRINT_METRICS="${EVAL_PRINT_METRICS}" \
 EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY}" \
 EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY}" \
 EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS}" \
-EVAL_SUBSET="${EVAL_SUBSET}" \
 DATA="${DATA_ROOT}" \
 CKPT_DIR="${CKPT_DIR}" \
 EVAL_DIR="${EVAL_DIR}" \
 DEVICE="${DEVICE}" \
 N_EVAL_TRACKS="${N_EVAL_TRACKS}" \
 MAX_SECONDS="${MAX_SECONDS}" \
-PYTHONUNBUFFERED=1 \
-python -u -m stemmy.tool.fullsong_eval_masked
+PYTHONUNBUFFERED=1 python -u -m stemmy.tool.fullsong_eval_masked
 
 echo "=== Phase 3/4: Select best checkpoint ==="
 SUMMARY_CSV="${EVAL_DIR}/fullsong_eval_summary.csv"
@@ -692,6 +665,9 @@ export_torchscript(out_path, model)
 print(out_path)
 PY
 
+# --------------------------
+# Stable pointers in RUNS_BASE
+# --------------------------
 LATEST_RUN="${RUNS_BASE}/latest_run_${PARTITION}"
 LATEST_PTH="${RUNS_BASE}/latest_best_${PARTITION}.pth"
 LATEST_PT="${RUNS_BASE}/latest_best_${PARTITION}.pt"
@@ -729,3 +705,4 @@ echo "Latest run:   ${LATEST_RUN}"
 echo "Latest .pth:  ${LATEST_PTH}"
 echo "Latest .pt:   ${LATEST_PT}"
 echo "Latest env:   ${LATEST_ENV}"
+
