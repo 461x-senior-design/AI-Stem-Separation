@@ -23,30 +23,26 @@ Training changes in this version:
 
 import argparse
 import os
-
-import click
 import random
-
-from dotenv import dotenv_values
 import time
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Optional
 
+import click
 import numpy as np
 import torch
 import torch.nn.functional as F
+import wandb
+from dotenv import dotenv_values
 from rich.console import Console
 from rich.table import Table
 from torch.utils.data import DataLoader
 
-import wandb
 from stemmy.constants import (
     BAR_FINISHED_STYLE,
     BOLD_PURPLE,
     BOLD_VIOLET,
-    DEFAULT_SPECTROGRAM_NORM,
-    DEFAULT_WAVEFORM_NORM,
     HOP_LENGTH,
     LAVENDER,
     LOSS_STYLE,

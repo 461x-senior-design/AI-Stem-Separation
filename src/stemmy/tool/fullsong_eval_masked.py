@@ -46,10 +46,10 @@ from typing import Union
 import numpy as np
 import soundfile as sf
 import torch
+import wandb
 from rich.console import Console
 from rich.table import Table
 
-import wandb
 from stemmy.constants import (
     BOLD_PURPLE,
     LAVENDER,
@@ -93,7 +93,9 @@ def _coerce_epoch(value: object, fallback: int) -> int:
         return int(fallback)
 
 
-def _publish_wandb_metrics(metrics: dict[str, float], step: int, timeout_seconds: float = 10.0) -> None:
+def _publish_wandb_metrics(
+    metrics: dict[str, float], step: int, timeout_seconds: float = 10.0
+) -> None:
     """Publish W&B metrics without allowing a stuck network call to stall evaluation."""
     run = wandb.run
     if run is None:
@@ -887,7 +889,10 @@ def main() -> None:
     append_mode = bool(watch_mode and per_track_csv.exists() and per_track_csv.stat().st_size > 0)
     csv_mode = "a" if append_mode else "w"
 
-    with per_track_csv.open(csv_mode, newline="") as f_track, summary_csv.open(csv_mode, newline="") as f_sum:
+    with (
+        per_track_csv.open(csv_mode, newline="") as f_track,
+        summary_csv.open(csv_mode, newline="") as f_sum,
+    ):
         track_writer = csv.writer(f_track)
         sum_writer = csv.writer(f_sum)
         summary_rows: list[dict[str, Union[float, str]]] = []
