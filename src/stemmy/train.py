@@ -1,7 +1,7 @@
 # src/stemmy/train.py
 """Training entry point for the spectrogram-mask U-Net on MUSDB18-HQ.
 
-This script trains a UNet2D to predict per-stem ratio masks from a normalized mono
+This script trains a UNet2D to predict per-stem ratio masks from a normalized stereo
 mixture magnitude spectrogram.
 
 Key invariants:
@@ -14,11 +14,6 @@ Outputs:
 - Checkpoints (*.pth) written to --checkpoint-dir, containing model+optimizer state
   and a small config dict for reproducibility.
 - Optional TorchScript export (*.pt) via --export-ts.
-
-Training changes in this version:
-- Model outputs are treated as logits over stems.
-- Predicted masks are computed with softmax across stems (sum-to-one, differentiable).
-- Loss is KL divergence between target distribution and predicted distribution.
 """
 
 import argparse
@@ -51,6 +46,7 @@ from stemmy.constants import (
     ROSE_RED,
     STEMS_4,
     STFT_CENTER,
+    TARGET_CHANNELS,
     TARGET_SAMPLE_RATE,
     WHITE,
     WIN_LENGTH,
@@ -89,6 +85,11 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     raise NotImplementedError("Use the Click command entry point instead.")
 
 
+def validate_args(args: argparse.Namespace) -> None:
+    """Unused placeholder to preserve module compatibility."""
+    raise NotImplementedError("Argument validation is handled in main().")
+
+
 def pick_device(arg: str) -> torch.device:
     """Choose torch.device based on user input and CUDA availability."""
     if arg.strip():
@@ -102,12 +103,8 @@ def pick_device(arg: str) -> torch.device:
     return torch.device("cpu")
 
 
-def validate_args(args: argparse.Namespace) -> None:
-    raise NotImplementedError("Argument validation is handled in main().")
-
-
 def set_seed(seed: int) -> None:
-    """Seed RNGs for reproducible behavior (without forcing full determinism)."""
+    """Seed RNGs for reproducible behavior without forcing full determinism."""
     if seed < 0:
         return
 
@@ -116,6 +113,45 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def _get_env_train_split() -> str:
+    """Read and validate the training partition name from environment."""
+    value = os.getenv("TRAIN_SPLIT", "train").strip().lower()
+    if value != "train":
+        raise click.ClickException("TRAIN_SPLIT must be 'train'.")
+    return value
+
+
+def _get_env_val_split() -> str:
+    """Read and validate the validation partition name from environment."""
+    value = os.getenv("VAL_SPLIT", "valid").strip().lower()
+    if value != "valid":
+        raise click.ClickException("VAL_SPLIT must be 'valid'.")
+    return value
+
+
+def _get_env_valid_fraction() -> float:
+    """Read and validate the held-out validation fraction from environment."""
+    raw = os.getenv("VALID_FRACTION", "0.2").strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise click.ClickException("VALID_FRACTION must be a float in (0, 1).") from exc
+
+    if not (0.0 < value < 1.0):
+        raise click.ClickException("VALID_FRACTION must be in (0, 1).")
+    return value
+
+
+def _get_env_train_split_seed() -> int:
+    """Read and validate the deterministic split seed from environment."""
+    raw = os.getenv("TRAIN_SPLIT_SEED", "0").strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise click.ClickException("TRAIN_SPLIT_SEED must be an int.") from exc
+    return value
 
 
 def build_dataloaders(
@@ -128,13 +164,20 @@ def build_dataloaders(
     stft_cfg: StftConfig,
     crop_cfg: CropConfig,
     device: torch.device,
+    train_split: str,
+    val_split: str,
+    valid_fraction: float,
+    train_split_seed: int,
 ) -> tuple[Musdb18HQDataset, Musdb18HQDataset, DataLoader, DataLoader]:
     """Build train/val datasets and DataLoaders."""
     effective_max_tracks = max_tracks if max_tracks > 0 else None
 
     train_ds = Musdb18HQDataset(
         root_dir=data_root,
-        split="train",
+        subset="train",
+        partition=train_split,
+        valid_fraction=valid_fraction,
+        split_seed=train_split_seed,
         stft_cfg=stft_cfg,
         crop_cfg=crop_cfg,
         stems=STEMS_4,
@@ -146,7 +189,10 @@ def build_dataloaders(
     )
     val_ds = Musdb18HQDataset(
         root_dir=data_root,
-        split="test",
+        subset="train",
+        partition=val_split,
+        valid_fraction=valid_fraction,
+        split_seed=train_split_seed,
         stft_cfg=stft_cfg,
         crop_cfg=crop_cfg,
         stems=STEMS_4,
@@ -202,11 +248,16 @@ def build_run_config(
     device: torch.device,
     stft_cfg: StftConfig,
     crop_cfg: CropConfig,
-) -> dict:
-    """Build a small config dict stored inside checkpoints for reproducibility."""
+    train_split: str,
+    val_split: str,
+    valid_fraction: float,
+    train_split_seed: int,
+) -> dict[str, Any]:
+    """Build a config dict stored inside checkpoints for reproducibility."""
     return {
         "data_root": data_root,
         "sample_rate": stft_cfg.sample_rate,
+        "audio_channels": TARGET_CHANNELS,
         "n_fft": stft_cfg.n_fft,
         "hop_length": stft_cfg.hop_length,
         "win_length": stft_cfg.win_length,
@@ -230,20 +281,17 @@ def build_run_config(
         "target_mask_mode": "stem_mag / sum_stem_mags",
         "seed": int(seed),
         "amp": bool(amp),
+        "train_subset": "train",
+        "train_partition": train_split,
+        "valid_partition": val_split,
+        "valid_fraction": float(valid_fraction),
+        "train_split_seed": int(train_split_seed),
+        "reserved_eval_subset": "test",
     }
 
 
 def kl_div_loss_from_logits(logits: torch.Tensor, target: torch.Tensor, eps: float) -> torch.Tensor:
-    """KL divergence KL(target || pred) with pred derived from logits via softmax.
-
-    Args:
-        logits: [B, S, F, T]
-        target: [B, S, F, T] distribution over stems (sum-to-one across S)
-        eps: small positive float for numerical stability
-
-    Returns:
-        Scalar loss (mean over B,F,T; sum over S).
-    """
+    """KL divergence KL(target || pred) with pred derived from logits via softmax."""
     if logits.shape != target.shape:
         raise ValueError(
             f"logits and target must have same shape, got {logits.shape} vs {target.shape}"
@@ -251,7 +299,6 @@ def kl_div_loss_from_logits(logits: torch.Tensor, target: torch.Tensor, eps: flo
 
     log_pred = F.log_softmax(logits, dim=1)
     target_safe = torch.clamp(target, min=float(eps))
-
     loss_map = target_safe * (torch.log(target_safe) - log_pred)
     loss = torch.sum(loss_map, dim=1).mean()
     return loss
@@ -378,6 +425,7 @@ def train_one_epoch(
 
             running += float(loss.detach().cpu().item())
             batches += 1
+
         mean_loss = running / max(1, batches)
         return mean_loss, batches
 
@@ -446,6 +494,7 @@ def eval_one_epoch(
 
                 running += float(v_loss.cpu().item())
                 batches += 1
+
         mean_loss = running / max(1, batches)
         return mean_loss, batches
 
@@ -508,13 +557,11 @@ def main(
     amp: bool,
     potato: bool,
 ) -> None:
-    """Main training loop."""
-    # Fall back to .env when --data-root is not provided via flag or env var
+    """Train the model."""
     if not data_root.strip():
         env_values = dotenv_values(".env")
         data_root = env_values.get("TRAIN_DATA_ROOT", data_root)
 
-    # Potato mode: disable progress bars, force INFO logs
     if potato:
         os.environ["LOG_LEVEL"] = "INFO"
         os.environ["STEMMY_DISABLE_PROGRESS"] = "1"
@@ -527,7 +574,6 @@ def main(
     if progress_disabled:
         logger.info("Progress bars disabled (STEMMY_DISABLE_PROGRESS=1)")
 
-    # --- Inline validation (replaces validate_args) ---
     if epochs <= 0:
         raise click.ClickException("--epochs must be > 0")
     if batch_size <= 0:
@@ -539,7 +585,7 @@ def main(
     if num_workers < 0:
         raise click.ClickException("--num-workers must be >= 0")
     if time_frames not in [256, 512]:
-        raise click.ClickException("--time-frames must be 256 or 512 for this baseline.")
+        raise click.ClickException("--time-frames must be 256 or 512")
     if save_every_epochs <= 0:
         raise click.ClickException("--save-every-epochs must be > 0")
     if max_tracks < 0:
@@ -556,20 +602,25 @@ def main(
         raise click.ClickException("--data-root must be a non-empty string")
     if not isinstance(checkpoint_dir, str) or checkpoint_dir.strip() == "":
         raise click.ClickException("--checkpoint-dir must be a non-empty string")
+    if not isinstance(seed, int):
+        raise click.ClickException("--seed must be an int")
+    if seed < -1:
+        raise click.ClickException("--seed must be -1 or >= 0")
 
-    data_root_p = Path(data_root.strip()).expanduser()
+    data_root_p = Path(data_root.strip()).expanduser().resolve()
     if not data_root_p.exists():
         raise click.ClickException(f"--data-root not found: {data_root_p}")
     if not data_root_p.is_dir():
         raise click.ClickException(f"--data-root must be a directory: {data_root_p}")
 
-    ckpt_dir_p = Path(checkpoint_dir.strip()).expanduser()
-    ckpt_dir_p.mkdir(parents=True, exist_ok=True)
-    if not ckpt_dir_p.is_dir():
-        raise click.ClickException(f"--checkpoint-dir must be a directory: {ckpt_dir_p}")
+    ckpt_dir = Path(checkpoint_dir.strip()).expanduser().resolve()
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    if not ckpt_dir.is_dir():
+        raise click.ClickException(f"--checkpoint-dir must be a directory: {ckpt_dir}")
 
+    resume_p: Optional[Path] = None
     if resume.strip():
-        resume_p = Path(resume.strip()).expanduser()
+        resume_p = Path(resume.strip()).expanduser().resolve()
         if not resume_p.exists():
             raise click.ClickException(f"--resume checkpoint not found: {resume_p}")
         if resume_p.is_dir():
@@ -577,49 +628,28 @@ def main(
                 f"--resume must point to a .pth file, got directory: {resume_p}"
             )
 
-    if not isinstance(seed, int):
-        raise click.ClickException("--seed must be an int")
-    if seed < -1:
-        raise click.ClickException("--seed must be -1 (disabled) or >= 0")
+    train_split = _get_env_train_split()
+    val_split = _get_env_val_split()
+    valid_fraction = _get_env_valid_fraction()
+    train_split_seed = _get_env_train_split_seed()
 
-    # NOTE: Could be worth extracting setup to its own function
-    # Initialize summary_rows for Training Summary Table
-    summary_rows: list[dict[str, Any]] = []
-    with create_setup_progress("Setup", title_style=BOLD_PURPLE) as setup_progress:
-        setup_task = setup_progress.add_task(
-            "Setup", total=11, step="Validating Args...", step_style=LOSS_STYLE
-        )
-        setup_progress.update(setup_task, advance=1, step="Seeding RNG...", step_style=LOSS_STYLE)
-        if progress_disabled:
-            logger.info("Setup: seeding RNG")
-        set_seed(seed)
-        setup_progress.update(
-            setup_task, advance=1, step="Picking device...", step_style=LOSS_STYLE
-        )
-        if progress_disabled:
-            logger.info("Setup: picking device")
-        dev = pick_device(device)
-        setup_progress.update(
-            setup_task, advance=1, step="Building STFT config...", step_style=LOSS_STYLE
-        )
-        if progress_disabled:
-            logger.info("Setup: building STFT config")
-        stft_cfg = StftConfig(
-            sample_rate=TARGET_SAMPLE_RATE,
-            n_fft=N_FFT,
-            hop_length=HOP_LENGTH,
-            win_length=WIN_LENGTH,
-            center=STFT_CENTER,
-            window=WINDOW,
-        )
-        crop_cfg = CropConfig(time_frames=time_frames)
-        setup_progress.update(
-            setup_task, advance=1, step="Loading datasets...", step_style=LOSS_STYLE
-        )
-        if progress_disabled:
-            logger.info("Setup: loading datasets")
-        _train_ds, _val_ds, train_loader, val_loader = build_dataloaders(
-            data_root=data_root,
+    dev = pick_device(device)
+    set_seed(seed)
+
+    stft_cfg = StftConfig(
+        sample_rate=TARGET_SAMPLE_RATE,
+        n_fft=N_FFT,
+        hop_length=HOP_LENGTH,
+        win_length=WIN_LENGTH,
+        center=STFT_CENTER,
+        window=WINDOW,
+    )
+    crop_cfg = CropConfig(time_frames=time_frames)
+
+    if progress_disabled:
+        logger.info("Setup: start")
+        train_ds, val_ds, train_loader, val_loader = build_dataloaders(
+            data_root=str(data_root_p),
             max_tracks=max_tracks,
             waveform_norm=waveform_norm,
             spectrogram_norm=spectrogram_norm,
@@ -628,98 +658,178 @@ def main(
             stft_cfg=stft_cfg,
             crop_cfg=crop_cfg,
             device=dev,
+            train_split=train_split,
+            val_split=val_split,
+            valid_fraction=valid_fraction,
+            train_split_seed=train_split_seed,
         )
-        setup_progress.update(
-            setup_task, advance=1, step="Initializing model...", step_style=LOSS_STYLE
-        )
-        if progress_disabled:
-            logger.info("Setup: initializing model")
-        model = UNet2D(stems=len(STEMS_4), base_channels=base_channels).to(dev)
-        setup_progress.update(
-            setup_task, advance=1, step="Initializing optimizer...", step_style=LOSS_STYLE
-        )
-        if progress_disabled:
-            logger.info("Setup: initializing optimizer")
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=lr,
-            weight_decay=weight_decay,
-        )
-        setup_progress.update(
-            setup_task, advance=1, step="Initializing scheduler...", step_style=LOSS_STYLE
-        )
-        if progress_disabled:
-            logger.info("Setup: initializing scheduler")
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            mode="min",
-            factor=lr_factor,
-            patience=lr_patience,
-            min_lr=min_lr,
-        )
-        setup_progress.update(
-            setup_task, advance=1, step="Initializing amp...", step_style=LOSS_STYLE
-        )
-        if progress_disabled:
-            logger.info("Setup: initializing amp")
-        use_amp = bool(amp) and (dev.type == "cuda")
-        scaler = _make_grad_scaler(dev, use_amp)
-
-        start_epoch = 0
-        global_step = 0
-
-        setup_progress.update(
-            setup_task, advance=1, step="Restoring checkpoint...", step_style=LOSS_STYLE
-        )
-        if progress_disabled:
-            logger.info("Setup: restoring checkpoint (if requested)")
-        if resume.strip():
-            ckpt_path = resume.strip()
-            start_epoch, global_step, extra = load_checkpoint(
-                ckpt_path,
-                model,
-                optimizer,
-                map_location=dev,
+    else:
+        with create_setup_progress("Setup", title_style=BOLD_PURPLE) as setup_progress:
+            setup_task = setup_progress.add_task("setup", total=11, step="Starting...", eq="")
+            setup_anim_stop, setup_anim_thread = start_eq_animator(
+                setup_progress, setup_task, fps=8
             )
-            logger.info(
-                "Resumed from %s: epoch=%d step=%d extra_keys=%s",
-                ckpt_path,
-                int(start_epoch),
-                int(global_step),
-                list(extra.keys()),
-            )
+            try:
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Validating paths...",
+                    step_style=LOSS_STYLE,
+                )
 
-        setup_progress.update(
-            setup_task, advance=1, step="Building run config...", step_style=LOSS_STYLE
-        )
-        if progress_disabled:
-            logger.info("Setup: building run config")
-        config = build_run_config(
-            data_root=data_root,
-            batch_size=batch_size,
-            lr=lr,
-            weight_decay=weight_decay,
-            base_channels=base_channels,
-            lr_factor=lr_factor,
-            lr_patience=lr_patience,
-            min_lr=min_lr,
-            max_tracks=max_tracks,
-            waveform_norm=waveform_norm,
-            spectrogram_norm=spectrogram_norm,
-            seed=seed,
-            amp=amp,
-            device=dev,
-            stft_cfg=stft_cfg,
-            crop_cfg=crop_cfg,
-        )
-        if wandb.run is not None:
-            wandb.config.update(config)
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Selecting device...",
+                    step_style=LOSS_STYLE,
+                )
 
-        ckpt_dir = Path(checkpoint_dir).expanduser().resolve()
-        ckpt_dir.mkdir(parents=True, exist_ok=True)
-        setup_progress.update(setup_task, advance=1, step="▁▁▁▁▁", step_style=BAR_FINISHED_STYLE)
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Seeding RNGs...",
+                    step_style=LOSS_STYLE,
+                )
 
-    # NOTE: Start of training & validation loop
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Building STFT config...",
+                    step_style=LOSS_STYLE,
+                )
+
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Building crop config...",
+                    step_style=LOSS_STYLE,
+                )
+
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Building datasets/loaders...",
+                    step_style=LOSS_STYLE,
+                )
+                train_ds, val_ds, train_loader, val_loader = build_dataloaders(
+                    data_root=str(data_root_p),
+                    max_tracks=max_tracks,
+                    waveform_norm=waveform_norm,
+                    spectrogram_norm=spectrogram_norm,
+                    batch_size=batch_size,
+                    num_workers=num_workers,
+                    stft_cfg=stft_cfg,
+                    crop_cfg=crop_cfg,
+                    device=dev,
+                    train_split=train_split,
+                    val_split=val_split,
+                    valid_fraction=valid_fraction,
+                    train_split_seed=train_split_seed,
+                )
+
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Building model...",
+                    step_style=LOSS_STYLE,
+                )
+
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Building optimizer...",
+                    step_style=LOSS_STYLE,
+                )
+
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Building scheduler...",
+                    step_style=LOSS_STYLE,
+                )
+
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="Preparing checkpoint state...",
+                    step_style=LOSS_STYLE,
+                )
+
+                setup_progress.update(
+                    setup_task,
+                    advance=1,
+                    step="▁▁▁▁▁",
+                    step_style=BAR_FINISHED_STYLE,
+                )
+            finally:
+                setup_anim_stop.set()
+                setup_anim_thread.join()
+                setup_progress.update(setup_task, eq="▁▁▁▁▁")
+
+    logger.info(
+        "Dataset split summary: train_subset=train train_partition=%s "
+        "valid_partition=%s valid_fraction=%.4f split_seed=%d "
+        "reserved_eval_subset=test train_tracks=%d valid_tracks=%d",
+        train_split,
+        val_split,
+        float(valid_fraction),
+        int(train_split_seed),
+        int(len(train_ds)),
+        int(len(val_ds)),
+    )
+
+    model = UNet2D(
+        stems=len(STEMS_4),
+        base_channels=base_channels,
+        audio_channels=TARGET_CHANNELS,
+    ).to(dev)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=lr_factor,
+        patience=lr_patience,
+        min_lr=min_lr,
+    )
+    use_amp = bool(amp and dev.type == "cuda")
+    scaler = _make_grad_scaler(dev, use_amp)
+
+    start_epoch = 0
+    global_step = 0
+
+    if resume_p is not None:
+        ckpt = load_checkpoint(str(resume_p), model, optimizer=optimizer, map_location=str(dev))
+        if isinstance(ckpt, dict):
+            start_epoch = int(ckpt.get("epoch", 0))
+            global_step = int(ckpt.get("global_step", 0))
+
+    config = build_run_config(
+        data_root=str(data_root_p),
+        batch_size=batch_size,
+        lr=lr,
+        weight_decay=weight_decay,
+        base_channels=base_channels,
+        lr_factor=lr_factor,
+        lr_patience=lr_patience,
+        min_lr=min_lr,
+        max_tracks=max_tracks,
+        waveform_norm=waveform_norm,
+        spectrogram_norm=spectrogram_norm,
+        seed=seed,
+        amp=amp,
+        device=dev,
+        stft_cfg=stft_cfg,
+        crop_cfg=crop_cfg,
+        train_split=train_split,
+        val_split=val_split,
+        valid_fraction=valid_fraction,
+        train_split_seed=train_split_seed,
+    )
+    if wandb.run is not None:
+        wandb.config.update(config)
+
+    history_rows: list[dict[str, Any]] = []
+
     for epoch in range(start_epoch, epochs):
         t0 = time.time()
 
@@ -734,17 +844,23 @@ def main(
         )
         global_step += train_batches
 
-        val_loss, _val_batches = eval_one_epoch(model, val_loader, dev, epoch_index=epoch)
+        val_loss, _val_batches = eval_one_epoch(
+            model=model,
+            val_loader=val_loader,
+            device=dev,
+            epoch_index=epoch,
+        )
 
         scheduler.step(val_loss)
 
         dt = time.time() - t0
-        lr_now = float(optimizer.param_groups[0].get("lr", lr))
+        current_lr = float(optimizer.param_groups[0]["lr"])
+
         logger.info(
             "Epoch %d/%d - lr=%.6e train_loss=%.6f val_loss=%.6f - time=%.1fs",
             int(epoch + 1),
             int(epochs),
-            float(lr_now),
+            float(current_lr),
             float(train_loss),
             float(val_loss),
             float(dt),
@@ -753,48 +869,52 @@ def main(
         if wandb.run is not None:
             wandb.log(
                 {
-                    "train/loss": train_loss,
-                    "val/loss": val_loss,
-                    "train/lr": lr_now,
-                    "time/epoch_time": dt,
+                    "train/loss": float(train_loss),
+                    "val/loss": float(val_loss),
+                    "train/lr": float(current_lr),
+                    "time/epoch_time": float(dt),
+                    "epoch": int(epoch + 1),
+                    "global_step": int(global_step),
                 },
-                step=epoch + 1,
+                step=int(epoch + 1),
             )
 
-        do_save = ((epoch + 1) % save_every_epochs) == 0
-        saved_ckpt = "-"
-        saved_ts = "-"
-        if do_save:
-            ckpt_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pth"
-            extra = {"config": config}
+        checkpoint_path = "-"
+        torchscript_path = "-"
+
+        if ((epoch + 1) % save_every_epochs) == 0:
+            checkpoint_path = str(ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pth")
             save_checkpoint(
-                str(ckpt_path),
+                checkpoint_path,
                 model,
                 optimizer,
                 epoch=epoch + 1,
                 step=global_step,
-                extra=extra,
+                extra={"config": config},
             )
-            saved_ckpt = str(ckpt_path)
-            logger.info("Saved checkpoint: %s", str(ckpt_path))
+            logger.info(
+                "Saved checkpoint: %s (epoch=%d step=%d)",
+                checkpoint_path,
+                int(epoch + 1),
+                int(global_step),
+            )
 
             if export_ts:
-                ts_path = ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt"
-                export_torchscript(str(ts_path), model)
-                saved_ts = str(ts_path)
-                logger.info("Exported TorchScript: %s", str(ts_path))
+                torchscript_path = str(ckpt_dir / f"unet_phase1_epoch{epoch + 1:03d}.pt")
+                export_torchscript(torchscript_path, model)
+                logger.info("Saved TorchScript: %s", torchscript_path)
 
-        summary_rows.append(
+        history_rows.append(
             {
-                "epoch": epoch + 1,
+                "epoch": int(epoch + 1),
                 "train_loss": float(train_loss),
                 "val_loss": float(val_loss),
-                "checkpoint_path": saved_ckpt,
-                "torchscript_path": saved_ts,
+                "checkpoint_path": checkpoint_path,
+                "torchscript_path": torchscript_path,
             }
         )
 
-    print_training_summary(summary_rows, include_torchscript=bool(export_ts))
+    print_training_summary(history_rows, include_torchscript=bool(export_ts))
 
 
 if __name__ == "__main__":

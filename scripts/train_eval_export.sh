@@ -52,6 +52,13 @@ Common overrides:
   --spectrogram-norm freq_minmax|none
   --amp 0|1
 
+Split controls:
+  --train-split train
+  --val-split valid
+  --valid-fraction FLOAT
+  --train-split-seed N
+  --eval-subset test
+
 Optional training retry behavior:
   --lr-backoff 0|1
   --lr-backoff-factor FLOAT
@@ -88,6 +95,12 @@ WAVEFORM_NORM=""
 SPECTROGRAM_NORM=""
 AMP=""
 DEVICE=""
+
+TRAIN_SPLIT=""
+VAL_SPLIT=""
+VALID_FRACTION=""
+TRAIN_SPLIT_SEED=""
+EVAL_SUBSET=""
 
 N_EVAL_TRACKS=""
 MAX_SECONDS=""
@@ -145,6 +158,12 @@ while [[ $# -gt 0 ]]; do
     --spectrogram-norm) SPECTROGRAM_NORM="${2:-}"; shift 2 ;;
     --amp) AMP="${2:-}"; shift 2 ;;
     --device) DEVICE="${2:-}"; shift 2 ;;
+
+    --train-split) TRAIN_SPLIT="${2:-}"; shift 2 ;;
+    --val-split) VAL_SPLIT="${2:-}"; shift 2 ;;
+    --valid-fraction) VALID_FRACTION="${2:-}"; shift 2 ;;
+    --train-split-seed) TRAIN_SPLIT_SEED="${2:-}"; shift 2 ;;
+    --eval-subset) EVAL_SUBSET="${2:-}"; shift 2 ;;
 
     --n-eval-tracks) N_EVAL_TRACKS="${2:-}"; shift 2 ;;
     --max-seconds) MAX_SECONDS="${2:-}"; shift 2 ;;
@@ -239,6 +258,12 @@ WAVEFORM_NORM="${WAVEFORM_NORM:-peak}"
 SPECTROGRAM_NORM="${SPECTROGRAM_NORM:-freq_minmax}"
 AMP="${AMP:-0}"
 
+TRAIN_SPLIT="${TRAIN_SPLIT:-train}"
+VAL_SPLIT="${VAL_SPLIT:-valid}"
+VALID_FRACTION="${VALID_FRACTION:-0.2}"
+TRAIN_SPLIT_SEED="${TRAIN_SPLIT_SEED:-0}"
+EVAL_SUBSET="${EVAL_SUBSET:-test}"
+
 N_EVAL_TRACKS="${N_EVAL_TRACKS:-30}"
 MAX_SECONDS="${MAX_SECONDS:-30}"
 
@@ -257,7 +282,22 @@ if [[ "${TIME_FRAMES}" != "256" && "${TIME_FRAMES}" != "512" ]]; then
   exit 2
 fi
 
-for vname in EPOCHS BASE_CHANNELS LR_PATIENCE SAVE_EVERY_EPOCHS N_EVAL_TRACKS MAX_SECONDS MAX_TRACKS LR_BACKOFF_MAX_TRIES; do
+case "${TRAIN_SPLIT}" in
+  train) ;;
+  *) echo "ERROR: TRAIN_SPLIT must be train (got: ${TRAIN_SPLIT})" >&2; exit 2 ;;
+esac
+
+case "${VAL_SPLIT}" in
+  valid) ;;
+  *) echo "ERROR: VAL_SPLIT must be valid (got: ${VAL_SPLIT})" >&2; exit 2 ;;
+esac
+
+case "${EVAL_SUBSET}" in
+  test) ;;
+  *) echo "ERROR: EVAL_SUBSET must be test (got: ${EVAL_SUBSET})" >&2; exit 2 ;;
+esac
+
+for vname in EPOCHS BASE_CHANNELS LR_PATIENCE SAVE_EVERY_EPOCHS N_EVAL_TRACKS MAX_SECONDS MAX_TRACKS LR_BACKOFF_MAX_TRIES TRAIN_SPLIT_SEED; do
   val="${!vname}"
   if ! [[ "${val}" =~ ^[0-9]+$ ]]; then
     echo "ERROR: ${vname} must be an integer (got: ${val})" >&2
@@ -267,6 +307,14 @@ done
 
 python - <<PY
 import sys
+try:
+    vf = float("${VALID_FRACTION}")
+except Exception:
+    print("ERROR: VALID_FRACTION must be a float in (0,1).", file=sys.stderr)
+    sys.exit(2)
+if not (0.0 < vf < 1.0):
+    print("ERROR: VALID_FRACTION must be in (0,1).", file=sys.stderr)
+    sys.exit(2)
 try:
     f = float("${LR_BACKOFF_FACTOR}")
 except Exception:
@@ -484,6 +532,11 @@ echo "=== RUN INFO ==="
   echo "pwd=$(pwd)"
   echo
   echo "data_root=${DATA_ROOT}"
+  echo "train_split=${TRAIN_SPLIT}"
+  echo "val_split=${VAL_SPLIT}"
+  echo "valid_fraction=${VALID_FRACTION}"
+  echo "train_split_seed=${TRAIN_SPLIT_SEED}"
+  echo "eval_subset=${EVAL_SUBSET}"
   echo
   echo "epochs=${EPOCHS}"
   echo "batch_size=${BATCH_SIZE}"
@@ -528,6 +581,10 @@ echo "=== Phase 1/4: Train ==="
 
 run_train_once() {
   local lr_val="$1"
+  TRAIN_SPLIT="${TRAIN_SPLIT}" \
+  VAL_SPLIT="${VAL_SPLIT}" \
+  VALID_FRACTION="${VALID_FRACTION}" \
+  TRAIN_SPLIT_SEED="${TRAIN_SPLIT_SEED}" \
   python -m stemmy.train \
     --data-root "${DATA_ROOT}" \
     --epochs "${EPOCHS}" \
@@ -598,6 +655,7 @@ EVAL_PRINT_METRICS="${EVAL_PRINT_METRICS}" \
 EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY}" \
 EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY}" \
 EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS}" \
+EVAL_SUBSET="${EVAL_SUBSET}" \
 DATA="${DATA_ROOT}" \
 CKPT_DIR="${CKPT_DIR}" \
 EVAL_DIR="${EVAL_DIR}" \

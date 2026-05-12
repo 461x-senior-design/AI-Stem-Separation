@@ -26,7 +26,7 @@ def test_preprocessor_output_types(test_audio_path):
 
 
 def test_preprocessor_tensor_shape(test_audio_path):
-    """Test that output tensor has correct shape [1, 1, F, T] (mono)."""
+    """Test that output tensor has correct shape [1, C, F, T] (stereo)."""
     # Arrange
     prep = Preprocessor()
 
@@ -36,7 +36,7 @@ def test_preprocessor_tensor_shape(test_audio_path):
     # Assert
     assert tensor.ndim == 4
     assert tensor.shape[0] == 1  # batch
-    assert tensor.shape[1] == 1  # mono channel (stereo converted to mono)
+    assert tensor.shape[1] == 2  # stereo channels
     assert tensor.shape[2] == 2049  # frequency bins (n_fft // 2 + 1)
     assert tensor.shape[3] > 0  # time frames
 

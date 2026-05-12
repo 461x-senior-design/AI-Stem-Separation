@@ -882,6 +882,18 @@ def main() -> None:
         if not ckpts:
             ckpts = [all_ckpts[-1]]
 
+    logger.info(
+        "Final evaluation using MUSDB subset '%s' with %d tracks.",
+        eval_subset,
+        int(len(tracks)),
+    )
+    logger.info(
+        "Evaluation inference settings: chunk_frames=%d overlap_frames=%d amp=%s",
+        int(eval_chunk_frames),
+        int(eval_overlap_frames),
+        str(bool(eval_amp)),
+    )
+
     per_track_csv = eval_dir / "fullsong_eval_per_track.csv"
     summary_csv = eval_dir / "fullsong_eval_summary.csv"
 

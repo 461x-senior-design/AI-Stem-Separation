@@ -14,6 +14,7 @@ from stemmy.constants import (
     HOP_LENGTH,
     N_FFT,
     STFT_CENTER,
+    TARGET_CHANNELS,
     TARGET_SAMPLE_RATE,
     WIN_LENGTH,
 )
@@ -59,12 +60,14 @@ class Preprocessor:
 
     Example:
         prep = Preprocessor()
-        tenseor, metadata = prep.process("song.wav")
+        tensor, metadata = prep.process("song.wav")
     """
 
     def __init__(
         self,
         sample_rate: int = TARGET_SAMPLE_RATE,
+        target_channels: int = TARGET_CHANNELS,
+        audio_channels: int = TARGET_CHANNELS,
         n_fft: int = N_FFT,
         hop_length: int = HOP_LENGTH,
         win_length: int = WIN_LENGTH,
@@ -73,12 +76,25 @@ class Preprocessor:
         spectrogram_norm: str = DEFAULT_SPECTROGRAM_NORM,
     ):
         self.sample_rate = sample_rate
+        self.target_channels = target_channels
+        self.audio_channels = audio_channels
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.win_length = win_length
         self.center = center
         self.waveform_norm = waveform_norm
         self.spectrogram_norm = spectrogram_norm
+
+        if int(self.target_channels) != int(TARGET_CHANNELS):
+            raise ValueError(
+                "target_channels must be %d, got %d."
+                % (int(TARGET_CHANNELS), int(self.target_channels))
+            )
+        if int(self.audio_channels) != int(TARGET_CHANNELS):
+            raise ValueError(
+                "audio_channels must be %d, got %d."
+                % (int(TARGET_CHANNELS), int(self.audio_channels))
+            )
 
     def process(self, audio_path: Union[str, Path]) -> tuple[torch.Tensor, PreprocessingMetadata]:
         """
@@ -89,22 +105,24 @@ class Preprocessor:
 
         Returns:
             Tuple of (tensor, metadata)
-            tensor: [1, 1, F, T] normalized magnitude
+            tensor: [1, 2, F, T] normalized stereo magnitude
         """
         audio_path = Path(audio_path)
 
-        # Use Haedon's validation system
         validator = AudioFileValidator(str(audio_path))
         is_valid, message = validator.validate()
         if not is_valid:
             raise AudioValidationException(message)
 
-        # load_audio resamples to self.sample_rate
         waveform, sr = load_audio(audio_path, sr=self.sample_rate)
         original_length = waveform.shape[-1]
 
-        # Ensure Stereo
         waveform = ensure_stereo(waveform)
+        if waveform.ndim != 2 or waveform.shape[0] != TARGET_CHANNELS:
+            raise ValueError(
+                "Expected stereo waveform with shape [%d, N], got %s."
+                % (int(TARGET_CHANNELS), str(waveform.shape))
+            )
 
         mono_waveform = waveform.mean(axis=0)
         _mono_norm, waveform_params = normalize_waveform(mono_waveform, method=self.waveform_norm)
@@ -115,7 +133,6 @@ class Preprocessor:
         waveform = waveform / scale
         processed_length = waveform.shape[-1]
 
-        # Compute STFT
         stft = compute_stft(
             waveform,
             n_fft=self.n_fft,
@@ -124,26 +141,28 @@ class Preprocessor:
             center=self.center,
         )
 
-        # Split magnitude and phase
         magnitude, phase = split_magnitude_phase(stft)
 
         mix_magnitude = magnitude
-        if mix_magnitude.ndim == 3 and mix_magnitude.shape[0] == 2:
-            mono_magnitude = mix_magnitude.mean(axis=0)
-        elif mix_magnitude.ndim == 2:
-            mono_magnitude = mix_magnitude
-        else:
-            raise ValueError(f"Unexpected magnitude shape {mix_magnitude.shape}")
+        if mix_magnitude.ndim != 3 or mix_magnitude.shape[0] != TARGET_CHANNELS:
+            raise ValueError(
+                "Unexpected magnitude shape %s. Expected [%d, F, T]."
+                % (str(mix_magnitude.shape), int(TARGET_CHANNELS))
+            )
 
-        # Normalize spectrogram
-        mono_magnitude, spec_params = normalize_spectrogram(
-            mono_magnitude, method=self.spectrogram_norm
+        normalized_magnitude, spec_params = normalize_spectrogram(
+            mix_magnitude,
+            method=self.spectrogram_norm,
         )
 
-        # Convert to tensor
-        tensor = torch.from_numpy(mono_magnitude).float().unsqueeze(0).unsqueeze(0)
+        if normalized_magnitude.ndim != 3 or normalized_magnitude.shape[0] != TARGET_CHANNELS:
+            raise ValueError(
+                "Unexpected normalized magnitude shape %s. Expected [%d, F, T]."
+                % (str(normalized_magnitude.shape), int(TARGET_CHANNELS))
+            )
 
-        # Build metadata
+        tensor = torch.from_numpy(normalized_magnitude).float().unsqueeze(0)
+
         metadata = PreprocessingMetadata(
             original_path=str(audio_path),
             original_sr=sr,
@@ -154,7 +173,7 @@ class Preprocessor:
             hop_length=self.hop_length,
             win_length=self.win_length,
             center=self.center,
-            n_frames=int(mono_magnitude.shape[-1]),
+            n_frames=int(normalized_magnitude.shape[-1]),
             phase=phase,
             waveform_norm_params=waveform_params,
             spectrogram_norm_params=spec_params,
