@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+#SBATCH -J stemmy-@@RUN_ID@@
+#SBATCH -p @@PARTITION@@
+#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=96G
+#SBATCH --time=04:30:00
+#SBATCH --export=ALL
+#SBATCH -o @@RUN_DIR@@/slurm-%j.out
+#SBATCH -e @@RUN_DIR@@/slurm-%j.err
+
+# Rendered by scripts/stemmy — do not hand-edit.
+set -euo pipefail
+
+RUN_ID="@@RUN_ID@@"
+RUN_DIR="@@RUN_DIR@@"
+CONFIG_ENV="@@CONFIG_ENV@@"
+WORKDIR="@@WORKDIR@@"
+PARTITION="@@PARTITION@@"
+TRAIN_INNER="@@TRAIN_INNER@@"
+
+mkdir -p "${RUN_DIR}/logs"
+
+cd "${WORKDIR}"
+
+echo "=== JOB INFO ==="
+echo "run_id: ${RUN_ID}"
+echo "job_id: ${SLURM_JOB_ID:-local}"
+echo "node:   $(hostname)"
+echo "time:   $(date)"
+echo "branch: $(git -C "${WORKDIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
+echo "commit: $(git -C "${WORKDIR}" rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+echo "cuda:   ${CUDA_VISIBLE_DEVICES:-}"
+
+if [[ -f .venv/bin/activate ]]; then
+  source .venv/bin/activate
+fi
+
+set -a
+source "${CONFIG_ENV}"
+set +a
+
+export PYTHONUNBUFFERED=1
+export STEMMY_RUN_ID="${RUN_ID}"
+export STEMMY_RUN_DIR="${RUN_DIR}"
+export WANDB_MODE="${WANDB_MODE:-online}"
+export WANDB_DIR="${WANDB_DIR:-${RUN_DIR}/wandb}"
+mkdir -p "${WANDB_DIR}"
+
+# Fall back to offline wandb if no key is set, so the run still produces metrics.
+if [[ -z "${WANDB_API_KEY:-}" ]]; then
+  echo "WARNING: WANDB_API_KEY not set — wandb will run in offline mode"
+  export WANDB_MODE="offline"
+fi
+
+# Mirror slurm logs into the run dir so everything is co-located.
+if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+  ln -sfn "${RUN_DIR}/slurm-${SLURM_JOB_ID}.out" "${RUN_DIR}/logs/slurm.out" 2>/dev/null || true
+  ln -sfn "${RUN_DIR}/slurm-${SLURM_JOB_ID}.err" "${RUN_DIR}/logs/slurm.err" 2>/dev/null || true
+fi
+
+echo "${SLURM_JOB_ID:-local}" > "${RUN_DIR}/status.txt"
+printf '{"status": "running"}\n' > "${RUN_DIR}/.running"
+
+cleanup() {
+  rc=$?
+  if [[ ${rc} -eq 0 ]]; then
+    echo "done" > "${RUN_DIR}/status.txt"
+  else
+    echo "failed" > "${RUN_DIR}/status.txt"
+  fi
+  rm -f "${RUN_DIR}/.running"
+  exit ${rc}
+}
+trap cleanup EXIT
+
+echo "=== START PIPELINE ==="
+"${TRAIN_INNER}" --partition "${PARTITION}" --env "${CONFIG_ENV}" --run-dir "${RUN_DIR}"
+
+echo "=== DONE ==="
+date

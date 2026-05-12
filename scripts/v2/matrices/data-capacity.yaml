@@ -1,0 +1,5 @@
+name: sw2-data
+base: recon-p10         # edit this config to lock in sweep-1 winner first
+partition: dgxh
+sweep:
+  BASE_CHANNELS: [48, 64]

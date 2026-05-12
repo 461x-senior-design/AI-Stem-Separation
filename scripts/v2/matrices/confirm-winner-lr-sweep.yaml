@@ -1,0 +1,13 @@
+# Confirmation sweep for the overnight-ablation winner.
+#
+# Base locks the winning cell (BS=12, SPLIT_SOURCE=musdb_builtin, 300 epochs,
+# 50-track eval) so the only knob that varies is LR. Three cells flank
+# the overnight winner (2e-4) on either side to confirm the LR ranking
+# at the full MUSDB test eval (the overnight matrix used only 15 tracks,
+# which left the top-3 inside per-track noise).
+
+name: confirm-winner-lr-sweep
+base: confirm-winner-fullsong
+partition: dgxh
+sweep:
+  LR: [1.5e-4, 2e-4, 3e-4]

@@ -1,4 +1,3 @@
-# src/stemmy/tool/cli.py
 """Command-line interface for running stem separation inference.
 
 This module provides a Click-based CLI that can:
@@ -10,45 +9,46 @@ This module provides a Click-based CLI that can:
 Outputs are written as <base>_<stem>.wav files under the chosen output directory.
 """
 
+from __future__ import annotations
+
 import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
 import click
-import torch
 from dotenv import dotenv_values
-from rich.console import Console
-from rich.padding import Padding
-from rich.text import Text
-from rich.tree import Tree
 
-from stemmy.constants import BOLD_GREEN, BOLD_RED, CYAN, STEMS_4
-from stemmy.inference import (
-    InferenceConfig,
-    config_from_checkpoint,
-    load_pth_model,
-    load_torchscript_model,
-    separate_audio_file,
+from stemmy.tool.click_options import add_options, processing_options, training_options
+from stemmy.tool.launcher.commands import (
+    compare,
+    ls_cmd,
+    matrix,
+    run,
+    show,
 )
-from stemmy.logging_config import setup_logging
-from stemmy.tool.eq_frames import update_constants_eq_frames
-from stemmy.tool.fullsong_eval_masked import main as fullsong_eval_masked_main
-from stemmy.train import main as train_command
+from stemmy.tool.launcher.commands import (
+    config as _launcher_config,
+)
 
 CHKPT: str = str((Path(__file__).resolve().parent / "default.pth").resolve())
-DIR: str = Path.cwd().name
-STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
 TRAIN_DATA_ROOT_KEY: str = "TRAIN_DATA_ROOT"
 DATA_KEY: str = "DATA"
 CKPT_DIR_KEY: str = "CKPT_DIR"
 EVAL_DIR_KEY: str = "EVAL_DIR"
+
+# Global placeholders for test mocking and lazy loading
+fullsong_eval_masked_main = None
+update_constants_eq_frames = None
+train_command = None
 
 
 def _apply_potato_mode(potato: bool) -> None:
     """Set terminal-friendly logging/progress defaults for dev workflows."""
     if not potato:
         return
+    from stemmy.logging_config import setup_logging
+
     os.environ["LOG_LEVEL"] = "INFO"
     os.environ["STEMMY_DISABLE_PROGRESS"] = "1"
     os.environ["EVAL_PROGRESS"] = "0"
@@ -72,6 +72,8 @@ def _fullsong_eval_default_env() -> dict[str, str]:
 
 def _resolve_device(device: str) -> str:
     """Validate and normalize a device string into one of: cpu | cuda | cuda:N."""
+    import torch
+
     dev_in = (device or "cpu").strip()
     if dev_in == "":
         dev_in = "cpu"
@@ -137,7 +139,7 @@ def _load_model_and_cfg(
     torchscript: str,
     device: str,
     stems: list[str],
-) -> tuple[torch.nn.Module, InferenceConfig, object]:
+) -> tuple[object, object, object]:
     """Load a model and construct an InferenceConfig.
 
     Returns:
@@ -147,6 +149,13 @@ def _load_model_and_cfg(
         - For .pth: loads PyTorch model weights and derives cfg from checkpoint metadata.
         - For .pt: loads TorchScript and uses default InferenceConfig (no checkpoint metadata).
     """
+    from stemmy.inference import (
+        InferenceConfig,
+        config_from_checkpoint,
+        load_pth_model,
+        load_torchscript_model,
+    )
+
     ckpt_in = checkpoint.strip() if isinstance(checkpoint, str) and checkpoint is not None else ""
     ts_in = torchscript.strip() if isinstance(torchscript, str) and torchscript is not None else ""
 
@@ -183,24 +192,47 @@ def _load_model_and_cfg(
     return model, cfg, None
 
 
-# NOTE: Root CLI command group
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
+    from stemmy.logging_config import setup_logging
+
     setup_logging(level=os.getenv("LOG_LEVEL", "ERROR"))
 
 
-# NOTE: `stemmy dev` command group
 @cli.group(help="Developer commands.")
 def dev() -> None:
     """Developer command group."""
 
 
-# NOTE: `stemmy dev train` — registered from stemmy.train as a first-class Click command
-dev.add_command(train_command)
+@dev.command(
+    "train",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@add_options(processing_options)
+@add_options(training_options)
+@click.pass_context
+def dev_train(ctx: click.Context, **kwargs: object) -> None:
+    """Run the training command."""
+    global train_command
+    if train_command is None:
+        from stemmy.train import main as train_command
+
+    ctx.invoke(train_command, **kwargs)
 
 
-# NOTE: `stemmy dev eval` command
+# NOTE: HPC launcher subcommands — run/matrix/ls/show/compare/config
+for _launcher_cmd in (
+    run,
+    matrix,
+    ls_cmd,
+    show,
+    compare,
+    _launcher_config,
+):
+    cli.add_command(_launcher_cmd)
+
+
 @dev.command(
     "eval",
     context_settings={
@@ -222,6 +254,7 @@ dev.add_command(train_command)
 @click.argument("env_args", nargs=-1, type=click.UNPROCESSED)
 def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     """Run full-song evaluation via stemmy.tool.fullsong_eval_masked."""
+    global fullsong_eval_masked_main
     env_overrides = [arg for arg in env_args if arg != "--potato"]
     potato = bool(potato or ("--potato" in env_args))
     _apply_potato_mode(potato)
@@ -241,13 +274,19 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
             raise click.ClickException("Invalid argument '%s'. Empty environment key." % raw)
         os.environ[key] = value
 
+    if fullsong_eval_masked_main is None:
+        from stemmy.tool.fullsong_eval_masked import main as fullsong_eval_masked_main
+
     fullsong_eval_masked_main()
 
 
-# NOTE: `stemmy spinner` command
 @cli.command("spinner", help="Generate EQ spinner frames and update src/stemmy/constants.py.")
 def spinner() -> None:
     """Regenerate EQ_FRAMES and write them to constants.py."""
+    global update_constants_eq_frames
+    if update_constants_eq_frames is None:
+        from stemmy.tool.eq_frames import update_constants_eq_frames
+
     try:
         changed = update_constants_eq_frames()
     except (FileNotFoundError, PermissionError, ValueError, OSError) as exc:
@@ -259,7 +298,6 @@ def spinner() -> None:
         click.echo("EQ_FRAMES already up to date in src/stemmy/constants.py")
 
 
-# NOTE: `stemmy separate` command
 @cli.command(
     help=(
         "Separate an audio file into stems.\n\n"
@@ -267,7 +305,7 @@ def spinner() -> None:
         "  -c/--checkpoint (.pth): preferred when you want config derived from training metadata.\n"
         "  -t/--torchscript (.pt): preferred when you want a frozen inference artifact.\n\n"
         "Outputs:\n"
-        "  Writes <base>_<stem>.wav under -o/--output-dir.\n\n"
+        "  Writes <base>_<stem>.wav files under -o/--output-dir.\n\n"
         "Use --preview to print expected output names without running inference."
     )
 )
@@ -309,7 +347,7 @@ def spinner() -> None:
 @click.option(
     "--chunk-frames",
     type=int,
-    default=256,  # NOTE: Changed from 0
+    default=256,
     show_default=True,
     help=(
         "If > 0, run inference in time chunks of this many STFT frames to "
@@ -319,15 +357,15 @@ def spinner() -> None:
 @click.option(
     "--overlap-frames",
     type=int,
-    default=64,  # NOTE: Changed from 0
+    default=64,
     show_default=True,
-    help="Overlap (in STFT frames) between chunks when --chunk-frames > 0.",
+    help="Overlap in STFT frames between chunks when --chunk-frames > 0.",
 )
 @click.option(
     "--amp/--no-amp",
     default=False,
     show_default=True,
-    help="Enable CUDA autocast (AMP) during inference to reduce memory usage.",
+    help="Enable CUDA autocast during inference to reduce memory usage.",
 )
 @click.option(
     "--potato",
@@ -348,6 +386,14 @@ def separate(
     potato: bool,
 ) -> None:
     """Separate an input file into stems and export the outputs."""
+    from rich.console import Console
+    from rich.padding import Padding
+    from rich.text import Text
+    from rich.tree import Tree
+
+    from stemmy.constants import BOLD_GREEN, BOLD_RED, CYAN, STEMS_4
+    from stemmy.inference import separate_audio_file
+
     _apply_potato_mode(potato)
 
     console = Console()
