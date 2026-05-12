@@ -154,6 +154,14 @@ def _get_env_train_split_seed() -> int:
     return value
 
 
+def _get_env_split_source() -> str:
+    """Read and validate the dataset split strategy from environment."""
+    value = os.getenv("SPLIT_SOURCE", "random").strip().lower()
+    if value not in ["random", "musdb_builtin"]:
+        raise click.ClickException("SPLIT_SOURCE must be 'random' or 'musdb_builtin'.")
+    return value
+
+
 def build_dataloaders(
     data_root: str,
     max_tracks: int,
@@ -168,6 +176,7 @@ def build_dataloaders(
     val_split: str,
     valid_fraction: float,
     train_split_seed: int,
+    split_source: str = "random",
 ) -> tuple[Musdb18HQDataset, Musdb18HQDataset, DataLoader, DataLoader]:
     """Build train/val datasets and DataLoaders."""
     effective_max_tracks = max_tracks if max_tracks > 0 else None
@@ -178,6 +187,7 @@ def build_dataloaders(
         partition=train_split,
         valid_fraction=valid_fraction,
         split_seed=train_split_seed,
+        split_source=split_source,
         stft_cfg=stft_cfg,
         crop_cfg=crop_cfg,
         stems=STEMS_4,
@@ -193,6 +203,7 @@ def build_dataloaders(
         partition=val_split,
         valid_fraction=valid_fraction,
         split_seed=train_split_seed,
+        split_source=split_source,
         stft_cfg=stft_cfg,
         crop_cfg=crop_cfg,
         stems=STEMS_4,
@@ -252,6 +263,7 @@ def build_run_config(
     val_split: str,
     valid_fraction: float,
     train_split_seed: int,
+    split_source: str,
 ) -> dict[str, Any]:
     """Build a config dict stored inside checkpoints for reproducibility."""
     return {
@@ -286,6 +298,7 @@ def build_run_config(
         "valid_partition": val_split,
         "valid_fraction": float(valid_fraction),
         "train_split_seed": int(train_split_seed),
+        "split_source": split_source,
         "reserved_eval_subset": "test",
     }
 
@@ -632,6 +645,7 @@ def main(
     val_split = _get_env_val_split()
     valid_fraction = _get_env_valid_fraction()
     train_split_seed = _get_env_train_split_seed()
+    split_source = _get_env_split_source()
 
     dev = pick_device(device)
     set_seed(seed)
@@ -662,6 +676,7 @@ def main(
             val_split=val_split,
             valid_fraction=valid_fraction,
             train_split_seed=train_split_seed,
+            split_source=split_source,
         )
     else:
         with create_setup_progress("Setup", title_style=BOLD_PURPLE) as setup_progress:
@@ -725,6 +740,7 @@ def main(
                     val_split=val_split,
                     valid_fraction=valid_fraction,
                     train_split_seed=train_split_seed,
+                    split_source=split_source,
                 )
 
                 setup_progress.update(
@@ -768,12 +784,13 @@ def main(
 
     logger.info(
         "Dataset split summary: train_subset=train train_partition=%s "
-        "valid_partition=%s valid_fraction=%.4f split_seed=%d "
+        "valid_partition=%s valid_fraction=%.4f split_seed=%d split_source=%s "
         "reserved_eval_subset=test train_tracks=%d valid_tracks=%d",
         train_split,
         val_split,
         float(valid_fraction),
         int(train_split_seed),
+        split_source,
         int(len(train_ds)),
         int(len(val_ds)),
     )
@@ -824,6 +841,7 @@ def main(
         val_split=val_split,
         valid_fraction=valid_fraction,
         train_split_seed=train_split_seed,
+        split_source=split_source,
     )
     if wandb.run is not None:
         wandb.config.update(config)
