@@ -8,6 +8,7 @@ from typing import Optional, Union
 import numpy as np
 import torch
 
+from stemmy.constants import TARGET_CHANNELS
 from stemmy.preprocessing.pipeline import PreprocessingMetadata
 
 from .audio import denormalize_waveform, export_audio
@@ -41,7 +42,7 @@ class Postprocessor:
     """
 
     def __init__(self):
-        pass  # No configuration needed for now
+        pass
 
     def process(
         self,
@@ -57,15 +58,13 @@ class Postprocessor:
         Run full postprocessing pipeline.
 
         Args:
-            model_output: [1, 2, F, T] when stems is None; [1, S, F, T] when stems is provided
-                When stems is None:
-                    channel 0 = vocals mask
-                    channel 1 = instrumentals mask
+            model_output: [1, 2, F, T] when stems is None; [1, S, 2, F, T] when stems is provided
             metadata: PreprocessingMetadata from preprocessing
-            input_tensor: Original preprocessed tensor [1, 2, F, T] (normalized magnitude)
+            input_tensor: Original preprocessed tensor [1, 2, F, T] normalized magnitude
             output_dir: Directory to write output files
             stem_name: Base name for output files (e.g., "song" -> "song_vocals.wav")
             export_files: Whether to write WAV files
+            stems: Optional ordered stem names matching model output stem dimension
 
         Returns:
             SeparationResult with paths and/or waveforms
@@ -74,6 +73,7 @@ class Postprocessor:
 
         if export_files:
             output_dir.mkdir(parents=True, exist_ok=True)
+
         if hasattr(metadata, "mix_magnitude"):
             original_magnitude = getattr(metadata, "mix_magnitude")
         else:
@@ -88,34 +88,58 @@ class Postprocessor:
                 )
             elif original_magnitude.ndim == 2:
                 original_magnitude = np.stack([original_magnitude, original_magnitude])
+
+        if original_magnitude.ndim != 3 or original_magnitude.shape[0] != TARGET_CHANNELS:
+            raise ValueError(
+                "original_magnitude must have shape [%d, F, T], got %s."
+                % (int(TARGET_CHANNELS), str(original_magnitude.shape))
+            )
+
         if stems is not None:
             stem_list = [str(s) for s in stems]
             if len(stem_list) == 0:
                 raise ValueError("stems cannot be empty.")
 
-            masks = model_output.squeeze(0).detach().cpu().numpy()  # [S, F, T]
-            if masks.ndim != 3:
-                raise ValueError("model_output must have shape [1, S, F, T].")
-            if masks.shape[0] != len(stem_list):
-                raise ValueError(
-                    "Mask channel count (%d) does not match stems (%d)."
-                    % (int(masks.shape[0]), int(len(stem_list)))
-                )
+            masks = model_output.squeeze(0).detach().cpu().numpy()
+
+            if masks.ndim == 3:
+                if masks.shape[0] != len(stem_list):
+                    raise ValueError(
+                        "Mask stem count (%d) does not match stems (%d)."
+                        % (int(masks.shape[0]), int(len(stem_list)))
+                    )
+                masks = np.stack([masks, masks], axis=1)
+            elif masks.ndim == 4:
+                if masks.shape[0] != len(stem_list):
+                    raise ValueError(
+                        "Mask stem count (%d) does not match stems (%d)."
+                        % (int(masks.shape[0]), int(len(stem_list)))
+                    )
+                if masks.shape[1] != TARGET_CHANNELS:
+                    raise ValueError(
+                        "Mask channel count (%d) does not match expected channels (%d)."
+                        % (int(masks.shape[1]), int(TARGET_CHANNELS))
+                    )
+            else:
+                raise ValueError("model_output must have shape [1, S, F, T] or [1, S, 2, F, T].")
 
             stem_paths: dict[str, Optional[Path]] = {}
             stem_waveforms: dict[str, np.ndarray] = {}
 
             for stem_idx, stem in enumerate(stem_list):
-                stem_mask = masks[stem_idx]  # [F, T]
-                stereo_mask = np.stack([stem_mask, stem_mask])  # [2, F, T]
-                waveform = self._reconstruct_stem(stereo_mask, original_magnitude, metadata)
+                stem_mask = masks[stem_idx]
+                waveform = self._reconstruct_stem(stem_mask, original_magnitude, metadata)
 
-                if waveform.ndim == 2 and waveform.shape[0] != 2 and waveform.shape[1] == 2:
+                if (
+                    waveform.ndim == 2
+                    and waveform.shape[0] != TARGET_CHANNELS
+                    and waveform.shape[1] == TARGET_CHANNELS
+                ):
                     waveform = waveform.T
-                if waveform.ndim != 2 or waveform.shape[0] != 2:
+                if waveform.ndim != 2 or waveform.shape[0] != TARGET_CHANNELS:
                     raise ValueError(
-                        "Reconstructed waveform has wrong shape %s, expected [2, N]."
-                        % (str(waveform.shape),)
+                        "Reconstructed waveform has wrong shape %s, expected [%d, N]."
+                        % (str(waveform.shape), int(TARGET_CHANNELS))
                     )
 
                 stem_waveforms[stem] = waveform
@@ -153,24 +177,21 @@ class Postprocessor:
                 sample_rate=metadata.processed_sr,
             )
 
-        # Extract masks from model output [1, 2, F, T] -> [F, T] each
-        masks = model_output.squeeze(0).detach().cpu().numpy()  # [2, F, T]
+        masks = model_output.squeeze(0).detach().cpu().numpy()
         if masks.ndim != 3 or masks.shape[0] != 2:
             raise ValueError("model_output must have shape [1, 2, F, T].")
-        vocals_mask = masks[0]  # [F, T]
-        instrumentals_mask = masks[1]  # [F, T]
 
-        # Broadcast mono masks to stereo shape [2, F, T]
+        vocals_mask = masks[0]
+        instrumentals_mask = masks[1]
+
         vocals_mask = np.stack([vocals_mask, vocals_mask])
         instrumentals_mask = np.stack([instrumentals_mask, instrumentals_mask])
 
-        # Reconstruct each stem
         vocals_waveform = self._reconstruct_stem(vocals_mask, original_magnitude, metadata)
         instrumentals_waveform = self._reconstruct_stem(
             instrumentals_mask, original_magnitude, metadata
         )
 
-        # Export files
         vocals_path = None
         instrumentals_path = None
 
@@ -223,16 +244,23 @@ class Postprocessor:
         Returns:
             Waveform, shape [2, N]
         """
-        # Apply mask to original magnitude
+        if mask.ndim != 3 or mask.shape[0] != TARGET_CHANNELS:
+            raise ValueError(
+                "mask must have shape [%d, F, T], got %s." % (int(TARGET_CHANNELS), str(mask.shape))
+            )
+        if original_magnitude.ndim != 3 or original_magnitude.shape[0] != TARGET_CHANNELS:
+            raise ValueError(
+                "original_magnitude must have shape [%d, F, T], got %s."
+                % (int(TARGET_CHANNELS), str(original_magnitude.shape))
+            )
+
         masked_magnitude = apply_mask(original_magnitude, mask)
 
-        # Recombine with phase
         stft_complex = combine_magnitude_phase(masked_magnitude, metadata.phase)
 
         win_length = getattr(metadata, "win_length", metadata.n_fft)
         center = getattr(metadata, "center", False)
 
-        # ISTFT to get waveform
         waveform = compute_istft(
             stft_complex,
             hop_length=metadata.hop_length,
@@ -241,7 +269,6 @@ class Postprocessor:
             center=center,
         )
 
-        # Denormalize waveform
         waveform = denormalize_waveform(waveform, metadata.waveform_norm_params)
 
         return waveform

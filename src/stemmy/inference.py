@@ -4,8 +4,8 @@
 This module provides a stable, end-to-end inference path that:
 1) Loads a trained model checkpoint (TorchScript .pt or training .pth dict)
 2) Constructs an InferenceConfig (optionally derived from checkpoint metadata)
-3) Runs preprocessing to produce a model input tensor [B, 1, F, T]
-4) Runs the model to predict per-stem ratio masks [B, S, F, T]
+3) Runs preprocessing to produce a model input tensor [B, C, F, T]
+4) Runs the model to predict per-stem ratio masks [B, S, C, F, T]
 5) Optionally renormalizes masks so they sum-to-one across stems
 6) Runs postprocessing to reconstruct time-domain stems and optionally export files
 
@@ -30,6 +30,7 @@ from stemmy.constants import (
     N_FFT,
     STEMS_4,
     STFT_CENTER,
+    TARGET_CHANNELS,
     TARGET_SAMPLE_RATE,
     WIN_LENGTH,
     WINDOW,
@@ -60,6 +61,7 @@ class InferenceConfig:
 
     # STFT configuration (must match training/reconstruction expectations)
     sample_rate: int = TARGET_SAMPLE_RATE
+    audio_channels: int = TARGET_CHANNELS
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
     win_length: int = WIN_LENGTH
@@ -135,6 +137,7 @@ def _ensure_cfg_stems(cfg: InferenceConfig) -> InferenceConfig:
     if cfg.stems is None:
         return InferenceConfig(
             sample_rate=cfg.sample_rate,
+            audio_channels=cfg.audio_channels,
             n_fft=cfg.n_fft,
             hop_length=cfg.hop_length,
             win_length=cfg.win_length,
@@ -174,10 +177,13 @@ def load_pth_model(
     device: str = "cpu",
     stems: int = 4,
     base_channels: Optional[int] = None,
+    audio_channels: int = TARGET_CHANNELS,
 ) -> tuple[torch.nn.Module, dict[str, Any]]:
     """Load a training checkpoint dict (.pth) containing 'model_state'."""
     if not isinstance(stems, int) or stems <= 0:
         raise ValueError("stems must be a positive int")
+    if not isinstance(audio_channels, int) or audio_channels <= 0:
+        raise ValueError("audio_channels must be a positive int")
 
     path = Path(checkpoint_path).expanduser().resolve()
     if not path.exists():
@@ -199,11 +205,19 @@ def load_pth_model(
         else:
             base_channels = 64
 
+    cfg_audio_channels = ckpt_cfg.get("audio_channels", None)
+    if isinstance(cfg_audio_channels, int) and cfg_audio_channels > 0:
+        audio_channels = int(cfg_audio_channels)
+
     if not isinstance(base_channels, int) or base_channels <= 0:
         raise ValueError("base_channels must be a positive int")
 
     dev = torch.device(str(device))
-    model = UNet2D(stems=int(stems), base_channels=int(base_channels)).to(dev)
+    model = UNet2D(
+        stems=int(stems),
+        base_channels=int(base_channels),
+        audio_channels=int(audio_channels),
+    ).to(dev)
 
     missing, unexpected = model.load_state_dict(ckpt["model_state"], strict=False)
     if missing or unexpected:
@@ -266,6 +280,7 @@ def config_from_checkpoint(ckpt: Mapping[str, Any]) -> InferenceConfig:
 
     inferred = InferenceConfig(
         sample_rate=_coerce_int(cfg.get("sample_rate", TARGET_SAMPLE_RATE), TARGET_SAMPLE_RATE),
+        audio_channels=_coerce_int(cfg.get("audio_channels", TARGET_CHANNELS), TARGET_CHANNELS),
         n_fft=_coerce_int(cfg.get("n_fft", N_FFT), N_FFT),
         hop_length=_coerce_int(cfg.get("hop_length", HOP_LENGTH), HOP_LENGTH),
         win_length=_coerce_int(cfg.get("win_length", WIN_LENGTH), WIN_LENGTH),
@@ -292,7 +307,8 @@ def config_from_checkpoint(ckpt: Mapping[str, Any]) -> InferenceConfig:
 
     logger.info(
         "Inference config from checkpoint: "
-        f"sr={inferred.sample_rate} n_fft={inferred.n_fft} hop={inferred.hop_length} "
+        f"sr={inferred.sample_rate} channels={inferred.audio_channels} "
+        f"n_fft={inferred.n_fft} hop={inferred.hop_length} "
         f"win={inferred.win_length} window={inferred.window} center={inferred.center} "
         f"stems={','.join(inferred.stems or [])} device={inferred.device}"
     )
@@ -340,6 +356,7 @@ def _validate_checkpoint_alignment(
             )
 
     _maybe_check_int("sample_rate", cfg.sample_rate)
+    _maybe_check_int("audio_channels", cfg.audio_channels)
     _maybe_check_int("n_fft", cfg.n_fft)
     _maybe_check_int("hop_length", cfg.hop_length)
     _maybe_check_int("win_length", cfg.win_length)
@@ -387,6 +404,8 @@ def _build_preprocessor(cfg: InferenceConfig) -> Preprocessor:
     """
     kwargs: dict[str, Any] = {
         "sample_rate": cfg.sample_rate,
+        "target_channels": cfg.audio_channels,
+        "audio_channels": cfg.audio_channels,
         "n_fft": cfg.n_fft,
         "hop_length": cfg.hop_length,
         "win_length": cfg.win_length,
@@ -402,7 +421,9 @@ def _build_preprocessor(cfg: InferenceConfig) -> Preprocessor:
         raise InferenceException("Failed to construct Preprocessor: %s" % str(exc)) from exc
 
 
-def _preprocess_audio(pre: Preprocessor, audio_path: Path) -> tuple[torch.Tensor, Any]:
+def _preprocess_audio(
+    pre: Preprocessor, audio_path: Path, cfg: InferenceConfig
+) -> tuple[torch.Tensor, Any]:
     """Run the preprocessing pipeline and normalize expected return types."""
     try:
         out = pre.process(audio_path)
@@ -422,11 +443,11 @@ def _preprocess_audio(pre: Preprocessor, audio_path: Path) -> tuple[torch.Tensor
     if not isinstance(input_tensor, torch.Tensor):
         raise InferenceException("Preprocessor did not return a torch.Tensor input tensor.")
     if input_tensor.ndim != 4:
-        raise InferenceException("Preprocessor output must have shape [B, 1, F, T].")
-    if input_tensor.shape[1] != 1:
+        raise InferenceException("Preprocessor output must have shape [B, C, F, T].")
+    if int(input_tensor.shape[1]) != int(cfg.audio_channels):
         raise InferenceException(
-            "Preprocessor output must have shape [B, 1, F, T] (mono channel dimension). "
-            f"Got shape: {tuple(input_tensor.shape)}"
+            "Preprocessor output must have shape [B, %d, F, T]. Got shape: %s"
+            % (int(cfg.audio_channels), str(tuple(input_tensor.shape)))
         )
 
     return input_tensor, metadata
@@ -645,8 +666,10 @@ def _run_model_forward(
                     raise InferenceException("Model did not return a torch.Tensor.")
 
                 if out_full is None:
+                    out_shape = list(out_chunk.shape)
+                    out_shape[-1] = t_frames
                     out_full = torch.zeros(
-                        (out_chunk.shape[0], out_chunk.shape[1], out_chunk.shape[2], t_frames),
+                        tuple(out_shape),
                         device=out_chunk.device,
                         dtype=out_chunk.dtype,
                     )
@@ -686,18 +709,20 @@ def _run_model_forward(
                             ) / float(n + 1)
                             w[L - n : L] = torch.minimum(w[L - n : L], ramp)
 
+                weight_view_shape = [1 for _ in range(out_chunk.ndim - 1)] + [-1]
                 out_full[..., start:end] += out_chunk * w.to(dtype=out_chunk.dtype).view(
-                    1, 1, 1, -1
+                    *weight_view_shape
                 )
                 weight_full[start:end] += w
 
             if out_full is None or weight_full is None:
                 raise InferenceException("Chunked inference produced no output.")
 
+            denom_view_shape = [1 for _ in range(out_full.ndim - 1)] + [-1]
             denom = (
                 weight_full.clamp_min(float(cfg.eps))
                 .to(device=out_full.device, dtype=out_full.dtype)
-                .view(1, 1, 1, -1)
+                .view(*denom_view_shape)
             )
             out_full = out_full / denom
 
@@ -765,7 +790,7 @@ def separate_audio_file(
                 advance=1,
                 phase="Pre",
             )
-            input_tensor, metadata = _preprocess_audio(pre, audio_path_p)
+            input_tensor, metadata = _preprocess_audio(pre, audio_path_p, cfg)
 
             progress.update(
                 separate_task,
@@ -783,24 +808,26 @@ def separate_audio_file(
             )
             model_output = _run_model_forward(model, input_tensor, device, cfg)
 
-            if model_output.ndim != 4:
-                raise InferenceException("Model output must have shape [B, S, F, T].")
-            if model_output.shape[0] != input_tensor.shape[0]:
+            if model_output.ndim != 5:
+                raise InferenceException("Model output must have shape [B, S, C, F, T].")
+            if int(model_output.shape[0]) != int(input_tensor.shape[0]):
                 raise InferenceException(
                     "Model batch dimension does not match input batch dimension."
                 )
-            if (
-                model_output.shape[2] != input_tensor.shape[2]
-                or model_output.shape[3] != input_tensor.shape[3]
-            ):
+            if int(model_output.shape[2]) != int(input_tensor.shape[1]):
+                raise InferenceException(
+                    "Model output channel dimension does not match input channel dimension."
+                )
+            if int(model_output.shape[3]) != int(input_tensor.shape[2]) or int(
+                model_output.shape[4]
+            ) != int(input_tensor.shape[3]):
                 raise InferenceException("Model output [F, T] does not match input [F, T].")
-            if model_output.shape[1] != len(stem_list):
+            if int(model_output.shape[1]) != int(len(stem_list)):
                 raise InferenceException(
                     "Stem count mismatch: model returned S=%d, stems list has %d."
                     % (int(model_output.shape[1]), int(len(stem_list)))
                 )
 
-            # Training optimizes KL(target || softmax(logits)); inference must mirror that.
             model_output = torch.softmax(model_output, dim=1)
             model_output = torch.clamp(model_output, 0.0, 1.0)
             if cfg.renorm_masks:
