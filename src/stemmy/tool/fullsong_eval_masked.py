@@ -1,22 +1,22 @@
 # src/stemmy/tool/fullsong_eval_masked.py
-"""Full-song evaluation using the unified preprocessing -> inference -> postprocessing pipeline.
+"""Full-song evaluation using the preprocessing, inference, and postprocessing pipeline.
 
-This script evaluates checkpoints on MUSDB18-HQ test tracks by:
-- Loading a model checkpoint and its embedded configuration.
-- Running separation via stemmy.inference.separate_audio_file (the authoritative stack).
-- Scoring SI-SDR per stem, reconstruction SNR (mixture vs sum(pred stems)),
-  and inter-stem correlation.
-- Writing per-track and per-checkpoint summary CSVs.
+This script:
+- Loads a model checkpoint and its embedded configuration.
+- Runs separation on held-out MUSDB18-HQ tracks.
+- Scores SI-SDR per stem, reconstruction SNR, and inter-stem correlation.
+- Writes per-track and per-checkpoint summary CSVs.
 
 Environment variables:
 DATA:          MUSDB18-HQ root directory containing train/ and test/
 CKPT_DIR:      Directory containing .pth checkpoints
 EVAL_DIR:      Output directory for CSV results
 DEVICE:        Torch device string (default: "cuda")
-N_EVAL_TRACKS: Number of test tracks to evaluate (default: "30")
+N_EVAL_TRACKS: Number of tracks to evaluate (default: "30")
 MAX_SECONDS:   Max seconds per track to evaluate (default: "30", 0 = full track)
+EVAL_SUBSET:   MUSDB subset to evaluate on (default: "test")
 
-Optional environment variables (output/progress controls):
+Optional environment variables:
 EVAL_PROGRESS:            1 to print checkpoint/track progress to stdout (default: "1")
 EVAL_PRINT_METRICS:       1 to print per-track metrics lines (default: "0")
 EVAL_FLUSH_EVERY:         Flush CSV files every N per-track rows (default: "1")
@@ -27,7 +27,6 @@ EVAL_PRINT_EVERY_TRACKS:  Print a progress line every N tracks (default: "1")
 import csv
 import math
 import os
-import time
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
@@ -46,6 +45,7 @@ from stemmy.constants import (
     NEON_GREEN,
     ROSE_RED,
     STEMS_4,
+    TARGET_CHANNELS,
     WHITE,
 )
 from stemmy.inference import (
@@ -61,6 +61,7 @@ from stemmy.wandb_config import wandb_run
 logger = get_logger(__name__)
 
 STEMS: list[str] = list(STEMS_4)
+SUPPORTED_EVAL_SUBSETS: tuple[str, ...] = ("test",)
 
 
 class EvaluationException(Exception):
@@ -77,8 +78,16 @@ def _get_env_path(name: str) -> Path:
     return Path(val).expanduser().resolve()
 
 
+def _get_env_str(name: str, default: str) -> str:
+    """Read a string environment variable, or return default when unset or blank."""
+    raw = os.environ.get(name, "").strip()
+    if raw == "":
+        return str(default)
+    return str(raw)
+
+
 def _get_env_int(name: str, default: int) -> int:
-    """Read an integer environment variable, or return default when unset/blank."""
+    """Read an integer environment variable, or return default when unset or blank."""
     raw = os.environ.get(name, "").strip()
     if raw == "":
         return int(default)
@@ -91,7 +100,7 @@ def _get_env_int(name: str, default: int) -> int:
 
 
 def _get_env_bool(name: str, default: bool) -> bool:
-    """Read a boolean-ish environment variable."""
+    """Read a boolean-like environment variable."""
     raw = os.environ.get(name, "").strip().lower()
     if raw == "":
         return bool(default)
@@ -128,6 +137,16 @@ def _validate_device(device: str) -> str:
     raise EvaluationException("Invalid DEVICE. Use cpu, cuda, or cuda:N (example: cuda:0).")
 
 
+def _validate_eval_subset(eval_subset: str) -> str:
+    """Validate the MUSDB subset used for evaluation."""
+    subset = str(eval_subset).strip().lower()
+    if subset not in SUPPORTED_EVAL_SUBSETS:
+        raise EvaluationException(
+            "Unsupported EVAL_SUBSET '%s'. Expected one of %s." % (subset, SUPPORTED_EVAL_SUBSETS)
+        )
+    return subset
+
+
 def _list_tracks(split_dir: Path) -> list[Path]:
     """Return MUSDB track directories that contain mixture.wav and all required stems."""
     tracks: list[Path] = []
@@ -157,9 +176,10 @@ def _list_tracks(split_dir: Path) -> list[Path]:
 def _read_slice(path: Path, max_samples: int) -> tuple[np.ndarray, int]:
     """Read audio as float32 stereo (N, 2) and optionally truncate to max_samples."""
     x, sr = sf.read(str(path), always_2d=True, dtype="float32")
-    if x.ndim != 2 or x.shape[1] != 2:
+    if x.ndim != 2 or x.shape[1] != TARGET_CHANNELS:
         raise EvaluationException(
-            "Expected stereo audio with shape (N,2), got: %s" % (str(x.shape),)
+            "Expected stereo audio with shape (N,%d), got: %s"
+            % (int(TARGET_CHANNELS), str(x.shape))
         )
     if max_samples > 0 and x.shape[0] > max_samples:
         x = x[:max_samples, :]
@@ -182,26 +202,28 @@ def _si_sdr(est: np.ndarray, ref: np.ndarray, eps: float = 1e-12) -> float:
         raise EvaluationException(
             "Shape mismatch est=%s ref=%s" % (str(est_f.shape), str(ref_f.shape))
         )
-    if est_f.ndim != 2 or est_f.shape[1] != 2:
-        raise EvaluationException("Expected stereo shape (N,2), got: %s" % (str(est_f.shape),))
+    if est_f.ndim != 2 or est_f.shape[1] != TARGET_CHANNELS:
+        raise EvaluationException(
+            "Expected stereo shape (N,%d), got: %s" % (int(TARGET_CHANNELS), str(est_f.shape))
+        )
 
     est_zm = _zero_mean(est_f)
     ref_zm = _zero_mean(ref_f)
 
     sdrs: list[float] = []
-    for c in range(ref_zm.shape[1]):
-        r = ref_zm[:, c]
-        e = est_zm[:, c]
+    for channel in range(ref_zm.shape[1]):
+        ref_channel = ref_zm[:, channel]
+        est_channel = est_zm[:, channel]
 
-        rr = float(np.dot(r, r) + eps)
-        a = float(np.dot(e, r) / rr)
+        ref_energy = float(np.dot(ref_channel, ref_channel) + eps)
+        scale = float(np.dot(est_channel, ref_channel) / ref_energy)
 
-        s_target = a * r
-        e_noise = e - s_target
+        target_component = scale * ref_channel
+        noise_component = est_channel - target_component
 
-        num = float(np.dot(s_target, s_target) + eps)
-        den = float(np.dot(e_noise, e_noise) + eps)
-        sdrs.append(10.0 * math.log10(num / den))
+        numerator = float(np.dot(target_component, target_component) + eps)
+        denominator = float(np.dot(noise_component, noise_component) + eps)
+        sdrs.append(10.0 * math.log10(numerator / denominator))
 
     return float(np.mean(sdrs))
 
@@ -223,7 +245,7 @@ def _recon_snr_db(mix: np.ndarray, stems_sum: np.ndarray, eps: float = 1e-12) ->
 
 
 def _corr(a: np.ndarray, b: np.ndarray, eps: float = 1e-12) -> float:
-    """Compute a simple normalized correlation between two stereo signals."""
+    """Compute a normalized correlation between two stereo signals."""
     if a.shape != b.shape:
         raise EvaluationException(
             "Shape mismatch for correlation: a=%s b=%s" % (str(a.shape), str(b.shape))
@@ -240,7 +262,7 @@ def _corr(a: np.ndarray, b: np.ndarray, eps: float = 1e-12) -> float:
 
 
 def _mean_interstem_corr(pred_stems: dict[str, np.ndarray]) -> float:
-    """Compute mean pairwise correlation across all predicted stems."""
+    """Compute mean pairwise correlation across predicted stems."""
     vals: list[float] = []
     for i in range(len(STEMS)):
         for j in range(i + 1, len(STEMS)):
@@ -251,17 +273,17 @@ def _mean_interstem_corr(pred_stems: dict[str, np.ndarray]) -> float:
 def _ckpt_sort_key(p: Path) -> tuple[int, int, str]:
     """Sort checkpoints to prefer those with an epoch number, then ascending epoch."""
     stem = p.stem
-    e = -1
+    epoch = -1
 
     if "epoch" in stem:
         tail = stem.split("epoch")[-1]
         try:
-            e = int(tail)
+            epoch = int(tail)
         except ValueError:
-            e = -1
+            epoch = -1
 
-    unknown = 1 if e < 0 else 0
-    epoch_val = e if e >= 0 else 0
+    unknown = 1 if epoch < 0 else 0
+    epoch_val = epoch if epoch >= 0 else 0
     return unknown, epoch_val, p.name
 
 
@@ -269,7 +291,7 @@ def _truncate_outputs_to_mix_len(
     pred: dict[str, np.ndarray],
     mix_len: int,
 ) -> dict[str, np.ndarray]:
-    """Trim or pad predicted stems to match the mixture length (N)."""
+    """Trim or pad predicted stems to match the mixture length."""
     if mix_len < 0:
         raise EvaluationException("mix_len must be >= 0, got %d" % int(mix_len))
 
@@ -279,9 +301,10 @@ def _truncate_outputs_to_mix_len(
             raise EvaluationException("Missing predicted stem: %s" % stem)
 
         x = pred[stem]
-        if x.ndim != 2 or x.shape[1] != 2:
+        if x.ndim != 2 or x.shape[1] != TARGET_CHANNELS:
             raise EvaluationException(
-                "Expected pred stem %s to have shape (N,2), got %s" % (stem, str(x.shape))
+                "Expected pred stem %s to have shape (N,%d), got %s"
+                % (stem, int(TARGET_CHANNELS), str(x.shape))
             )
 
         if x.shape[0] > mix_len:
@@ -302,7 +325,7 @@ def _maybe_truncate_mixture_wav(
     sr: int,
     max_seconds: int,
 ) -> Path:
-    """Write a truncated mixture.wav when MAX_SECONDS > 0 so inference matches evaluation slice."""
+    """Write a truncated mixture.wav when MAX_SECONDS > 0 so inference matches the slice."""
     if max_seconds <= 0:
         return mix_path
 
@@ -320,13 +343,7 @@ def _build_eval_inference_config(
     ckpt_obj: dict,
     device: str,
 ) -> InferenceConfig:
-    """Build an InferenceConfig for evaluation based on checkpoint config.
-
-    Evaluation overrides:
-    - stems ordering is fixed to project canonical STEMS_4 ordering
-    - export_files=False (evaluation writes only CSVs)
-    - renorm_masks=True (keeps predicted masks sum-to-one across stems per TF-bin)
-    """
+    """Build an InferenceConfig for evaluation based on checkpoint config."""
     cfg_from_ckpt = config_from_checkpoint(ckpt_obj)
     cfg = replace(
         cfg_from_ckpt,
@@ -350,7 +367,7 @@ def _flush_outputs(
     f_sum,
     do_fsync: bool,
 ) -> None:
-    """Flush CSV file buffers (and optionally fsync)."""
+    """Flush CSV file buffers and optionally fsync."""
     f_track.flush()
     f_sum.flush()
     if do_fsync:
@@ -363,11 +380,7 @@ def _vocals_priority_score(
     mean_recon: float,
     mean_corr: float,
 ) -> float:
-    """Compute a simple derived score that weights vocals more heavily.
-
-    This is for easier manual comparison in the summary CSV.
-    It is not used directly by the evaluation loop to choose checkpoints.
-    """
+    """Compute a derived score that weights vocals more heavily."""
     mean_sisdr = float(np.mean([mean_sisdr_by_stem[stem] for stem in STEMS]))
     vocals = float(mean_sisdr_by_stem.get("vocals", 0.0))
     return mean_sisdr + 0.5 * vocals + 0.05 * mean_recon + 2.0 * mean_corr
@@ -383,14 +396,14 @@ def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
     table.add_column("Checkpoint", style=LAVENDER)
     table.add_column("Mean SI-SDR", justify="right", style=WHITE)
     for stem in STEMS:
-        table.add_column(f"SI-SDR {stem}", justify="right", style=WHITE)
+        table.add_column("SI-SDR %s" % stem, justify="right", style=WHITE)
     table.add_column("Recon SNR", justify="right", style=WHITE)
     table.add_column("Interstem Corr", justify="right", style=WHITE)
     table.add_column("Vocals Priority", justify="right", style=WHITE)
 
     score_keys = [
         "mean_sisdr",
-        *[f"mean_sisdr_{stem}" for stem in STEMS],
+        *["mean_sisdr_%s" % stem for stem in STEMS],
         "mean_recon_snr_db",
         "mean_interstem_corr",
         "vocals_priority_score",
@@ -418,7 +431,7 @@ def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
             Path(str(row["ckpt"])).name,
             style_score("mean_sisdr", mean_sisdr, decimals=3),
             *[
-                style_score(f"mean_sisdr_{stem}", float(row[f"mean_sisdr_{stem}"]), decimals=3)
+                style_score("mean_sisdr_%s" % stem, float(row["mean_sisdr_%s" % stem]), decimals=3)
                 for stem in STEMS
             ],
             style_score("mean_recon_snr_db", mean_recon, decimals=3),
@@ -432,11 +445,10 @@ def print_evaluation_summary(rows: list[dict[str, Union[float, str]]]) -> None:
 
 @wandb_run(job_type="evaluation", name="song_eval")
 def main() -> None:
-    """Entry point for full-song evaluation."""
+    """Run full-song evaluation."""
     setup_logging()
 
     progress_enabled = _get_env_bool("EVAL_PROGRESS", True)
-    print_metrics = _get_env_bool("EVAL_PRINT_METRICS", False)
 
     flush_every = _get_env_int("EVAL_FLUSH_EVERY", 1)
     if flush_every <= 0:
@@ -461,6 +473,7 @@ def main() -> None:
 
     n_eval_tracks = _get_env_int("N_EVAL_TRACKS", 30)
     max_seconds = _get_env_int("MAX_SECONDS", 30)
+    eval_subset = _validate_eval_subset(_get_env_str("EVAL_SUBSET", "test"))
 
     if n_eval_tracks <= 0:
         raise EvaluationException("N_EVAL_TRACKS must be > 0, got %d" % int(n_eval_tracks))
@@ -471,16 +484,29 @@ def main() -> None:
 
     if wandb.run is not None:
         wandb.config.update(
-            {"n_eval_tracks": n_eval_tracks, "max_seconds": max_seconds, "device": device}
+            {
+                "n_eval_tracks": n_eval_tracks,
+                "max_seconds": max_seconds,
+                "device": device,
+                "eval_subset": eval_subset,
+            }
         )
 
-    tracks = _list_tracks(data_root / "test")[:n_eval_tracks]
+    tracks = _list_tracks(data_root / eval_subset)[:n_eval_tracks]
     if not tracks:
-        raise EvaluationException("No valid test tracks found in: %s" % str(data_root / "test"))
+        raise EvaluationException(
+            "No valid %s tracks found in: %s" % (eval_subset, str(data_root / eval_subset))
+        )
 
     ckpts = sorted(ckpt_dir.glob("*.pth"), key=_ckpt_sort_key)
     if not ckpts:
         raise EvaluationException("No checkpoints found in: %s" % str(ckpt_dir))
+
+    logger.info(
+        "Final evaluation using MUSDB subset '%s' with %d tracks.",
+        eval_subset,
+        int(len(tracks)),
+    )
 
     per_track_csv = eval_dir / "fullsong_eval_per_track.csv"
     summary_csv = eval_dir / "fullsong_eval_summary.csv"
@@ -581,8 +607,6 @@ def main() -> None:
                                 ),
                             )
 
-                        t0 = time.time()
-
                         track_name = track_dir.name
                         mix_path = track_dir / "mixture.wav"
 
@@ -622,9 +646,9 @@ def main() -> None:
                                     % (stem, str(w.shape))
                                 )
 
-                            if w.shape[0] == 2:
+                            if w.shape[0] == TARGET_CHANNELS:
                                 pred_stems[stem] = w.T.astype(np.float32, copy=False)
-                            elif w.shape[1] == 2:
+                            elif w.shape[1] == TARGET_CHANNELS:
                                 pred_stems[stem] = w.astype(np.float32, copy=False)
                             else:
                                 raise EvaluationException(
@@ -659,9 +683,9 @@ def main() -> None:
 
                         sisdr_row: dict[str, float] = {}
                         for stem in STEMS:
-                            v = _si_sdr(pred_stems[stem], gt[stem])
-                            sisdr_row[stem] = v
-                            sisdr_accum[stem].append(v)
+                            sisdr_value = _si_sdr(pred_stems[stem], gt[stem])
+                            sisdr_row[stem] = sisdr_value
+                            sisdr_accum[stem].append(sisdr_value)
 
                         stems_sum = np.zeros_like(mix)
                         for stem in STEMS:
@@ -687,29 +711,6 @@ def main() -> None:
                         )
                         if do_flush or do_fsync:
                             _flush_outputs(f_track, f_sum, do_fsync=bool(do_fsync))
-
-                        if print_metrics:
-                            dt = time.time() - t0
-                            parts = [
-                                "done",
-                                "dt=%.2fs" % float(dt),
-                                "recon=%.3f" % float(recon),
-                                "corr=%.4f" % float(corr_val),
-                            ]
-                            for stem in STEMS:
-                                parts.append("%s=%.3f" % (stem, float(sisdr_row[stem])))
-                            _print_progress(
-                                progress_enabled,
-                                "ckpt %d/%d  track %d/%d  %s  %s"
-                                % (
-                                    int(ckpt_idx),
-                                    int(total_ckpts),
-                                    int(track_idx),
-                                    int(total_tracks),
-                                    track_name,
-                                    " ".join(parts),
-                                ),
-                            )
 
                         if progress is not None and track_task_id is not None:
                             progress.update(
@@ -747,7 +748,7 @@ def main() -> None:
                             "mean_recon_snr_db": mean_recon,
                             "mean_interstem_corr": mean_corr,
                             "vocals_priority_score": vocals_priority_score,
-                            **{f"mean_sisdr_{stem}": mean_sisdr_by_stem[stem] for stem in STEMS},
+                            **{"mean_sisdr_%s" % stem: mean_sisdr_by_stem[stem] for stem in STEMS},
                         }
                     )
 
