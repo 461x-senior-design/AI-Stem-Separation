@@ -112,6 +112,7 @@ def init_wandb(cfg: WandbConfig, enabled: bool = True) -> Optional["wandb.sdk.wa
             job_type=cfg.job_type,
             config=cfg.config,
             resume=cfg.resume,
+            settings=wandb.Settings(_disable_stats=True),
         )
         logger.info(
             "wandb initialized: entity=%s project=%s run=%s",
@@ -172,7 +173,7 @@ def wandb_run(
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             project, entity, env_name, enabled = _config_from_env()
-            run_name = name or env_name or job_type
+            run_name = env_name or name or job_type
 
             cfg = WandbConfig(
                 entity=entity,
