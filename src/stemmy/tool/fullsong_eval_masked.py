@@ -715,8 +715,7 @@ def _eval_one_checkpoint(
             )
 
     mean_sisdr_by_stem = {
-        stem: float(np.mean(sisdr_accum[stem]) if sisdr_accum[stem] else 0.0)
-        for stem in STEMS
+        stem: float(np.mean(sisdr_accum[stem]) if sisdr_accum[stem] else 0.0) for stem in STEMS
     }
     mean_recon = float(np.mean(recon_accum) if recon_accum else 0.0)
     mean_corr = float(np.mean(corr_accum) if corr_accum else 0.0)
@@ -739,8 +738,7 @@ def _eval_one_checkpoint(
         f_track,
         f_sum,
         do_fsync=bool(
-            (int(fsync_every) > 0)
-            and ((int(per_track_rows_written) % int(fsync_every)) == 0)
+            (int(fsync_every) > 0) and ((int(per_track_rows_written) % int(fsync_every)) == 0)
         ),
     )
 
