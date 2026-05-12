@@ -192,7 +192,6 @@ def _load_model_and_cfg(
     return model, cfg, None
 
 
-# NOTE: Root CLI command group
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
@@ -201,7 +200,6 @@ def cli() -> None:
     setup_logging(level=os.getenv("LOG_LEVEL", "ERROR"))
 
 
-# NOTE: `stemmy dev` command group
 @cli.group(help="Developer commands.")
 def dev() -> None:
     """Developer command group."""
@@ -235,7 +233,6 @@ for _launcher_cmd in (
     cli.add_command(_launcher_cmd)
 
 
-# NOTE: `stemmy dev eval` command
 @dev.command(
     "eval",
     context_settings={
@@ -283,7 +280,6 @@ def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
     fullsong_eval_masked_main()
 
 
-# NOTE: `stemmy spinner` command
 @cli.command("spinner", help="Generate EQ spinner frames and update src/stemmy/constants.py.")
 def spinner() -> None:
     """Regenerate EQ_FRAMES and write them to constants.py."""
@@ -302,7 +298,6 @@ def spinner() -> None:
         click.echo("EQ_FRAMES already up to date in src/stemmy/constants.py")
 
 
-# NOTE: `stemmy separate` command
 @cli.command(
     help=(
         "Separate an audio file into stems.\n\n"
@@ -364,13 +359,13 @@ def spinner() -> None:
     type=int,
     default=64,
     show_default=True,
-    help="Overlap (in STFT frames) between chunks when --chunk-frames > 0.",
+    help="Overlap in STFT frames between chunks when --chunk-frames > 0.",
 )
 @click.option(
     "--amp/--no-amp",
     default=False,
     show_default=True,
-    help="Enable CUDA autocast (AMP) during inference to reduce memory usage.",
+    help="Enable CUDA autocast during inference to reduce memory usage.",
 )
 @click.option(
     "--potato",
