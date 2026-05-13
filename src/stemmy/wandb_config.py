@@ -36,7 +36,6 @@ from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import wandb
-
 from stemmy.logging_config import get_logger
 
 logger = get_logger(__name__)
