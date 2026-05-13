@@ -45,6 +45,7 @@ def cli() -> None:
 @click.argument("config", required=False)
 @click.option("--name", required=True, help="Short label for the run.")
 @click.option("--partition", default="dgxh", show_default=True)
+@click.option("--time", default="04:30:00", show_default=True, help="HPC walltime.")
 @click.option("--dry-run", is_flag=True, help="Resolve and print; do not submit.")
 @click.option(
     "--override",
@@ -57,6 +58,7 @@ def run(
     config: str | None,
     name: str,
     partition: str,
+    time: str,
     dry_run: bool,
     overrides: tuple[str, ...],
 ) -> None:
@@ -79,6 +81,7 @@ def run(
         run_dir=entry.dir,
         config_env_path=rendered_env,
         partition=partition,
+        time=time,
     )
     if dry_run:
         click.echo("--- resolved config ---")
@@ -325,6 +328,7 @@ def matrix(matrix_yaml: str, dry_run: bool) -> None:
     base_configs = _base_configs(spec.get("base"))
     sweep: dict[str, list] = spec.get("sweep", {})
     partition = spec.get("partition", "dgxh")
+    time = spec.get("time", "04:30:00")
 
     combos = _cartesian(sweep)
     total_runs = len(base_configs) * len(combos)
@@ -351,6 +355,7 @@ def matrix(matrix_yaml: str, dry_run: bool) -> None:
             run_dir=entry.dir,
             config_env_path=rendered_env,
             partition=partition,
+            time=time,
         )
         if dry_run:
             click.echo(
