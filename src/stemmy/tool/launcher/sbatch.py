@@ -18,6 +18,7 @@ def render(
     run_dir: Path,
     config_env_path: Path,
     partition: str,
+    time: str = "04:30:00",
     workdir: Path | None = None,
 ) -> str:
     tmpl_path = paths.sbatch_template()
@@ -29,6 +30,7 @@ def render(
         "RUN_DIR": str(run_dir),
         "CONFIG_ENV": str(config_env_path),
         "PARTITION": partition,
+        "TIME": time,
         "WORKDIR": str(workdir or paths.project_root()),
         "TRAIN_INNER": str(paths.train_inner()),
     }
