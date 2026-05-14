@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=96G
-#SBATCH --time=04:30:00
+#SBATCH --time=@@TIME@@
 #SBATCH --export=ALL
 #SBATCH -o @@RUN_DIR@@/slurm-%j.out
 #SBATCH -e @@RUN_DIR@@/slurm-%j.err
