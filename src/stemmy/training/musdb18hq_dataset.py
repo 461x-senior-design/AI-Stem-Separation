@@ -32,6 +32,24 @@ from stemmy.constants import (
 from stemmy.preprocessing import normalize_waveform
 from stemmy.training.stft import StftConfig, freq_minmax_normalize, stft_mag_phase
 
+# Fixed validation split used by the official sigsep-mus-db MUSDB config.
+MUSDB_BUILTIN_VALID_TRACKS: List[str] = [
+    "Actions - One Minute Smile",
+    "Clara Berry And Wooldog - Waltz For My Victims",
+    "Johnny Lokke - Promises & Lies",
+    "Patrick Talbot - A Reason To Leave",
+    "Triviul - Angelsaint",
+    "Alexander Ross - Goodbye Bolero",
+    "Fergessen - Nos Palpitants",
+    "Leaf - Summerghost",
+    "Skelpolu - Human Mistakes",
+    "Young Griffo - Pennies",
+    "ANiMAL - Rockshow",
+    "James May - On The Line",
+    "Meaxic - Take A Step",
+    "Traffic Experiment - Sirens",
+]
+
 
 @dataclass(frozen=True)
 class CropConfig:
@@ -67,6 +85,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         partition: Optional[str] = None,
         valid_fraction: float = 0.2,
         split_seed: int = 0,
+        split_source: str = "random",
     ) -> None:
         """Initialize the dataset.
 
@@ -84,6 +103,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             partition: "train" or "valid" when subset="train"; None when subset="test"
             valid_fraction: Fraction of MUSDB train tracks reserved for validation
             split_seed: Seed used to deterministically split MUSDB train into train/valid
+            split_source: "random" (shuffle by seed) or "musdb_builtin" (fixed 14-track set)
         """
         if subset not in ["train", "test"]:
             raise ValueError("subset must be 'train' or 'test'.")
@@ -96,6 +116,9 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         if subset == "train" and partition is None:
             raise ValueError("partition must be 'train' or 'valid' when subset='train'.")
+
+        if split_source not in ["random", "musdb_builtin"]:
+            raise ValueError("split_source must be 'random' or 'musdb_builtin'.")
 
         if not isinstance(root_dir, str) or root_dir.strip() == "":
             raise ValueError("root_dir must be a non-empty string.")
@@ -116,6 +139,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         self.partition = partition
         self.stft_cfg = stft_cfg
         self.crop_cfg = crop_cfg
+        self.split_source = split_source
 
         self.stems = list(stems) if stems is not None else list(STEMS_4)
         if len(self.stems) == 0:
@@ -150,17 +174,27 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                     "Need at least 2 MUSDB train tracks to create train/valid split."
                 )
 
-            split_rng = random.Random(int(split_seed))
-            shuffled = list(track_dirs)
-            split_rng.shuffle(shuffled)
+            if self.split_source == "musdb_builtin":
+                valid_names = set(MUSDB_BUILTIN_VALID_TRACKS)
+                available_names = {p.name for p in track_dirs}
+                missing_names = sorted(valid_names - available_names)
+                if missing_names:
+                    raise RuntimeError(
+                        "MUSDB built-in validation tracks missing from dataset: %s"
+                        % ", ".join(missing_names)
+                    )
+            else:
+                split_rng = random.Random(int(split_seed))
+                shuffled = list(track_dirs)
+                split_rng.shuffle(shuffled)
 
-            valid_count = int(round(len(shuffled) * valid_fraction))
-            if valid_count <= 0:
-                valid_count = 1
-            if valid_count >= len(shuffled):
-                valid_count = len(shuffled) - 1
+                valid_count = int(round(len(shuffled) * valid_fraction))
+                if valid_count <= 0:
+                    valid_count = 1
+                if valid_count >= len(shuffled):
+                    valid_count = len(shuffled) - 1
 
-            valid_names = {p.name for p in shuffled[:valid_count]}
+                valid_names = {p.name for p in shuffled[:valid_count]}
 
             if partition == "train":
                 track_dirs = [p for p in track_dirs if p.name not in valid_names]
