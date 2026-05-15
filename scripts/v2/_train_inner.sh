@@ -685,12 +685,13 @@ EVAL_WATCH_POLL_SECONDS="${EVAL_WATCH_POLL_SECONDS:-60}"
 EVAL_WATCH_MODE="1" \
 TRAIN_DONE_FILE="${TRAIN_DONE_FILE}" \
 EVAL_WATCH_POLL_SECONDS="${EVAL_WATCH_POLL_SECONDS}" \
+EVAL_EVERY_N_CKPTS="${EVAL_EVERY_N_CKPTS}" \
 EVAL_PROGRESS="${EVAL_PROGRESS}" \
 EVAL_PRINT_METRICS="${EVAL_PRINT_METRICS}" \
 EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY}" \
 EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY}" \
 EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS}" \
-CHUNK_FRAMES="${CHUNK_FRAMES}" \
+EVAL_CHUNK_FRAMES="${CHUNK_FRAMES}" \
 DATA="${DATA_ROOT}" \
 CKPT_DIR="${CKPT_DIR}" \
 EVAL_DIR="${EVAL_DIR}" \
@@ -884,15 +885,18 @@ with open(r"${TIMING_FILE}") as f:
                 pass
 
 import wandb
-from stemmy.wandb_config import get_wandb_project, get_wandb_environment, WANDB_ENTITY
-from datetime import datetime
+from stemmy.wandb_config import (
+    get_wandb_project,
+    get_wandb_environment,
+    make_wandb_run_name,
+    WANDB_ENTITY,
+)
 
 env = get_wandb_environment()
 project = os.environ.get("WANDB_PROJECT", get_wandb_project(env))
 entity  = os.environ.get("WANDB_ENTITY", WANDB_ENTITY)
 base    = os.environ.get("WANDB_RUN_NAME", "job")
-date_str = datetime.now().strftime("%Y%m%d")
-run_name = f"{base}_timing_{date_str}" if base else f"job_timing_{date_str}"
+run_name = make_wandb_run_name(f"{base}_timing" if base else "job_timing")
 
 try:
     run = wandb.init(
@@ -920,4 +924,3 @@ echo "Latest run:   ${LATEST_RUN}"
 echo "Latest .pth:  ${LATEST_PTH}"
 echo "Latest .pt:   ${LATEST_PT}"
 echo "Latest env:   ${LATEST_ENV}"
-
