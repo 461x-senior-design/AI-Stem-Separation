@@ -126,6 +126,23 @@ EVAL_FSYNC_EVERY=""
 EVAL_PRINT_EVERY_TRACKS=""
 EVAL_WATCH_POLL_SECONDS=""
 
+# Reproducibility
+SEED=""
+
+# Augmentation (audiomentations). All probabilities default 0 (disabled).
+AUG_PROFILE=""
+AUG_GAIN_P=""
+AUG_GAIN_DB=""
+AUG_PITCH_P=""
+AUG_PITCH_SEMITONES=""
+AUG_TIME_STRETCH_P=""
+AUG_TIME_STRETCH_RANGE=""
+AUG_SHIFT_P=""
+AUG_SHIFT_FRACTION=""
+AUG_POLARITY_P=""
+AUG_NOISE_P=""
+AUG_NOISE_AMPLITUDE=""
+
 # Load env defaults FIRST so CLI flags override.
 if [[ -n "${ENV_FILE}" && -f "${ENV_FILE}" ]]; then
   set -a
@@ -190,6 +207,21 @@ while [[ $# -gt 0 ]]; do
     --eval-fsync-every) EVAL_FSYNC_EVERY="${2:-}"; shift 2 ;;
     --eval-print-every-tracks) EVAL_PRINT_EVERY_TRACKS="${2:-}"; shift 2 ;;
     --eval-watch-poll-seconds) EVAL_WATCH_POLL_SECONDS="${2:-}"; shift 2 ;;
+
+    --seed) SEED="${2:-}"; shift 2 ;;
+
+    --aug-profile) AUG_PROFILE="${2:-}"; shift 2 ;;
+    --aug-gain-p) AUG_GAIN_P="${2:-}"; shift 2 ;;
+    --aug-gain-db) AUG_GAIN_DB="${2:-}"; shift 2 ;;
+    --aug-pitch-p) AUG_PITCH_P="${2:-}"; shift 2 ;;
+    --aug-pitch-semitones) AUG_PITCH_SEMITONES="${2:-}"; shift 2 ;;
+    --aug-time-stretch-p) AUG_TIME_STRETCH_P="${2:-}"; shift 2 ;;
+    --aug-time-stretch-range) AUG_TIME_STRETCH_RANGE="${2:-}"; shift 2 ;;
+    --aug-shift-p) AUG_SHIFT_P="${2:-}"; shift 2 ;;
+    --aug-shift-fraction) AUG_SHIFT_FRACTION="${2:-}"; shift 2 ;;
+    --aug-polarity-p) AUG_POLARITY_P="${2:-}"; shift 2 ;;
+    --aug-noise-p) AUG_NOISE_P="${2:-}"; shift 2 ;;
+    --aug-noise-amplitude) AUG_NOISE_AMPLITUDE="${2:-}"; shift 2 ;;
 
     -h|--help) usage; exit 0 ;;
     *) echo "ERROR: Unknown arg: $1" >&2; usage; exit 2 ;;
@@ -298,6 +330,43 @@ EVAL_FLUSH_EVERY="${EVAL_FLUSH_EVERY:-1}"
 EVAL_FSYNC_EVERY="${EVAL_FSYNC_EVERY:-0}"
 EVAL_PRINT_EVERY_TRACKS="${EVAL_PRINT_EVERY_TRACKS:-1}"
 EVAL_WATCH_POLL_SECONDS="${EVAL_WATCH_POLL_SECONDS:-60}"
+
+# Reproducibility default (matches recon-p10-valid14-fullsong-baseline-seed42_20260514)
+SEED="${SEED:-42}"
+
+# Augmentation defaults: probabilities 0 (disabled), neutral strengths.
+AUG_PROFILE="${AUG_PROFILE:-}"
+AUG_GAIN_P="${AUG_GAIN_P:-0}"
+AUG_GAIN_DB="${AUG_GAIN_DB:-6.0}"
+AUG_PITCH_P="${AUG_PITCH_P:-0}"
+AUG_PITCH_SEMITONES="${AUG_PITCH_SEMITONES:-2.0}"
+AUG_TIME_STRETCH_P="${AUG_TIME_STRETCH_P:-0}"
+AUG_TIME_STRETCH_RANGE="${AUG_TIME_STRETCH_RANGE:-0.1}"
+AUG_SHIFT_P="${AUG_SHIFT_P:-0}"
+AUG_SHIFT_FRACTION="${AUG_SHIFT_FRACTION:-0.1}"
+AUG_POLARITY_P="${AUG_POLARITY_P:-0}"
+AUG_NOISE_P="${AUG_NOISE_P:-0}"
+AUG_NOISE_AMPLITUDE="${AUG_NOISE_AMPLITUDE:-0.005}"
+
+# AUG_PROFILE dispatcher: profile fills probabilities only when not explicitly set.
+# Used by screening matrices to flip "everything on / everything off" in one axis.
+case "${AUG_PROFILE}" in
+  ""|off)
+    : # use whatever AUG_*_P were passed; defaults are 0 everywhere.
+    ;;
+  all_medium)
+    [[ "${AUG_GAIN_P}" == "0" ]] && AUG_GAIN_P="0.5"
+    [[ "${AUG_PITCH_P}" == "0" ]] && AUG_PITCH_P="0.5"
+    [[ "${AUG_TIME_STRETCH_P}" == "0" ]] && AUG_TIME_STRETCH_P="0.5"
+    [[ "${AUG_SHIFT_P}" == "0" ]] && AUG_SHIFT_P="0.5"
+    [[ "${AUG_POLARITY_P}" == "0" ]] && AUG_POLARITY_P="0.5"
+    [[ "${AUG_NOISE_P}" == "0" ]] && AUG_NOISE_P="0.5"
+    ;;
+  *)
+    echo "ERROR: unknown AUG_PROFILE: ${AUG_PROFILE} (expected one of: off, all_medium)" >&2
+    exit 2
+    ;;
+esac
 
 # Validate key ints
 if [[ "${TIME_FRAMES}" != "256" && "${TIME_FRAMES}" != "512" ]]; then
@@ -626,6 +695,15 @@ echo "=== RUN INFO === [$(date '+%Y-%m-%d %H:%M:%S')]"
   echo "eval_fsync_every=${EVAL_FSYNC_EVERY}"
   echo "eval_print_every_tracks=${EVAL_PRINT_EVERY_TRACKS}"
   echo
+  echo "seed=${SEED}"
+  echo "aug_profile=${AUG_PROFILE}"
+  echo "aug_gain_p=${AUG_GAIN_P} aug_gain_db=${AUG_GAIN_DB}"
+  echo "aug_pitch_p=${AUG_PITCH_P} aug_pitch_semitones=${AUG_PITCH_SEMITONES}"
+  echo "aug_time_stretch_p=${AUG_TIME_STRETCH_P} aug_time_stretch_range=${AUG_TIME_STRETCH_RANGE}"
+  echo "aug_shift_p=${AUG_SHIFT_P} aug_shift_fraction=${AUG_SHIFT_FRACTION}"
+  echo "aug_polarity_p=${AUG_POLARITY_P}"
+  echo "aug_noise_p=${AUG_NOISE_P} aug_noise_amplitude=${AUG_NOISE_AMPLITUDE}"
+  echo
   echo "run_dir=${RUN_DIR}"
   echo "log_dir=${LOG_DIR}"
   echo "console_log=${CONSOLE_LOG}"
@@ -662,6 +740,18 @@ run_train_once() {
     --checkpoint-dir "${CKPT_DIR}"
     --save-every-epochs "${SAVE_EVERY_EPOCHS}"
     --device "${DEVICE}"
+    --seed "${SEED}"
+    --aug-gain-p "${AUG_GAIN_P}"
+    --aug-gain-db "${AUG_GAIN_DB}"
+    --aug-pitch-p "${AUG_PITCH_P}"
+    --aug-pitch-semitones "${AUG_PITCH_SEMITONES}"
+    --aug-time-stretch-p "${AUG_TIME_STRETCH_P}"
+    --aug-time-stretch-range "${AUG_TIME_STRETCH_RANGE}"
+    --aug-shift-p "${AUG_SHIFT_P}"
+    --aug-shift-fraction "${AUG_SHIFT_FRACTION}"
+    --aug-polarity-p "${AUG_POLARITY_P}"
+    --aug-noise-p "${AUG_NOISE_P}"
+    --aug-noise-amplitude "${AUG_NOISE_AMPLITUDE}"
   )
 
   if [[ "${AMP}" == "1" ]]; then

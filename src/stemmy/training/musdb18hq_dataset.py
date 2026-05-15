@@ -18,10 +18,14 @@ Returned tensors:
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
+import numpy as np
 import soundfile as sf
 import torch
+
+if TYPE_CHECKING:
+    from audiomentations import Compose
 
 from stemmy.constants import (
     DEFAULT_SPECTROGRAM_NORM,
@@ -86,6 +90,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         valid_fraction: float = 0.2,
         split_seed: int = 0,
         split_source: str = "random",
+        augment: Optional["Compose"] = None,
     ) -> None:
         """Initialize the dataset.
 
@@ -104,6 +109,10 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             valid_fraction: Fraction of MUSDB train tracks reserved for validation
             split_seed: Seed used to deterministically split MUSDB train into train/valid
             split_source: "random" (shuffle by seed) or "musdb_builtin" (fixed 14-track set)
+            augment: Optional audiomentations Compose pipeline. When set, each stem
+                waveform is augmented with shared (frozen) parameters and the mix
+                is recomputed as sum(augmented stems). When None, the existing
+                on-disk mixture.wav path is used unchanged.
         """
         if subset not in ["train", "test"]:
             raise ValueError("subset must be 'train' or 'test'.")
@@ -211,6 +220,9 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             raise RuntimeError(
                 f"No track directories found for subset={subset!r} partition={partition!r}."
             )
+
+        self.augment = augment
+        self.aug_sr = int(stft_cfg.sample_rate)
 
         self.segment_samples = self._segment_samples_required()
         self._validate_track_files()
@@ -322,6 +334,27 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 % (self.spectrogram_norm,)
             )
 
+    def _apply_augment(self, stem_wavs: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Apply self.augment to every stem with shared random parameters.
+
+        Each stem is passed through the pipeline once. `freeze_parameters()` is
+        called after the first call so subsequent stems reuse the same random
+        draws — this preserves the mix=sum(stems) invariant once the caller
+        recomputes the mix from the augmented stems.
+        """
+        assert self.augment is not None
+        try:
+            out: List[torch.Tensor] = []
+            for i, sw in enumerate(stem_wavs):
+                sw_np = sw.detach().cpu().numpy().astype(np.float32, copy=False)
+                sw_np = self.augment(samples=sw_np, sample_rate=self.aug_sr)
+                if i == 0:
+                    self.augment.freeze_parameters()
+                out.append(torch.from_numpy(np.ascontiguousarray(sw_np)).to(torch.float32))
+            return out
+        finally:
+            self.augment.unfreeze_parameters()
+
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Get a single training example.
 
@@ -353,7 +386,19 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         else:
             start = self.rng.randint(0, total_frames - self.segment_samples)
 
-        mix_wav = self._read_stereo_segment(mix_path, start, self.segment_samples)
+        if self.augment is None:
+            mix_wav = self._read_stereo_segment(mix_path, start, self.segment_samples)
+            stem_wavs: List[torch.Tensor] = [
+                self._read_stereo_segment(track_dir / f"{stem}.wav", start, self.segment_samples)
+                for stem in self.stems
+            ]
+        else:
+            stem_wavs = [
+                self._read_stereo_segment(track_dir / f"{stem}.wav", start, self.segment_samples)
+                for stem in self.stems
+            ]
+            stem_wavs = self._apply_augment(stem_wavs)
+            mix_wav = torch.stack(stem_wavs, dim=0).sum(dim=0)
 
         mix_wav_np = mix_wav.detach().cpu().numpy()
         mix_wav_np, mix_norm_params = normalize_waveform(mix_wav_np, method=self.waveform_norm)
@@ -373,10 +418,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             mix_norm, _f_min, _f_max = freq_minmax_normalize(mix_mag)
 
         stem_mags: List[torch.Tensor] = []
-        for stem in self.stems:
-            stem_path = track_dir / f"{stem}.wav"
-            stem_wav = self._read_stereo_segment(stem_path, start, self.segment_samples)
-
+        for stem_wav in stem_wavs:
             if mix_scale != 0.0:
                 stem_wav = stem_wav / mix_scale
 
