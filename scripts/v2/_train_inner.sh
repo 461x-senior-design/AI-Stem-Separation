@@ -511,7 +511,7 @@ if device.type == "cuda" and not torch.cuda.is_available():
 
 model = UNet2D(stems=4, base_channels=base_channels).to(device)
 model.train()
-x = torch.randn((bs, 1, F, T), device=device, dtype=torch.float32)
+x = torch.randn((bs, 2, F, T), device=device, dtype=torch.float32)
 
 try:
     y = model(x)
