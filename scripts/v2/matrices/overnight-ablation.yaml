@@ -1,0 +1,14 @@
+# Overnight ablation matrix anchored on the winning recipe
+# (recon-p10-valid14-fullsong, best ep90 mean SI-SDR -3.41).
+#
+# Cartesian sweep: 2 splits x 3 LRs x 2 epochs = 12 runs.
+# SAVE_EVERY_EPOCHS pinned at 10 here; a separate single high-res run
+# (overnight-diag-saveevery5-200ep) covers SAVE_EVERY=5.
+
+name: overnight-ablation
+base: recon-p10-valid14-fullsong
+partition: dgxh
+sweep:
+  SPLIT_SOURCE: [musdb_builtin, random]
+  LR: [5e-5, 1e-4, 2e-4]
+  EPOCHS: [100, 200]
