@@ -12,7 +12,7 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 import torch
-from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPalette, QPen
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
@@ -55,6 +55,9 @@ UI_FONT_FAMILY_FALLBACK = "Inter"
 DARK_ACCENT_COLOR = "#7FE80E"
 LIGHT_ACCENT_COLOR = "#2F7D1C"
 SOLO_ACCENT_COLOR = "#FF6A00"
+APP_DARK_BG = "#202124"
+PANEL_DARK_BG = "#2A2B2F"
+FIELD_DARK_BG = "#191A1D"
 DEFAULT_CHECKPOINT_PATH = Path(__file__).resolve().parents[3] / "checkpoints" / "model.pth"
 TRACE_COLORS = {
     "drums": "#00C2FF",
@@ -140,16 +143,21 @@ class SeparationWorker(QObject):
 class OscilloscopeWidget(QWidget):
     """Draw downsampled per-stem waveform traces."""
 
+    seek_requested = Signal(float)
+
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("Oscilloscope")
         self.setMinimumHeight(170)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.traces: dict[str, np.ndarray] = {}
         self.levels: dict[str, float] = {}
+        self.playhead_fraction = 0.0
 
     def clear(self) -> None:
         self.traces.clear()
         self.levels.clear()
+        self.playhead_fraction = 0.0
         self.update()
 
     def set_traces(self, traces: dict[str, np.ndarray]) -> None:
@@ -160,6 +168,21 @@ class OscilloscopeWidget(QWidget):
     def set_levels(self, levels: dict[str, float]) -> None:
         self.levels = levels
         self.update()
+
+    def set_playhead_fraction(self, fraction: float) -> None:
+        self.playhead_fraction = min(1.0, max(0.0, float(fraction)))
+        self.update()
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override name.
+        if not self.traces:
+            return
+
+        rect = self.rect().adjusted(10, 10, -10, -10)
+        if rect.width() <= 0:
+            return
+
+        fraction = (event.position().x() - rect.left()) / rect.width()
+        self.seek_requested.emit(min(1.0, max(0.0, float(fraction))))
 
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt override name.
         painter = QPainter(self)
@@ -209,6 +232,12 @@ class OscilloscopeWidget(QWidget):
                 prev_x = x
                 prev_y = y
 
+        playhead_x = rect.left() + int(self.playhead_fraction * rect.width())
+        played_rect = rect.adjusted(0, 0, -(rect.right() - playhead_x), 0)
+        painter.fillRect(played_rect, QColor(0, 0, 0, 72))
+        painter.setPen(QPen(QColor("#f9fafb"), 2.0))
+        painter.drawLine(playhead_x, rect.top(), playhead_x, rect.bottom())
+
 
 class MainWindow(QMainWindow):
     """Stemmy desktop front end."""
@@ -228,6 +257,7 @@ class MainWindow(QMainWindow):
         self.players: dict[str, QMediaPlayer] = {}
         self.volume_sliders: dict[str, QSlider] = {}
         self.solo_buttons: dict[str, QPushButton] = {}
+        self.track_duration_ms = 0
 
         for stem in STEMS_4:
             audio_output = QAudioOutput(self)
@@ -280,6 +310,7 @@ class MainWindow(QMainWindow):
         self.outputs_list = QListWidget()
         self.outputs_list.currentItemChanged.connect(self._on_output_selection_changed)
         self.oscilloscope = OscilloscopeWidget()
+        self.oscilloscope.seek_requested.connect(self._seek_stem_mix)
         self.play_button = QPushButton("Play")
         self.play_button.setEnabled(False)
         self.play_button.clicked.connect(self.toggle_stem_mix)
@@ -291,6 +322,11 @@ class MainWindow(QMainWindow):
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setPlaceholderText("Run details appear here.")
+
+        self.playhead_timer = QTimer(self)
+        self.playhead_timer.setInterval(33)
+        self.playhead_timer.timeout.connect(self._refresh_playhead)
+        self.playhead_timer.start()
 
         self._build_ui()
         self._apply_style()
@@ -307,14 +343,15 @@ class MainWindow(QMainWindow):
         title_block = QVBoxLayout()
         title = QLabel("STEMMY")
         title.setObjectName("Title")
+        title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         if self.title_font_family is not None:
             title.setFont(QFont(self.title_font_family, TITLE_FONT_SIZE, QFont.Weight.Bold))
         subtitle = QLabel("Separate an audio file into drums, bass, vocals, and other stems.")
         subtitle.setObjectName("Subtitle")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         title_block.addWidget(title)
         title_block.addWidget(subtitle)
         header_row.addLayout(title_block, 1)
-        header_row.addWidget(self.dark_mode_check, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(header_row)
 
         files_group = QGroupBox("Files")
@@ -365,6 +402,11 @@ class MainWindow(QMainWindow):
         details.addWidget(outputs_frame, 1)
         layout.addLayout(details, 1)
 
+        footer_row = QHBoxLayout()
+        footer_row.addStretch(1)
+        footer_row.addWidget(self.dark_mode_check)
+        layout.addLayout(footer_row)
+
     @Slot()
     @Slot(bool)
     def _apply_style(self, _checked: bool = False) -> None:
@@ -373,7 +415,7 @@ class MainWindow(QMainWindow):
             self.setStyleSheet(
                 """
             QMainWindow, QWidget {
-                background: #111827;
+                background: %s;
                 color: #e5e7eb;
                 font-size: 14px;
             }
@@ -387,19 +429,19 @@ class MainWindow(QMainWindow):
                 font-size: 15px;
             }
             QGroupBox, QFrame#DetailsFrame {
-                background: #1f2937;
+                background: %s;
                 border: 1px solid #374151;
                 border-radius: 8px;
                 margin-top: 10px;
                 padding: 14px;
             }
             QFrame#MixerFrame {
-                background: #111827;
+                background: %s;
                 border: 1px solid #4b5563;
                 border-radius: 8px;
             }
             QWidget#Oscilloscope {
-                background: #0f172a;
+                background: %s;
                 border: 1px solid #4b5563;
                 border-radius: 8px;
             }
@@ -418,14 +460,14 @@ class MainWindow(QMainWindow):
                 color: #a7b0bd;
             }
             QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QListWidget {
-                background: #0f172a;
+                background: %s;
                 border: 1px solid #4b5563;
                 border-radius: 6px;
                 color: #f9fafb;
                 padding: 6px;
             }
             QLineEdit:disabled {
-                background: #1f2937;
+                background: %s;
                 color: #6b7280;
             }
             QPushButton {
@@ -461,7 +503,7 @@ class MainWindow(QMainWindow):
                 border-radius: 6px;
                 height: 18px;
                 text-align: center;
-                background: #0f172a;
+                background: %s;
                 color: #f9fafb;
             }
             QProgressBar::chunk {
@@ -470,10 +512,17 @@ class MainWindow(QMainWindow):
             }
             """
                 % (
+                    APP_DARK_BG,
                     TITLE_FONT_SIZE,
                     DARK_ACCENT_COLOR,
+                    PANEL_DARK_BG,
+                    APP_DARK_BG,
+                    FIELD_DARK_BG,
+                    FIELD_DARK_BG,
+                    PANEL_DARK_BG,
                     DARK_ACCENT_COLOR,
                     SOLO_ACCENT_COLOR,
+                    FIELD_DARK_BG,
                     DARK_ACCENT_COLOR,
                 )
             )
@@ -585,10 +634,10 @@ class MainWindow(QMainWindow):
     def _apply_window_palette(self, dark: bool) -> None:
         palette = QPalette()
         if dark:
-            palette.setColor(QPalette.ColorRole.Window, QColor("#111827"))
+            palette.setColor(QPalette.ColorRole.Window, QColor(APP_DARK_BG))
             palette.setColor(QPalette.ColorRole.WindowText, QColor("#e5e7eb"))
-            palette.setColor(QPalette.ColorRole.Base, QColor("#0f172a"))
-            palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#1f2937"))
+            palette.setColor(QPalette.ColorRole.Base, QColor(FIELD_DARK_BG))
+            palette.setColor(QPalette.ColorRole.AlternateBase, QColor(PANEL_DARK_BG))
             palette.setColor(QPalette.ColorRole.Text, QColor("#f9fafb"))
             palette.setColor(QPalette.ColorRole.Button, QColor(DARK_ACCENT_COLOR))
             palette.setColor(QPalette.ColorRole.ButtonText, QColor("#111827"))
@@ -713,6 +762,7 @@ class MainWindow(QMainWindow):
         self.outputs_list.clear()
         self.stop_playback()
         self.stem_paths.clear()
+        self.track_duration_ms = 0
         for player in self.players.values():
             player.setSource(QUrl())
         self.oscilloscope.clear()
@@ -891,15 +941,50 @@ class MainWindow(QMainWindow):
 
     def _load_oscilloscope_traces(self) -> None:
         traces: dict[str, np.ndarray] = {}
+        self.track_duration_ms = 0
         for stem in STEMS_4:
             path = self.stem_paths.get(stem)
             if path is None:
                 continue
             try:
                 traces[stem] = _load_waveform_trace(path)
+                self.track_duration_ms = max(self.track_duration_ms, _audio_duration_ms(path))
             except (OSError, RuntimeError, ValueError) as exc:
                 self._append_log(f"Could not load oscilloscope trace for {stem}: {exc}")
         self.oscilloscope.set_traces(traces)
+
+    @Slot(float)
+    def _seek_stem_mix(self, fraction: float) -> None:
+        duration_ms = self._mix_duration_ms()
+        if duration_ms <= 0:
+            return
+
+        position_ms = int(duration_ms * min(1.0, max(0.0, fraction)))
+        for stem, player in self.players.items():
+            if stem in self.stem_paths:
+                player.setPosition(position_ms)
+        self.oscilloscope.set_playhead_fraction(position_ms / duration_ms)
+        self.now_playing_label.setText(_format_position(position_ms, duration_ms))
+
+    @Slot()
+    def _refresh_playhead(self) -> None:
+        duration_ms = self._mix_duration_ms()
+        if duration_ms <= 0:
+            self.oscilloscope.set_playhead_fraction(0.0)
+            return
+
+        position_ms = self._mix_position_ms()
+        self.oscilloscope.set_playhead_fraction(position_ms / duration_ms)
+
+    def _mix_duration_ms(self) -> int:
+        player_duration = max((player.duration() for player in self.players.values()), default=0)
+        return max(self.track_duration_ms, int(player_duration))
+
+    def _mix_position_ms(self) -> int:
+        positions = [
+            player.position() for stem, player in self.players.items() if stem in self.stem_paths
+        ]
+        return max(positions, default=0)
 
     def _on_playback_error(self, stem: str, error_text: str) -> None:
         if error_text:
@@ -941,6 +1026,23 @@ def _load_waveform_trace(path: Path) -> np.ndarray:
     if peak > 0:
         mono = mono / peak
     return mono.astype(np.float32, copy=False)
+
+
+def _audio_duration_ms(path: Path) -> int:
+    info = sf.info(str(path))
+    if info.samplerate <= 0:
+        return 0
+    return int((info.frames / info.samplerate) * 1000)
+
+
+def _format_position(position_ms: int, duration_ms: int) -> str:
+    return "%s / %s" % (_format_time(position_ms), _format_time(duration_ms))
+
+
+def _format_time(milliseconds: int) -> str:
+    total_seconds = max(0, int(milliseconds / 1000))
+    minutes, seconds = divmod(total_seconds, 60)
+    return "%d:%02d" % (minutes, seconds)
 
 
 def _item_path(item: QListWidgetItem) -> Optional[Path]:
