@@ -12,13 +12,15 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 import torch
-from PySide6.QtCore import QObject, Qt, QThread, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPalette, QPen
+from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QThread, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPalette, QPen, QPolygon
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QCheckBox,
-    QComboBox,
+    QColorDialog,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -36,6 +38,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSpinBox,
+    QStyle,
+    QStyleOptionSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -53,12 +57,35 @@ TITLE_FONT_SIZE = 80
 UI_FONT_FILE = "Inter-VariableFont_opsz,wght.ttf"
 UI_FONT_FAMILY_FALLBACK = "Inter"
 DARK_ACCENT_COLOR = "#7FE80E"
-LIGHT_ACCENT_COLOR = "#2F7D1C"
 SOLO_ACCENT_COLOR = "#FF6A00"
 APP_DARK_BG = "#202124"
 PANEL_DARK_BG = "#2A2B2F"
 FIELD_DARK_BG = "#191A1D"
 DEFAULT_CHECKPOINT_PATH = Path(__file__).resolve().parents[3] / "checkpoints" / "model.pth"
+SETTINGS_ORGANIZATION = "Stemmy"
+SETTINGS_APPLICATION = "Stemmy"
+THEME_SETTINGS_GROUP = "theme"
+TRACE_SETTINGS_GROUP = "traceColors"
+DEFAULT_THEME_COLORS = {
+    "app_bg": APP_DARK_BG,
+    "panel_bg": PANEL_DARK_BG,
+    "field_bg": FIELD_DARK_BG,
+    "text": "#e5e7eb",
+    "muted_text": "#a7b0bd",
+    "border": "#4b5563",
+    "accent": DARK_ACCENT_COLOR,
+    "solo": SOLO_ACCENT_COLOR,
+}
+THEME_COLOR_LABELS = {
+    "app_bg": "App",
+    "panel_bg": "Panel",
+    "field_bg": "Field",
+    "text": "Text",
+    "muted_text": "Muted",
+    "border": "Border",
+    "accent": "Accent",
+    "solo": "Solo",
+}
 TRACE_COLORS = {
     "drums": "#00C2FF",
     "bass": "#FF2E88",
@@ -140,6 +167,91 @@ class SeparationWorker(QObject):
         raise ValueError("Default checkpoint is not configured.")
 
 
+class DeviceSelector(QWidget):
+    """Inline device picker without a popup window."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._items: list[tuple[QPushButton, str]] = []
+        self._button_group = QButtonGroup(self)
+        self._button_group.setExclusive(True)
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(6)
+
+    def addItem(self, label: str, data: str) -> None:  # noqa: N802 - keep combo-like API.
+        button = QPushButton(label)
+        button.setObjectName("DeviceButton")
+        button.setCheckable(True)
+        button.setMinimumWidth(72)
+        self._layout.addWidget(button)
+        self._button_group.addButton(button)
+        self._items.append((button, data))
+        if len(self._items) == 1:
+            button.setChecked(True)
+
+    def currentData(self) -> str:  # noqa: N802 - keep combo-like API.
+        for button, data in self._items:
+            if button.isChecked():
+                return data
+        return self._items[0][1] if self._items else ""
+
+
+class ThemedSpinBox(QSpinBox):
+    """Spin box that redraws arrows after stylesheet customizations."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._arrow_color = QColor("#111827")
+
+    def set_arrow_color(self, color_hex: str) -> None:
+        self._arrow_color = QColor(color_hex)
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt override name.
+        super().paintEvent(event)
+
+        option = QStyleOptionSpinBox()
+        self.initStyleOption(option)
+        up_rect = self.style().subControlRect(
+            QStyle.ComplexControl.CC_SpinBox,
+            option,
+            QStyle.SubControl.SC_SpinBoxUp,
+            self,
+        )
+        down_rect = self.style().subControlRect(
+            QStyle.ComplexControl.CC_SpinBox,
+            option,
+            QStyle.SubControl.SC_SpinBoxDown,
+            self,
+        )
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(self._arrow_color)
+        painter.setPen(Qt.PenStyle.NoPen)
+        self._draw_arrow(painter, up_rect, upward=True)
+        self._draw_arrow(painter, down_rect, upward=False)
+
+    def _draw_arrow(self, painter: QPainter, rect, upward: bool) -> None:
+        center = rect.center()
+        half_width = max(3, min(5, rect.width() // 3))
+        half_height = max(2, min(4, rect.height() // 3))
+        if upward:
+            points = [
+                QPoint(center.x(), center.y() - half_height),
+                QPoint(center.x() - half_width, center.y() + half_height),
+                QPoint(center.x() + half_width, center.y() + half_height),
+            ]
+        else:
+            points = [
+                QPoint(center.x() - half_width, center.y() - half_height),
+                QPoint(center.x() + half_width, center.y() - half_height),
+                QPoint(center.x(), center.y() + half_height),
+            ]
+        painter.drawPolygon(QPolygon(points))
+
+
 class OscilloscopeWidget(QWidget):
     """Draw downsampled per-stem waveform traces."""
 
@@ -152,6 +264,8 @@ class OscilloscopeWidget(QWidget):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.traces: dict[str, np.ndarray] = {}
         self.levels: dict[str, float] = {}
+        self.trace_colors = dict(TRACE_COLORS)
+        self.theme_colors = dict(DEFAULT_THEME_COLORS)
         self.playhead_fraction = 0.0
 
     def clear(self) -> None:
@@ -173,6 +287,11 @@ class OscilloscopeWidget(QWidget):
         self.playhead_fraction = min(1.0, max(0.0, float(fraction)))
         self.update()
 
+    def set_colors(self, theme_colors: dict[str, str], trace_colors: dict[str, str]) -> None:
+        self.theme_colors = dict(theme_colors)
+        self.trace_colors = dict(trace_colors)
+        self.update()
+
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override name.
         if not self.traces:
             return
@@ -187,14 +306,17 @@ class OscilloscopeWidget(QWidget):
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt override name.
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), self.palette().color(QPalette.ColorRole.Base))
+        base_color = QColor(self.theme_colors["field_bg"])
+        light_mode = base_color.lightness() > 160
+        painter.fillRect(self.rect(), base_color)
 
         rect = self.rect().adjusted(10, 10, -10, -10)
-        painter.setPen(QPen(QColor("#6b7280"), 1))
+        guide_color = QColor(self.theme_colors["border"])
+        painter.setPen(QPen(guide_color, 1))
         painter.drawLine(rect.left(), rect.center().y(), rect.right(), rect.center().y())
 
         if not self.traces:
-            painter.setPen(QColor("#9ca3af"))
+            painter.setPen(QColor(self.theme_colors["muted_text"]))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "Oscilloscope")
             return
 
@@ -208,13 +330,13 @@ class OscilloscopeWidget(QWidget):
                 continue
 
             level = self.levels.get(stem, 1.0)
-            color = QColor(TRACE_COLORS.get(stem, "#e5e7eb"))
+            color = QColor(self.trace_colors.get(stem, self.theme_colors["text"]))
 
             if level <= 0:
                 continue
 
-            color.setAlphaF(0.25)
-            painter.setPen(QPen(color, 2.4))
+            color.setAlphaF(0.78 if light_mode else 0.25)
+            painter.setPen(QPen(color, 2.8 if light_mode else 2.4))
 
             points = len(trace)
             prev_x = rect.left()
@@ -228,8 +350,11 @@ class OscilloscopeWidget(QWidget):
 
         playhead_x = rect.left() + int(self.playhead_fraction * rect.width())
         played_rect = rect.adjusted(0, 0, -(rect.right() - playhead_x), 0)
-        painter.fillRect(played_rect, QColor(0, 0, 0, 72))
-        painter.setPen(QPen(QColor("#f9fafb"), 2.0))
+        played_color = QColor(self.theme_colors["accent"])
+        played_color.setAlpha(38 if light_mode else 62)
+        painter.fillRect(played_rect, played_color)
+        playhead_color = QColor(self.theme_colors["text"])
+        painter.setPen(QPen(playhead_color, 2.0))
         painter.drawLine(playhead_x, rect.top(), playhead_x, rect.bottom())
 
 
@@ -252,11 +377,25 @@ class MainWindow(QMainWindow):
         self.players: dict[str, QMediaPlayer] = {}
         self.volume_sliders: dict[str, QSlider] = {}
         self.solo_buttons: dict[str, QPushButton] = {}
+        self.stem_labels: dict[str, QLabel] = {}
+        self.color_buttons: dict[tuple[str, str], QPushButton] = {}
+        self.theme_dialog: Optional[QDialog] = None
+        self.settings = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
+        self.theme_colors = _load_color_settings(
+            self.settings,
+            THEME_SETTINGS_GROUP,
+            DEFAULT_THEME_COLORS,
+        )
+        self.trace_colors = _load_color_settings(
+            self.settings,
+            TRACE_SETTINGS_GROUP,
+            TRACE_COLORS,
+        )
         self.track_duration_ms = 0
 
         for stem in STEMS_4:
             audio_output = QAudioOutput(self)
-            audio_output.setVolume(0.85)
+            audio_output.setVolume(1.0)
             player = QMediaPlayer(self)
             player.setAudioOutput(audio_output)
             player.errorOccurred.connect(
@@ -271,19 +410,19 @@ class MainWindow(QMainWindow):
 
         self.output_edit = QLineEdit(str((Path.cwd() / "separated").resolve()))
 
-        self.device_combo = QComboBox()
+        self.device_combo = DeviceSelector()
         self.device_combo.addItem("CPU", "cpu")
         if torch.cuda.is_available():
             self.device_combo.addItem("CUDA", "cuda")
             for idx in range(torch.cuda.device_count()):
                 self.device_combo.addItem(f"CUDA:{idx}", f"cuda:{idx}")
 
-        self.chunk_spin = QSpinBox()
+        self.chunk_spin = ThemedSpinBox()
         self.chunk_spin.setRange(0, 100_000)
         self.chunk_spin.setValue(256)
         self.chunk_spin.setSuffix(" frames")
 
-        self.overlap_spin = QSpinBox()
+        self.overlap_spin = ThemedSpinBox()
         self.overlap_spin.setRange(0, 100_000)
         self.overlap_spin.setValue(64)
         self.overlap_spin.setSuffix(" frames")
@@ -291,12 +430,12 @@ class MainWindow(QMainWindow):
         self.amp_check = QCheckBox("AMP")
         self.amp_check.setEnabled(torch.cuda.is_available())
 
-        self.dark_mode_check = QCheckBox("Dark Mode")
-        self.dark_mode_check.setChecked(True)
-        self.dark_mode_check.toggled.connect(self._apply_style)
-
         self.run_button = QPushButton("Run Separation")
         self.run_button.clicked.connect(self.start_separation)
+
+        self.theme_button = QPushButton("Theme")
+        self.theme_button.setToolTip("Open theme editor")
+        self.theme_button.clicked.connect(self._open_theme_editor)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
@@ -399,135 +538,24 @@ class MainWindow(QMainWindow):
 
         footer_row = QHBoxLayout()
         footer_row.addStretch(1)
-        footer_row.addWidget(self.dark_mode_check)
+        footer_row.addWidget(self.theme_button)
         layout.addLayout(footer_row)
 
     @Slot()
-    @Slot(bool)
-    def _apply_style(self, _checked: bool = False) -> None:
-        if self.dark_mode_check.isChecked():
-            self._apply_window_palette(dark=True)
-            self.setStyleSheet(
-                """
-            QMainWindow, QWidget {
-                background: %s;
-                color: #e5e7eb;
-                font-size: 14px;
-            }
-            QLabel#Title {
-                font-size: %dpx;
-                font-weight: 700;
-                color: %s;
-            }
-            QLabel#Subtitle {
-                color: #a7b0bd;
-                font-size: 15px;
-            }
-            QGroupBox {
-                background: %s;
-                border: 1px solid #374151;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding: 14px;
-            }
-            QFrame#MixerFrame {
-                background: %s;
-                border: 1px solid #4b5563;
-                border-radius: 8px;
-            }
-            QWidget#Oscilloscope {
-                background: %s;
-                border: 1px solid #4b5563;
-                border-radius: 8px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 4px;
-                color: %s;
-                font-weight: 700;
-            }
-            QLabel#NowPlaying {
-                color: #a7b0bd;
-            }
-            QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QListWidget {
-                background: %s;
-                border: 1px solid #4b5563;
-                border-radius: 6px;
-                color: #f9fafb;
-                padding: 6px;
-            }
-            QLineEdit:disabled {
-                background: %s;
-                color: #6b7280;
-            }
-            QPushButton {
-                background: %s;
-                color: #111827;
-                border: 0;
-                border-radius: 6px;
-                padding: 8px 14px;
-                font-weight: 700;
-            }
-            QPushButton:disabled {
-                background: #3f5f2b;
-                color: #9ca3af;
-            }
-            QPushButton:checked {
-                background: %s;
-                color: #111827;
-            }
-            QSlider::groove:vertical {
-                background: #d1d5db;
-                width: 2px;
-                border-radius: 1px;
-            }
-            QSlider::handle:vertical {
-                background: %s;
-                border: 1px solid #d1d5db;
-                width: 38px;
-                height: 10px;
-                margin: 0 -18px;
-                border-radius: 4px;
-            }
-            QProgressBar {
-                border: 1px solid #4b5563;
-                border-radius: 6px;
-                height: 18px;
-                text-align: center;
-                background: %s;
-                color: #f9fafb;
-            }
-            QProgressBar::chunk {
-                background: %s;
-                border-radius: 5px;
-            }
-            """
-                % (
-                    APP_DARK_BG,
-                    TITLE_FONT_SIZE,
-                    DARK_ACCENT_COLOR,
-                    PANEL_DARK_BG,
-                    APP_DARK_BG,
-                    FIELD_DARK_BG,
-                    DARK_ACCENT_COLOR,
-                    FIELD_DARK_BG,
-                    PANEL_DARK_BG,
-                    DARK_ACCENT_COLOR,
-                    SOLO_ACCENT_COLOR,
-                    DARK_ACCENT_COLOR,
-                    FIELD_DARK_BG,
-                    DARK_ACCENT_COLOR,
-                )
-            )
-            return
+    def _apply_style(self) -> None:
+        theme = self.theme_colors
+        button_text = _contrast_text(theme["accent"])
+        solo_text = _contrast_text(theme["solo"])
+        disabled_bg = _blend_hex(theme["accent"], theme["field_bg"], 0.35)
+        disabled_text = _blend_hex(theme["text"], theme["field_bg"], 0.55)
+        slider_groove = _blend_hex(theme["text"], theme["field_bg"], 0.35)
 
-        self._apply_window_palette(dark=False)
+        self._apply_window_palette()
         self.setStyleSheet(
             """
             QMainWindow, QWidget {
-                background: #f5f6f8;
-                color: #1f2933;
+                background: %s;
+                color: %s;
                 font-size: 14px;
             }
             QLabel#Title {
@@ -536,24 +564,24 @@ class MainWindow(QMainWindow):
                 color: %s;
             }
             QLabel#Subtitle {
-                color: #52606d;
+                color: %s;
                 font-size: 15px;
             }
             QGroupBox {
-                background: #ffffff;
-                border: 1px solid #d9e2ec;
+                background: %s;
+                border: 1px solid %s;
                 border-radius: 8px;
                 margin-top: 10px;
                 padding: 14px;
             }
             QFrame#MixerFrame {
-                background: #f5f6f8;
-                border: 1px solid #bcccdc;
+                background: %s;
+                border: 1px solid %s;
                 border-radius: 8px;
             }
             QWidget#Oscilloscope {
-                background: #ffffff;
-                border: 1px solid #bcccdc;
+                background: %s;
+                border: 1px solid %s;
                 border-radius: 8px;
             }
             QGroupBox::title {
@@ -564,49 +592,74 @@ class MainWindow(QMainWindow):
                 font-weight: 700;
             }
             QLabel#NowPlaying {
-                color: #52606d;
+                color: %s;
             }
             QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QListWidget {
-                background: #ffffff;
-                border: 1px solid #bcccdc;
+                background: %s;
+                border: 1px solid %s;
                 border-radius: 6px;
+                color: %s;
                 padding: 6px;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                background: %s;
+                border: 0;
+                width: 18px;
+            }
+            QSpinBox::up-button {
+                border-top-right-radius: 5px;
+            }
+            QSpinBox::down-button {
+                border-bottom-right-radius: 5px;
+            }
+            QLineEdit:disabled {
+                background: %s;
+                color: %s;
             }
             QPushButton {
                 background: %s;
-                color: #ffffff;
+                color: %s;
                 border: 0;
                 border-radius: 6px;
                 padding: 8px 14px;
                 font-weight: 700;
             }
             QPushButton:disabled {
-                background: #b7d69a;
-                color: #52606d;
+                background: %s;
+                color: %s;
             }
             QPushButton:checked {
                 background: %s;
-                color: #111827;
+                color: %s;
+            }
+            QPushButton#DeviceButton {
+                background: %s;
+                color: %s;
+            }
+            QPushButton#DeviceButton:checked {
+                background: %s;
+                color: %s;
             }
             QSlider::groove:vertical {
-                background: #9aa6b2;
+                background: %s;
                 width: 2px;
                 border-radius: 1px;
             }
             QSlider::handle:vertical {
                 background: %s;
-                border: 1px solid #52606d;
+                border: 1px solid %s;
                 width: 38px;
                 height: 10px;
                 margin: 0 -18px;
                 border-radius: 4px;
             }
             QProgressBar {
-                border: 1px solid #bcccdc;
+                border: 1px solid %s;
                 border-radius: 6px;
                 height: 18px;
                 text-align: center;
-                background: #ffffff;
+                background: %s;
+                color: %s;
             }
             QProgressBar::chunk {
                 background: %s;
@@ -614,38 +667,64 @@ class MainWindow(QMainWindow):
             }
             """
             % (
+                theme["app_bg"],
+                theme["text"],
                 TITLE_FONT_SIZE,
-                LIGHT_ACCENT_COLOR,
-                LIGHT_ACCENT_COLOR,
-                LIGHT_ACCENT_COLOR,
-                SOLO_ACCENT_COLOR,
-                LIGHT_ACCENT_COLOR,
-                LIGHT_ACCENT_COLOR,
+                theme["accent"],
+                theme["muted_text"],
+                theme["panel_bg"],
+                theme["border"],
+                theme["app_bg"],
+                theme["border"],
+                theme["field_bg"],
+                theme["border"],
+                theme["accent"],
+                theme["muted_text"],
+                theme["field_bg"],
+                theme["border"],
+                theme["text"],
+                theme["accent"],
+                theme["panel_bg"],
+                disabled_text,
+                theme["accent"],
+                button_text,
+                disabled_bg,
+                disabled_text,
+                theme["solo"],
+                solo_text,
+                disabled_bg,
+                disabled_text,
+                theme["accent"],
+                button_text,
+                slider_groove,
+                theme["accent"],
+                theme["text"],
+                theme["border"],
+                theme["field_bg"],
+                theme["text"],
+                theme["accent"],
             )
         )
+        self._refresh_color_widgets()
+        self.oscilloscope.set_colors(self.theme_colors, self.trace_colors)
+        self.chunk_spin.set_arrow_color(button_text)
+        self.overlap_spin.set_arrow_color(button_text)
 
-    def _apply_window_palette(self, dark: bool) -> None:
+    def _apply_window_palette(self) -> None:
         palette = QPalette()
-        if dark:
-            palette.setColor(QPalette.ColorRole.Window, QColor(APP_DARK_BG))
-            palette.setColor(QPalette.ColorRole.WindowText, QColor("#e5e7eb"))
-            palette.setColor(QPalette.ColorRole.Base, QColor(FIELD_DARK_BG))
-            palette.setColor(QPalette.ColorRole.AlternateBase, QColor(PANEL_DARK_BG))
-            palette.setColor(QPalette.ColorRole.Text, QColor("#f9fafb"))
-            palette.setColor(QPalette.ColorRole.Button, QColor(DARK_ACCENT_COLOR))
-            palette.setColor(QPalette.ColorRole.ButtonText, QColor("#111827"))
-            palette.setColor(QPalette.ColorRole.Highlight, QColor(DARK_ACCENT_COLOR))
-            palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#111827"))
-        else:
-            palette.setColor(QPalette.ColorRole.Window, QColor("#f5f6f8"))
-            palette.setColor(QPalette.ColorRole.WindowText, QColor("#1f2933"))
-            palette.setColor(QPalette.ColorRole.Base, QColor("#ffffff"))
-            palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#f5f6f8"))
-            palette.setColor(QPalette.ColorRole.Text, QColor("#1f2933"))
-            palette.setColor(QPalette.ColorRole.Button, QColor(LIGHT_ACCENT_COLOR))
-            palette.setColor(QPalette.ColorRole.ButtonText, QColor("#ffffff"))
-            palette.setColor(QPalette.ColorRole.Highlight, QColor(LIGHT_ACCENT_COLOR))
-            palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+        theme = self.theme_colors
+        palette.setColor(QPalette.ColorRole.Window, QColor(theme["app_bg"]))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(theme["text"]))
+        palette.setColor(QPalette.ColorRole.Base, QColor(theme["field_bg"]))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(theme["panel_bg"]))
+        palette.setColor(QPalette.ColorRole.Text, QColor(theme["text"]))
+        palette.setColor(QPalette.ColorRole.Button, QColor(theme["accent"]))
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor(_contrast_text(theme["accent"])))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(theme["accent"]))
+        palette.setColor(
+            QPalette.ColorRole.HighlightedText,
+            QColor(_contrast_text(theme["accent"])),
+        )
 
         app = QApplication.instance()
         if app is not None:
@@ -679,6 +758,127 @@ class MainWindow(QMainWindow):
         label.setContentsMargins(6, 0, 6, 0)
         return label
 
+    @Slot()
+    def _open_theme_editor(self) -> None:
+        if self.theme_dialog is None:
+            self.color_buttons.clear()
+            self.theme_dialog = QDialog(self)
+            self.theme_dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            self.theme_dialog.setWindowTitle("Theme Editor")
+            self.theme_dialog.setMinimumWidth(720)
+            self.theme_dialog.destroyed.connect(self._clear_theme_dialog)
+            dialog_layout = QVBoxLayout(self.theme_dialog)
+            dialog_layout.setContentsMargins(18, 18, 18, 18)
+            dialog_layout.setSpacing(12)
+            dialog_layout.addWidget(self._theme_widget())
+
+            close_row = QHBoxLayout()
+            close_row.addStretch(1)
+            close_button = QPushButton("Close")
+            close_button.clicked.connect(self._close_theme_editor)
+            close_row.addWidget(close_button)
+            dialog_layout.addLayout(close_row)
+
+        self._refresh_color_widgets()
+        self.theme_dialog.show()
+        self.theme_dialog.raise_()
+        self.theme_dialog.activateWindow()
+
+    @Slot()
+    def _close_theme_editor(self) -> None:
+        if self.theme_dialog is not None:
+            self.theme_dialog.close()
+
+    @Slot()
+    def _clear_theme_dialog(self) -> None:
+        self.theme_dialog = None
+        self.color_buttons.clear()
+
+    def _theme_widget(self) -> QGroupBox:
+        group = QGroupBox("Theme")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(10)
+
+        theme_row = QHBoxLayout()
+        for key, label in THEME_COLOR_LABELS.items():
+            theme_row.addWidget(self._color_button("theme", key, label))
+        theme_row.addStretch(1)
+        layout.addLayout(theme_row)
+
+        stem_row = QHBoxLayout()
+        for stem in STEMS_4:
+            stem_row.addWidget(self._color_button("trace", stem, stem.title()))
+        stem_row.addStretch(1)
+        layout.addLayout(stem_row)
+
+        reset_row = QHBoxLayout()
+        reset_row.addStretch(1)
+        save_button = QPushButton("Save Theme")
+        save_button.clicked.connect(self._save_theme_settings_with_status)
+        reset_row.addWidget(save_button)
+
+        reset_button = QPushButton("Restore Defaults")
+        reset_button.clicked.connect(self._restore_default_theme)
+        reset_row.addWidget(reset_button)
+        layout.addLayout(reset_row)
+        return group
+
+    def _color_button(self, group: str, key: str, label: str) -> QPushButton:
+        button = QPushButton(label)
+        button.setFixedHeight(30)
+        button.setMinimumWidth(72)
+        button.setToolTip(f"Change {label} color")
+        button.clicked.connect(
+            lambda _checked=False, group=group, key=key: self._pick_color(group, key)
+        )
+        self.color_buttons[(group, key)] = button
+        return button
+
+    def _refresh_color_widgets(self) -> None:
+        for (group, key), button in self.color_buttons.items():
+            color = self.theme_colors[key] if group == "theme" else self.trace_colors[key]
+            text_color = _contrast_text(color)
+            button.setStyleSheet(
+                "background: %s; color: %s; border: 1px solid %s;"
+                "border-radius: 6px; padding: 6px 10px; font-weight: 700;"
+                % (color, text_color, self.theme_colors["border"])
+            )
+
+        for stem, label in self.stem_labels.items():
+            color = self.trace_colors.get(stem, self.theme_colors["text"])
+            label.setStyleSheet("color: %s; font-weight: 700;" % color)
+
+    def _pick_color(self, group: str, key: str) -> None:
+        colors = self.theme_colors if group == "theme" else self.trace_colors
+        current = QColor(colors[key])
+        color = QColorDialog.getColor(current, self, "Choose color")
+        if not color.isValid():
+            return
+
+        colors[key] = color.name(QColor.NameFormat.HexRgb)
+        self._save_theme_settings()
+        self._apply_style()
+
+    @Slot()
+    def _save_theme_settings(self) -> None:
+        _save_color_settings(self.settings, THEME_SETTINGS_GROUP, self.theme_colors)
+        _save_color_settings(self.settings, TRACE_SETTINGS_GROUP, self.trace_colors)
+        self.settings.sync()
+
+    @Slot()
+    def _save_theme_settings_with_status(self) -> None:
+        self._save_theme_settings()
+        QMessageBox.information(self.theme_dialog or self, "Theme Saved", "Theme saved.")
+
+    @Slot()
+    def _restore_default_theme(self) -> None:
+        self.theme_colors = dict(DEFAULT_THEME_COLORS)
+        self.trace_colors = dict(TRACE_COLORS)
+        self.settings.remove(THEME_SETTINGS_GROUP)
+        self.settings.remove(TRACE_SETTINGS_GROUP)
+        self.settings.sync()
+        self._apply_style()
+
     def _mixer_widget(self) -> QWidget:
         mixer = QFrame()
         mixer.setObjectName("MixerFrame")
@@ -694,13 +894,11 @@ class MainWindow(QMainWindow):
 
             stem_label = QLabel(stem.title())
             stem_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            stem_label.setStyleSheet(
-                "color: %s; font-weight: 700;" % TRACE_COLORS.get(stem, "#e5e7eb")
-            )
+            self.stem_labels[stem] = stem_label
 
             slider = QSlider(Qt.Orientation.Vertical)
             slider.setRange(0, 100)
-            slider.setValue(85)
+            slider.setValue(100)
             slider.setFixedHeight(140)
             slider.setFixedWidth(56)
             slider.setToolTip(f"{stem.title()} volume")
@@ -1041,6 +1239,55 @@ def _item_path(item: QListWidgetItem) -> Optional[Path]:
     if raw_path is None:
         return None
     return Path(str(raw_path)).expanduser().resolve()
+
+
+def _load_color_settings(
+    settings: QSettings,
+    group: str,
+    defaults: dict[str, str],
+) -> dict[str, str]:
+    colors = dict(defaults)
+    settings.beginGroup(group)
+    try:
+        for key, default in defaults.items():
+            raw_value = settings.value(key, default)
+            color = QColor(str(raw_value))
+            if color.isValid():
+                colors[key] = color.name(QColor.NameFormat.HexRgb)
+    finally:
+        settings.endGroup()
+    return colors
+
+
+def _save_color_settings(settings: QSettings, group: str, colors: dict[str, str]) -> None:
+    settings.beginGroup(group)
+    try:
+        for key, color_hex in colors.items():
+            color = QColor(color_hex)
+            if color.isValid():
+                settings.setValue(key, color.name(QColor.NameFormat.HexRgb))
+    finally:
+        settings.endGroup()
+
+
+def _contrast_text(background_hex: str) -> str:
+    color = QColor(background_hex)
+    luminance = (
+        0.299 * color.redF()
+        + 0.587 * color.greenF()
+        + 0.114 * color.blueF()
+    )
+    return "#111827" if luminance > 0.62 else "#f9fafb"
+
+
+def _blend_hex(foreground_hex: str, background_hex: str, amount: float) -> str:
+    amount = min(1.0, max(0.0, amount))
+    foreground = QColor(foreground_hex)
+    background = QColor(background_hex)
+    red = round(background.red() + (foreground.red() - background.red()) * amount)
+    green = round(background.green() + (foreground.green() - background.green()) * amount)
+    blue = round(background.blue() + (foreground.blue() - background.blue()) * amount)
+    return QColor(red, green, blue).name(QColor.NameFormat.HexRgb)
 
 
 def _load_font_family(path: Path) -> Optional[str]:
