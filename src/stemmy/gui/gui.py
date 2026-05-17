@@ -202,7 +202,6 @@ class OscilloscopeWidget(QWidget):
         center_y = rect.center().y()
         half_height = max(1, rect.height() / 2 - 6)
 
-        legend_x = rect.left() + 6
         for stem in STEMS_4:
             trace = self.traces.get(stem)
             if trace is None or len(trace) < 2:
@@ -210,11 +209,6 @@ class OscilloscopeWidget(QWidget):
 
             level = self.levels.get(stem, 1.0)
             color = QColor(TRACE_COLORS.get(stem, "#e5e7eb"))
-            legend_color = QColor(color)
-            legend_color.setAlphaF(0.95)
-            painter.setPen(QPen(legend_color, 2.0))
-            painter.drawText(legend_x, rect.top() + 14, stem.title())
-            legend_x += 64
 
             if level <= 0:
                 continue
@@ -246,6 +240,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Stemmy")
         self.setMinimumSize(860, 640)
+        self.resize(860, 1500)
         ui_font_family = _load_font_family(Path(__file__).with_name(UI_FONT_FILE))
         self.setFont(QFont(ui_font_family or UI_FONT_FAMILY_FALLBACK))
         self.title_font_family = _load_font_family(Path(__file__).with_name("adrip1.ttf"))
@@ -428,7 +423,7 @@ class MainWindow(QMainWindow):
                 color: #a7b0bd;
                 font-size: 15px;
             }
-            QGroupBox, QFrame#DetailsFrame {
+            QGroupBox {
                 background: %s;
                 border: 1px solid #374151;
                 border-radius: 8px;
@@ -449,12 +444,8 @@ class MainWindow(QMainWindow):
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 4px;
-                color: #d1d5db;
-                font-weight: 600;
-            }
-            QLabel#DetailsHeading {
-                color: #d1d5db;
-                font-weight: 600;
+                color: %s;
+                font-weight: 700;
             }
             QLabel#NowPlaying {
                 color: #a7b0bd;
@@ -492,10 +483,11 @@ class MainWindow(QMainWindow):
                 border-radius: 1px;
             }
             QSlider::handle:vertical {
-                background: #14532d;
+                background: %s;
                 border: 1px solid #d1d5db;
-                height: 16px;
-                margin: 0 -10px;
+                width: 38px;
+                height: 10px;
+                margin: 0 -18px;
                 border-radius: 4px;
             }
             QProgressBar {
@@ -518,10 +510,12 @@ class MainWindow(QMainWindow):
                     PANEL_DARK_BG,
                     APP_DARK_BG,
                     FIELD_DARK_BG,
+                    DARK_ACCENT_COLOR,
                     FIELD_DARK_BG,
                     PANEL_DARK_BG,
                     DARK_ACCENT_COLOR,
                     SOLO_ACCENT_COLOR,
+                    DARK_ACCENT_COLOR,
                     FIELD_DARK_BG,
                     DARK_ACCENT_COLOR,
                 )
@@ -545,7 +539,7 @@ class MainWindow(QMainWindow):
                 color: #52606d;
                 font-size: 15px;
             }
-            QGroupBox, QFrame#DetailsFrame {
+            QGroupBox {
                 background: #ffffff;
                 border: 1px solid #d9e2ec;
                 border-radius: 8px;
@@ -566,12 +560,8 @@ class MainWindow(QMainWindow):
                 subcontrol-origin: margin;
                 left: 12px;
                 padding: 0 4px;
-                color: #334e68;
-                font-weight: 600;
-            }
-            QLabel#DetailsHeading {
-                color: #334e68;
-                font-weight: 600;
+                color: %s;
+                font-weight: 700;
             }
             QLabel#NowPlaying {
                 color: #52606d;
@@ -604,10 +594,11 @@ class MainWindow(QMainWindow):
                 border-radius: 1px;
             }
             QSlider::handle:vertical {
-                background: #ffffff;
+                background: %s;
                 border: 1px solid #52606d;
-                height: 16px;
-                margin: 0 -10px;
+                width: 38px;
+                height: 10px;
+                margin: 0 -18px;
                 border-radius: 4px;
             }
             QProgressBar {
@@ -626,7 +617,9 @@ class MainWindow(QMainWindow):
                 TITLE_FONT_SIZE,
                 LIGHT_ACCENT_COLOR,
                 LIGHT_ACCENT_COLOR,
+                LIGHT_ACCENT_COLOR,
                 SOLO_ACCENT_COLOR,
+                LIGHT_ACCENT_COLOR,
                 LIGHT_ACCENT_COLOR,
             )
         )
@@ -701,11 +694,15 @@ class MainWindow(QMainWindow):
 
             stem_label = QLabel(stem.title())
             stem_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            stem_label.setStyleSheet(
+                "color: %s; font-weight: 700;" % TRACE_COLORS.get(stem, "#e5e7eb")
+            )
 
             slider = QSlider(Qt.Orientation.Vertical)
             slider.setRange(0, 100)
             slider.setValue(85)
             slider.setFixedHeight(140)
+            slider.setFixedWidth(56)
             slider.setToolTip(f"{stem.title()} volume")
             slider.valueChanged.connect(lambda _value, stem=stem: self._apply_mixer_volumes())
             self.volume_sliders[stem] = slider
@@ -726,13 +723,9 @@ class MainWindow(QMainWindow):
 
         return mixer
 
-    def _details_frame(self, title: str, widget: QWidget) -> QFrame:
-        frame = QFrame()
-        frame.setObjectName("DetailsFrame")
+    def _details_frame(self, title: str, widget: QWidget) -> QGroupBox:
+        frame = QGroupBox(title)
         frame_layout = QVBoxLayout(frame)
-        heading = QLabel(title)
-        heading.setObjectName("DetailsHeading")
-        frame_layout.addWidget(heading)
         frame_layout.addWidget(widget, 1)
         return frame
 
@@ -914,9 +907,7 @@ class MainWindow(QMainWindow):
             self.now_playing_label.setText("Stem mix stopped")
 
     def _apply_mixer_volumes(self) -> None:
-        soloed_stems = {
-            stem for stem, button in self.solo_buttons.items() if button.isChecked()
-        }
+        soloed_stems = {stem for stem, button in self.solo_buttons.items() if button.isChecked()}
         levels: dict[str, float] = {}
         for stem, audio_output in self.audio_outputs.items():
             slider = self.volume_sliders.get(stem)
