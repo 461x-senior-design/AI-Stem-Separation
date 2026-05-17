@@ -49,9 +49,7 @@ def build_augment_pipeline(cfg: AugmentConfig) -> Optional[Compose]:
     transforms = []
 
     if cfg.gain_p > 0:
-        transforms.append(
-            Gain(min_gain_db=-cfg.gain_db, max_gain_db=cfg.gain_db, p=cfg.gain_p)
-        )
+        transforms.append(Gain(min_gain_db=-cfg.gain_db, max_gain_db=cfg.gain_db, p=cfg.gain_p))
     if cfg.pitch_p > 0:
         transforms.append(
             PitchShift(
