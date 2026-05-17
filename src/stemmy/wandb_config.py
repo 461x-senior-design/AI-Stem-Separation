@@ -30,6 +30,7 @@ Usage
 
 import functools
 import os
+import random
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -54,6 +55,15 @@ WANDB_PROJECTS: Dict[WandbEnvironment, str] = {
     WandbEnvironment.DEV: "ai-stem",
     WandbEnvironment.PRODUCTION: "ai-stem-production",
 }
+
+
+def make_wandb_run_name(base_name: Optional[str] = None) -> str:
+    """Return a W&B display name with date and random 5-digit suffix."""
+    date_str = datetime.now().strftime("%Y%m%d")
+    suffix = random.randint(0, 99999)
+    if base_name:
+        return f"{base_name}_{date_str}_{suffix:05d}"
+    return f"{date_str}_{suffix:05d}"
 
 
 def get_wandb_environment() -> WandbEnvironment:
@@ -86,7 +96,7 @@ class WandbConfig:
 def init_wandb(cfg: WandbConfig, enabled: bool = True) -> Optional["wandb.sdk.wandb_run.Run"]:
     """Initialize a wandb run.
 
-    Appends today's date (YYYYMMDD) to the run name to prevent collisions.
+    Appends today's date and a random 5-digit suffix to prevent collisions.
     If wandb.init() fails, logs a warning and returns None so callers can
     continue without experiment tracking.
 
@@ -100,8 +110,7 @@ def init_wandb(cfg: WandbConfig, enabled: bool = True) -> Optional["wandb.sdk.wa
     if not enabled:
         return None
 
-    date_str = datetime.now().strftime("%Y%m%d")
-    run_name = f"{cfg.name}_{date_str}" if cfg.name else date_str
+    run_name = make_wandb_run_name(cfg.name)
 
     try:
         run = wandb.init(
