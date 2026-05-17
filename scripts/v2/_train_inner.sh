@@ -334,8 +334,31 @@ EVAL_WATCH_POLL_SECONDS="${EVAL_WATCH_POLL_SECONDS:-60}"
 # Reproducibility default (matches recon-p10-valid14-fullsong-baseline-seed42_20260514)
 SEED="${SEED:-42}"
 
-# Augmentation defaults: probabilities 0 (disabled), neutral strengths.
+# AUG_PROFILE dispatcher: fills probabilities that are still unset (empty).
+# Must run BEFORE the probability :-0 defaults below so the profile can
+# distinguish "unset" from "explicitly 0" — `--aug-gain-p 0` with a profile
+# now correctly keeps gain disabled.
 AUG_PROFILE="${AUG_PROFILE:-}"
+case "${AUG_PROFILE}" in
+  ""|off)
+    : # leave probabilities as-is; the :-0 defaults below disable any unset ones.
+    ;;
+  all_medium)
+    AUG_GAIN_P="${AUG_GAIN_P:-0.5}"
+    AUG_PITCH_P="${AUG_PITCH_P:-0.5}"
+    AUG_TIME_STRETCH_P="${AUG_TIME_STRETCH_P:-0.5}"
+    AUG_SHIFT_P="${AUG_SHIFT_P:-0.5}"
+    AUG_POLARITY_P="${AUG_POLARITY_P:-0.5}"
+    AUG_NOISE_P="${AUG_NOISE_P:-0.5}"
+    ;;
+  *)
+    echo "ERROR: unknown AUG_PROFILE: ${AUG_PROFILE} (expected one of: off, all_medium)" >&2
+    exit 2
+    ;;
+esac
+
+# Augmentation defaults: any probability still unset disables that aug; strengths
+# default to neutral values.
 AUG_GAIN_P="${AUG_GAIN_P:-0}"
 AUG_GAIN_DB="${AUG_GAIN_DB:-6.0}"
 AUG_PITCH_P="${AUG_PITCH_P:-0}"
@@ -347,26 +370,6 @@ AUG_SHIFT_FRACTION="${AUG_SHIFT_FRACTION:-0.1}"
 AUG_POLARITY_P="${AUG_POLARITY_P:-0}"
 AUG_NOISE_P="${AUG_NOISE_P:-0}"
 AUG_NOISE_AMPLITUDE="${AUG_NOISE_AMPLITUDE:-0.005}"
-
-# AUG_PROFILE dispatcher: profile fills probabilities only when not explicitly set.
-# Used by screening matrices to flip "everything on / everything off" in one axis.
-case "${AUG_PROFILE}" in
-  ""|off)
-    : # use whatever AUG_*_P were passed; defaults are 0 everywhere.
-    ;;
-  all_medium)
-    [[ "${AUG_GAIN_P}" == "0" ]] && AUG_GAIN_P="0.5"
-    [[ "${AUG_PITCH_P}" == "0" ]] && AUG_PITCH_P="0.5"
-    [[ "${AUG_TIME_STRETCH_P}" == "0" ]] && AUG_TIME_STRETCH_P="0.5"
-    [[ "${AUG_SHIFT_P}" == "0" ]] && AUG_SHIFT_P="0.5"
-    [[ "${AUG_POLARITY_P}" == "0" ]] && AUG_POLARITY_P="0.5"
-    [[ "${AUG_NOISE_P}" == "0" ]] && AUG_NOISE_P="0.5"
-    ;;
-  *)
-    echo "ERROR: unknown AUG_PROFILE: ${AUG_PROFILE} (expected one of: off, all_medium)" >&2
-    exit 2
-    ;;
-esac
 
 # Validate key ints
 if [[ "${TIME_FRAMES}" != "256" && "${TIME_FRAMES}" != "512" ]]; then

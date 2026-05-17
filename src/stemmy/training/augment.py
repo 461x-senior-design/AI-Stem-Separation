@@ -9,17 +9,10 @@ the dataset recomputes the mix as the sum of augmented stems.
 """
 
 from dataclasses import asdict, dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from audiomentations import (
-    AddGaussianNoise,
-    Compose,
-    Gain,
-    PitchShift,
-    PolarityInversion,
-    Shift,
-    TimeStretch,
-)
+if TYPE_CHECKING:
+    from audiomentations import Compose
 
 
 @dataclass(frozen=True)
@@ -45,13 +38,21 @@ class AugmentConfig:
         return asdict(self)
 
 
-def build_augment_pipeline(cfg: AugmentConfig) -> Optional[Compose]:
+def build_augment_pipeline(cfg: AugmentConfig) -> Optional["Compose"]:
+    from audiomentations import (
+        AddGaussianNoise,
+        Compose,
+        Gain,
+        PitchShift,
+        PolarityInversion,
+        Shift,
+        TimeStretch,
+    )
+
     transforms = []
 
     if cfg.gain_p > 0:
-        transforms.append(
-            Gain(min_gain_db=-cfg.gain_db, max_gain_db=cfg.gain_db, p=cfg.gain_p)
-        )
+        transforms.append(Gain(min_gain_db=-cfg.gain_db, max_gain_db=cfg.gain_db, p=cfg.gain_p))
     if cfg.pitch_p > 0:
         transforms.append(
             PitchShift(
