@@ -23,12 +23,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gui = [
+  "PySide6>=6.6.0",
+  "sounddevice>=0.4.6",
+]
 test = [
   "pytest>=8.0.0",
 ]
 
 [project.scripts]
 stemmy = "stemmy.tool.cli:cli"
+stemmy-gui = "stemmy.gui.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
