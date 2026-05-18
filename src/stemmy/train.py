@@ -54,12 +54,18 @@ from stemmy.constants import (
 )
 from stemmy.logging_config import get_logger, setup_logging
 from stemmy.models.unet_2d import UNet2D
-from stemmy.tool.click_options import add_options, processing_options, training_options
+from stemmy.tool.click_options import (
+    add_options,
+    augmentation_options,
+    processing_options,
+    training_options,
+)
 from stemmy.tool.progress_theme import (
     create_setup_progress,
     create_themed_progress,
     start_eq_animator,
 )
+from stemmy.training.augment import AugmentConfig, build_augment_pipeline
 from stemmy.training.checkpointing import export_torchscript, load_checkpoint, save_checkpoint
 from stemmy.training.musdb18hq_dataset import CropConfig, Musdb18HQDataset
 from stemmy.training.stft import StftConfig
@@ -177,8 +183,13 @@ def build_dataloaders(
     valid_fraction: float,
     train_split_seed: int,
     split_source: str = "random",
+    augment: Optional[Any] = None,
 ) -> tuple[Musdb18HQDataset, Musdb18HQDataset, DataLoader, DataLoader]:
-    """Build train/val datasets and DataLoaders."""
+    """Build train/val datasets and DataLoaders.
+
+    `augment` is passed only to the training dataset; the validation dataset
+    always sees unmodified audio so eval metrics remain comparable.
+    """
     effective_max_tracks = max_tracks if max_tracks > 0 else None
 
     train_ds = Musdb18HQDataset(
@@ -196,6 +207,7 @@ def build_dataloaders(
         waveform_norm=waveform_norm,
         spectrogram_norm=spectrogram_norm,
         seed=0,
+        augment=augment,
     )
     val_ds = Musdb18HQDataset(
         root_dir=data_root,
@@ -264,6 +276,8 @@ def build_run_config(
     valid_fraction: float,
     train_split_seed: int,
     split_source: str,
+    augment_cfg: AugmentConfig,
+    augment_active: bool,
 ) -> dict[str, Any]:
     """Build a config dict stored inside checkpoints for reproducibility."""
     return {
@@ -300,6 +314,7 @@ def build_run_config(
         "train_split_seed": int(train_split_seed),
         "split_source": split_source,
         "reserved_eval_subset": "test",
+        "augmentation": {"active": bool(augment_active), **augment_cfg.to_dict()},
     }
 
 
@@ -545,6 +560,7 @@ def eval_one_epoch(
 @click.command("train")
 @add_options(processing_options)
 @add_options(training_options)
+@add_options(augmentation_options)
 @wandb_run(job_type="training", name="training")
 def main(
     data_root: str,
@@ -569,6 +585,17 @@ def main(
     seed: int,
     amp: bool,
     potato: bool,
+    aug_gain_p: float,
+    aug_gain_db: float,
+    aug_pitch_p: float,
+    aug_pitch_semitones: float,
+    aug_time_stretch_p: float,
+    aug_time_stretch_range: float,
+    aug_shift_p: float,
+    aug_shift_fraction: float,
+    aug_polarity_p: float,
+    aug_noise_p: float,
+    aug_noise_amplitude: float,
 ) -> None:
     """Train the model."""
     if not data_root.strip():
@@ -650,6 +677,32 @@ def main(
     dev = pick_device(device)
     set_seed(seed)
 
+    augment_cfg = AugmentConfig(
+        gain_p=aug_gain_p,
+        gain_db=aug_gain_db,
+        pitch_p=aug_pitch_p,
+        pitch_semitones=aug_pitch_semitones,
+        time_stretch_p=aug_time_stretch_p,
+        time_stretch_range=aug_time_stretch_range,
+        shift_p=aug_shift_p,
+        shift_fraction=aug_shift_fraction,
+        polarity_p=aug_polarity_p,
+        noise_p=aug_noise_p,
+        noise_amplitude=aug_noise_amplitude,
+    )
+    augment = build_augment_pipeline(augment_cfg)
+    logger.info(
+        "Augmentation %s (gain_p=%g pitch_p=%g time_stretch_p=%g shift_p=%g "
+        "polarity_p=%g noise_p=%g)",
+        "active" if augment is not None else "disabled",
+        aug_gain_p,
+        aug_pitch_p,
+        aug_time_stretch_p,
+        aug_shift_p,
+        aug_polarity_p,
+        aug_noise_p,
+    )
+
     stft_cfg = StftConfig(
         sample_rate=TARGET_SAMPLE_RATE,
         n_fft=N_FFT,
@@ -677,6 +730,7 @@ def main(
             valid_fraction=valid_fraction,
             train_split_seed=train_split_seed,
             split_source=split_source,
+            augment=augment,
         )
     else:
         with create_setup_progress("Setup", title_style=BOLD_PURPLE) as setup_progress:
@@ -741,6 +795,7 @@ def main(
                     valid_fraction=valid_fraction,
                     train_split_seed=train_split_seed,
                     split_source=split_source,
+                    augment=augment,
                 )
 
                 setup_progress.update(
@@ -842,6 +897,8 @@ def main(
         valid_fraction=valid_fraction,
         train_split_seed=train_split_seed,
         split_source=split_source,
+        augment_cfg=augment_cfg,
+        augment_active=augment is not None,
     )
     if wandb.run is not None:
         wandb.config.update(config)

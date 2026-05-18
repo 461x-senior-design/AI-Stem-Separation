@@ -1,0 +1,17 @@
+# Tier 2 (ablation): full-song eval on 15 tracks, 100 epochs.
+# Question: which augmentation axes help?
+#
+# 2^3 = 8 cells over gain x pitch x time-stretch. The (0, 0, 0) cell
+# reproduces recon-p10-valid14-fullsong-baseline-seed42_20260514 within
+# RNG noise and serves as the paired in-sweep baseline.
+#
+# Polarity / Shift / Noise stay at 0 here; reserved for a follow-up
+# ablation sweep if these three axes leave room to explore.
+
+name: aug-sweep-ablation
+base: recon-p10-valid14-fullsong
+partition: dgxh
+sweep:
+  AUG_GAIN_P:         [0, 0.5]
+  AUG_PITCH_P:        [0, 0.5]
+  AUG_TIME_STRETCH_P: [0, 0.5]

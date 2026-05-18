@@ -1,0 +1,12 @@
+# Tier 1 (screening): cheap eval, 30 epochs, 15 tracks @ 20s.
+# Question: does the augmentation code path break training?
+#
+# 2 cells: off (baseline parity) vs all_medium (every aug at p=0.5).
+# The AUG_PROFILE dispatcher in _train_inner.sh fills probabilities.
+# Run before the ablation tier to catch wiring bugs cheaply.
+
+name: aug-sweep-screening
+base: recon-p10
+partition: dgxh
+sweep:
+  AUG_PROFILE: [off, all_medium]
