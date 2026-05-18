@@ -4,17 +4,31 @@
 from __future__ import annotations
 
 import sys
+import threading
 import traceback
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
+
+try:
+    import sounddevice as sd
+except (ImportError, OSError):  # pragma: no cover - depends on optional native audio deps.
+    sd = None
 import soundfile as sf
 import torch
-from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QThread, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPalette, QPen, QPolygon
-from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
+from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QPainter,
+    QPainterPath,
+    QPalette,
+    QPen,
+    QPolygon,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -93,6 +107,12 @@ TRACE_COLORS = {
     "other": "#00FF85",
 }
 OSCILLOSCOPE_POINTS = 2400
+OSCILLOSCOPE_TRACE_WIDTH_DARK = 1.2
+OSCILLOSCOPE_TRACE_WIDTH_LIGHT = 1.4
+OSCILLOSCOPE_PROGRESS_WIDTH = 2.0
+OSCILLOSCOPE_PLAYHEAD_WIDTH = 1.5
+MODEL_CACHE_MAX_SIZE = 2
+_MODEL_CACHE: dict[tuple[Path, str, int, int, int], tuple[torch.nn.Module, object]] = {}
 
 
 @dataclass(frozen=True)
@@ -157,14 +177,284 @@ class SeparationWorker(QObject):
 
     def _load_model(self, stems: list[str]) -> tuple[torch.nn.Module, InferenceConfig, object]:
         if self.job.checkpoint is not None:
+            cache_key = _model_cache_key(self.job.checkpoint, self.job.device, len(stems))
+            cached = _MODEL_CACHE.get(cache_key)
+            if cached is not None:
+                model, checkpoint_obj = cached
+                return model, config_from_checkpoint(checkpoint_obj), checkpoint_obj
+
             model, checkpoint_obj = load_pth_model(
                 self.job.checkpoint,
                 device=self.job.device,
                 stems=len(stems),
             )
+            _MODEL_CACHE[cache_key] = (model, checkpoint_obj)
+            while len(_MODEL_CACHE) > MODEL_CACHE_MAX_SIZE:
+                _MODEL_CACHE.pop(next(iter(_MODEL_CACHE)))
             return model, config_from_checkpoint(checkpoint_obj), checkpoint_obj
 
         raise ValueError("Default checkpoint is not configured.")
+
+
+class StemMixer(QObject):
+    """Single-output stem mixer for interactive playback."""
+
+    state_changed = Signal()
+    log = Signal(str)
+
+    def __init__(self, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self._stems: dict[str, np.ndarray] = {}
+        self._sample_rate = 0
+        self._frame_count = 0
+        self._gains: dict[str, float] = {}
+        self._solo_stem: Optional[str] = None
+        self._stream = None
+        self._cursor_frame = 0
+        self._state = "stopped"
+        self._lock = threading.RLock()
+
+    def load_stems(self, paths: dict[str, Path]) -> None:
+        self.stop()
+        stems: dict[str, np.ndarray] = {}
+        sample_rate: Optional[int] = None
+
+        for stem in STEMS_4:
+            path = paths.get(stem)
+            if path is None:
+                continue
+            audio, read_sample_rate = _read_stem_audio(path)
+            if sample_rate is None:
+                sample_rate = int(read_sample_rate)
+            elif int(read_sample_rate) != sample_rate:
+                raise ValueError(
+                    "Stem sample rates differ: expected %d Hz, got %d Hz for %s"
+                    % (sample_rate, int(read_sample_rate), stem)
+                )
+            stems[stem] = audio
+
+        if sample_rate is None or not stems:
+            self._stems = {}
+            return
+
+        self._stems = stems
+        self._sample_rate = int(sample_rate)
+        self._frame_count = max((int(audio.shape[0]) for audio in stems.values()), default=0)
+        with self._lock:
+            self._gains = {stem: 1.0 for stem in stems}
+            self._solo_stem = None
+            self._cursor_frame = 0
+        self._state = "stopped"
+        self.state_changed.emit()
+
+    def clear(self) -> None:
+        self.stop()
+        self._stems = {}
+        self._sample_rate = 0
+        self._frame_count = 0
+        self._stream = None
+        with self._lock:
+            self._gains = {}
+            self._solo_stem = None
+            self._cursor_frame = 0
+        self.state_changed.emit()
+
+    def is_loaded(self) -> bool:
+        return self._frame_count > 0 and bool(self._stems)
+
+    def is_playing(self) -> bool:
+        return self._state == "playing"
+
+    def is_paused(self) -> bool:
+        return self._state == "paused"
+
+    def is_active(self) -> bool:
+        return self._state in {"playing", "paused"}
+
+    def play(self) -> None:
+        if not self.is_loaded():
+            return
+
+        if self.position_ms() >= self.duration_ms():
+            self.seek_ms(0)
+
+        if sd is None:
+            self.log.emit(
+                "Playback failed: install the GUI audio dependency with `pip install sounddevice`."
+            )
+            return
+
+        if self._stream is None:
+            output_device = _sounddevice_output_device()
+            if output_device is None:
+                self.log.emit(
+                    "Playback failed: PortAudio did not report any output devices. "
+                    "Check your OS audio service or run `python -m sounddevice`."
+                )
+                return
+            try:
+                self._stream = sd.OutputStream(
+                    device=output_device,
+                    samplerate=self._sample_rate,
+                    channels=2,
+                    dtype="float32",
+                    blocksize=4096,  # Changed from 1024 to fix WSL stuttering
+                    latency="high",  # Changed from "low" to fix WSL stuttering
+                    callback=self._audio_callback,
+                )
+            except Exception as exc:  # noqa: BLE001 - backend errors vary by platform.
+                self.log.emit(f"Playback failed: could not open sounddevice stream: {exc}")
+                return
+
+        try:
+            self._stream.start()
+        except Exception as exc:  # noqa: BLE001 - backend errors vary by platform.
+            self.log.emit(f"Playback failed: could not start sounddevice stream: {exc}")
+            self._stream = None
+            return
+
+        self._state = "playing"
+        self.state_changed.emit()
+
+    def pause(self) -> None:
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+            except Exception as exc:  # noqa: BLE001 - backend errors vary by platform.
+                self.log.emit(f"Playback pause failed: {exc}")
+        self._state = "paused"
+        self.state_changed.emit()
+
+    def stop(self) -> None:
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception as exc:  # noqa: BLE001 - backend errors vary by platform.
+                self.log.emit(f"Playback stop failed: {exc}")
+            self._stream = None
+        with self._lock:
+            self._cursor_frame = 0
+        self._state = "stopped"
+        self.state_changed.emit()
+
+    def seek_ms(self, position_ms: int) -> None:
+        if self._sample_rate <= 0:
+            return
+        frame = int((max(0, int(position_ms)) / 1000.0) * self._sample_rate)
+        was_playing = self.is_playing()
+        if was_playing and self._stream is not None:
+            try:
+                self._stream.stop()
+            except Exception as exc:  # noqa: BLE001 - backend errors vary by platform.
+                self.log.emit(f"Playback seek failed: {exc}")
+                return
+        with self._lock:
+            self._cursor_frame = min(self._frame_count, max(0, frame))
+        if was_playing and self._stream is not None:
+            try:
+                self._stream.start()
+            except Exception as exc:  # noqa: BLE001 - backend errors vary by platform.
+                self.log.emit(f"Playback seek failed: {exc}")
+
+    def set_gain(self, stem: str, gain: float) -> None:
+        if stem not in self._gains:
+            return
+        gain = min(1.0, max(0.0, float(gain)))
+        with self._lock:
+            if self._gains.get(stem) == gain:
+                return
+            self._gains[stem] = gain
+
+    def set_solo_stem(self, stem: Optional[str]) -> None:
+        with self._lock:
+            if self._solo_stem == stem:
+                return
+            self._solo_stem = stem
+
+    def position_ms(self) -> int:
+        if self._sample_rate <= 0:
+            return 0
+        with self._lock:
+            frame = int(self._cursor_frame)
+        return int((frame / self._sample_rate) * 1000)
+
+    def duration_ms(self) -> int:
+        if self._sample_rate <= 0:
+            return 0
+        return int((self._frame_count / self._sample_rate) * 1000)
+
+    def _audio_callback(self, outdata, frames: int, _time, status) -> None:
+        if status:
+            self.log.emit(f"Playback status: {status}")
+
+        with self._lock:
+            start_frame = int(self._cursor_frame)
+            self._cursor_frame = min(self._frame_count, self._cursor_frame + int(frames))
+
+        chunk = self._mixed_chunk(start_frame, int(frames))
+        outdata[:] = chunk
+        if start_frame + int(frames) >= self._frame_count:
+            with self._lock:
+                self._cursor_frame = self._frame_count
+            self._state = "stopped"
+            self.state_changed.emit()
+            if sd is not None:
+                raise sd.CallbackStop
+
+    def _mixed_chunk(self, start_frame: int, frame_count: int) -> np.ndarray:
+        mixed = np.zeros((frame_count, 2), dtype=np.float32)
+        end_frame = start_frame + frame_count
+        with self._lock:
+            gains = dict(self._gains)
+            solo_stem = self._solo_stem
+        for stem, audio in self._stems.items():
+            if solo_stem is not None and stem != solo_stem:
+                continue
+
+            gain = gains.get(stem, 1.0)
+            if gain <= 0.0 or start_frame >= audio.shape[0]:
+                continue
+
+            stem_end = min(end_frame, int(audio.shape[0]))
+            stem_frames = stem_end - start_frame
+            if stem_frames > 0:
+                mixed[:stem_frames] += audio[start_frame:stem_end] * gain
+
+        return np.clip(mixed, -1.0, 1.0)
+
+
+def _sounddevice_output_device() -> Optional[int]:
+    if sd is None:
+        return None
+
+    try:
+        devices = sd.query_devices()
+    except Exception:  # noqa: BLE001 - backend errors vary by platform.
+        return None
+
+    try:
+        default_device = sd.default.device
+        default_output = int(default_device[1] if isinstance(default_device, (list, tuple)) else -1)
+    except (TypeError, ValueError, IndexError):
+        default_output = -1
+
+    if default_output >= 0:
+        try:
+            default_info = devices[default_output]
+            if int(default_info.get("max_output_channels", 0)) > 0:
+                return default_output
+        except (IndexError, TypeError, ValueError, AttributeError):
+            pass
+
+    for idx, info in enumerate(devices):
+        try:
+            if int(info.get("max_output_channels", 0)) > 0:
+                return int(idx)
+        except (TypeError, ValueError, AttributeError):
+            continue
+
+    return None
 
 
 class DeviceSelector(QWidget):
@@ -267,30 +557,84 @@ class OscilloscopeWidget(QWidget):
         self.trace_colors = dict(TRACE_COLORS)
         self.theme_colors = dict(DEFAULT_THEME_COLORS)
         self.playhead_fraction = 0.0
+        self._trace_paths: dict[str, QPainterPath] = {}
+        self._cached_trace_rect = None
+        self._trace_cache_valid = False
 
     def clear(self) -> None:
         self.traces.clear()
         self.levels.clear()
         self.playhead_fraction = 0.0
+        self._invalidate_trace_cache()
         self.update()
 
     def set_traces(self, traces: dict[str, np.ndarray]) -> None:
         self.traces = traces
         self.levels = {stem: 1.0 for stem in traces}
+        self._invalidate_trace_cache()
         self.update()
 
     def set_levels(self, levels: dict[str, float]) -> None:
+        if self.levels == levels:
+            return
         self.levels = levels
+        self._invalidate_trace_cache()
         self.update()
 
     def set_playhead_fraction(self, fraction: float) -> None:
-        self.playhead_fraction = min(1.0, max(0.0, float(fraction)))
+        fraction = min(1.0, max(0.0, float(fraction)))
+        if self._playhead_pixel(fraction) == self._playhead_pixel(self.playhead_fraction):
+            return
+        self.playhead_fraction = fraction
         self.update()
 
     def set_colors(self, theme_colors: dict[str, str], trace_colors: dict[str, str]) -> None:
         self.theme_colors = dict(theme_colors)
         self.trace_colors = dict(trace_colors)
         self.update()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override name.
+        self._invalidate_trace_cache()
+        super().resizeEvent(event)
+
+    def _invalidate_trace_cache(self) -> None:
+        self._trace_paths.clear()
+        self._cached_trace_rect = None
+        self._trace_cache_valid = False
+
+    def _playhead_pixel(self, fraction: float) -> int:
+        rect = self.rect().adjusted(10, 10, -10, -10)
+        if rect.width() <= 0:
+            return -1
+        return rect.left() + int(min(1.0, max(0.0, float(fraction))) * rect.width())
+
+    def _ensure_trace_paths(self, rect) -> None:
+        if self._trace_cache_valid and self._cached_trace_rect == rect:
+            return
+
+        self._trace_paths.clear()
+        self._cached_trace_rect = rect
+        self._trace_cache_valid = True
+        center_y = rect.center().y()
+        half_height = max(1, rect.height() / 2 - 6)
+
+        for stem in STEMS_4:
+            trace = self.traces.get(stem)
+            if trace is None or len(trace) < 2:
+                continue
+
+            level = self.levels.get(stem, 1.0)
+            if level <= 0:
+                continue
+
+            points = len(trace)
+            path = QPainterPath()
+            path.moveTo(rect.left(), center_y - float(trace[0]) * level * half_height)
+            for idx in range(1, points):
+                x = rect.left() + int(idx * rect.width() / (points - 1))
+                y = center_y - float(trace[idx]) * level * half_height
+                path.lineTo(x, y)
+            self._trace_paths[stem] = path
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt override name.
         if not self.traces:
@@ -307,7 +651,6 @@ class OscilloscopeWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         base_color = QColor(self.theme_colors["field_bg"])
-        light_mode = base_color.lightness() > 160
         painter.fillRect(self.rect(), base_color)
 
         rect = self.rect().adjusted(10, 10, -10, -10)
@@ -321,40 +664,27 @@ class OscilloscopeWidget(QWidget):
             return
 
         painter.setClipRect(rect)
-        center_y = rect.center().y()
-        half_height = max(1, rect.height() / 2 - 6)
+        self._ensure_trace_paths(rect)
 
         for stem in STEMS_4:
-            trace = self.traces.get(stem)
-            if trace is None or len(trace) < 2:
+            path = self._trace_paths.get(stem)
+            if path is None:
                 continue
-
-            level = self.levels.get(stem, 1.0)
             color = QColor(self.trace_colors.get(stem, self.theme_colors["text"]))
-
-            if level <= 0:
-                continue
-
-            color.setAlphaF(0.78 if light_mode else 0.25)
-            painter.setPen(QPen(color, 2.8 if light_mode else 2.4))
-
-            points = len(trace)
-            prev_x = rect.left()
-            prev_y = int(center_y - float(trace[0]) * level * half_height)
-            for idx in range(1, points):
-                x = rect.left() + int(idx * rect.width() / (points - 1))
-                y = int(center_y - float(trace[idx]) * level * half_height)
-                painter.drawLine(prev_x, prev_y, x, y)
-                prev_x = x
-                prev_y = y
+            trace_width = (
+                OSCILLOSCOPE_TRACE_WIDTH_LIGHT
+                if base_color.lightness() > 160
+                else OSCILLOSCOPE_TRACE_WIDTH_DARK
+            )
+            painter.setPen(QPen(color, trace_width))
+            painter.drawPath(path)
 
         playhead_x = rect.left() + int(self.playhead_fraction * rect.width())
-        played_rect = rect.adjusted(0, 0, -(rect.right() - playhead_x), 0)
         played_color = QColor(self.theme_colors["accent"])
-        played_color.setAlpha(38 if light_mode else 62)
-        painter.fillRect(played_rect, played_color)
+        painter.setPen(QPen(played_color, OSCILLOSCOPE_PROGRESS_WIDTH))
+        painter.drawLine(rect.left(), rect.bottom(), playhead_x, rect.bottom())
         playhead_color = QColor(self.theme_colors["text"])
-        painter.setPen(QPen(playhead_color, 2.0))
+        painter.setPen(QPen(playhead_color, OSCILLOSCOPE_PLAYHEAD_WIDTH))
         painter.drawLine(playhead_x, rect.top(), playhead_x, rect.bottom())
 
 
@@ -373,8 +703,6 @@ class MainWindow(QMainWindow):
         self.worker_thread: Optional[QThread] = None
         self.worker: Optional[SeparationWorker] = None
         self.stem_paths: dict[str, Path] = {}
-        self.audio_outputs: dict[str, QAudioOutput] = {}
-        self.players: dict[str, QMediaPlayer] = {}
         self.volume_sliders: dict[str, QSlider] = {}
         self.solo_buttons: dict[str, QPushButton] = {}
         self.stem_labels: dict[str, QLabel] = {}
@@ -392,18 +720,9 @@ class MainWindow(QMainWindow):
             TRACE_COLORS,
         )
         self.track_duration_ms = 0
-
-        for stem in STEMS_4:
-            audio_output = QAudioOutput(self)
-            audio_output.setVolume(1.0)
-            player = QMediaPlayer(self)
-            player.setAudioOutput(audio_output)
-            player.errorOccurred.connect(
-                lambda _error, error_text, stem=stem: self._on_playback_error(stem, error_text)
-            )
-            player.playbackStateChanged.connect(self._on_playback_state_changed)
-            self.audio_outputs[stem] = audio_output
-            self.players[stem] = player
+        self.mixer = StemMixer(self)
+        self.mixer.state_changed.connect(self._on_playback_state_changed)
+        self.mixer.log.connect(self._append_log)
 
         self.input_edit = QLineEdit()
         self.input_edit.setPlaceholderText("Choose an audio file")
@@ -460,7 +779,6 @@ class MainWindow(QMainWindow):
         self.playhead_timer = QTimer(self)
         self.playhead_timer.setInterval(33)
         self.playhead_timer.timeout.connect(self._refresh_playhead)
-        self.playhead_timer.start()
 
         self._build_ui()
         self._apply_style()
@@ -954,8 +1272,7 @@ class MainWindow(QMainWindow):
         self.stop_playback()
         self.stem_paths.clear()
         self.track_duration_ms = 0
-        for player in self.players.values():
-            player.setSource(QUrl())
+        self.mixer.clear()
         self.oscilloscope.clear()
         self.play_button.setEnabled(False)
         self.stop_button.setEnabled(False)
@@ -1028,7 +1345,6 @@ class MainWindow(QMainWindow):
             if path:
                 resolved_path = Path(str(path)).expanduser().resolve()
                 self.stem_paths[stem] = resolved_path
-                self.players[stem].setSource(QUrl.fromLocalFile(str(resolved_path)))
                 item = QListWidgetItem(f"{stem}: {path}")
                 item.setData(Qt.ItemDataRole.UserRole, path)
                 self.outputs_list.addItem(item)
@@ -1037,6 +1353,8 @@ class MainWindow(QMainWindow):
             self.outputs_list.setCurrentRow(0)
         self.play_button.setEnabled(loaded_count > 0)
         self._load_oscilloscope_traces()
+        self._load_mixer()
+        self.play_button.setEnabled(self.mixer.is_loaded())
         self._apply_mixer_volumes()
         self.now_playing_label.setText(f"Ready to play {loaded_count} stems")
         QMessageBox.information(self, "Separation Complete", "Stem separation finished.")
@@ -1056,31 +1374,22 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def toggle_stem_mix(self) -> None:
-        if not self.stem_paths:
+        if not self.mixer.is_loaded():
             QMessageBox.information(self, "No Stems Loaded", "Run separation before playing stems.")
             return
 
-        if self._any_player_in_state(QMediaPlayer.PlaybackState.PlayingState):
-            for player in self.players.values():
-                player.pause()
+        if self.mixer.is_playing():
+            self.mixer.pause()
             return
 
-        restart = not self._any_player_in_state(QMediaPlayer.PlaybackState.PausedState)
-        for stem, player in self.players.items():
-            if stem not in self.stem_paths:
-                continue
-            if restart:
-                player.setPosition(0)
-            player.play()
+        if not self.mixer.is_paused():
+            self.mixer.seek_ms(0)
+        self.mixer.play()
         self.now_playing_label.setText("Playing stem mix")
-
-    def _any_player_in_state(self, state: QMediaPlayer.PlaybackState) -> bool:
-        return any(player.playbackState() == state for player in self.players.values())
 
     @Slot()
     def stop_playback(self) -> None:
-        for player in self.players.values():
-            player.stop()
+        self.mixer.stop()
 
     @Slot(QListWidgetItem, QListWidgetItem)
     def _on_output_selection_changed(
@@ -1088,33 +1397,40 @@ class MainWindow(QMainWindow):
         current: Optional[QListWidgetItem],
         _previous: Optional[QListWidgetItem],
     ) -> None:
-        self.play_button.setEnabled(bool(self.stem_paths))
-        players_stopped = not self._any_player_in_state(QMediaPlayer.PlaybackState.PlayingState)
-        if current is not None and players_stopped:
+        self.play_button.setEnabled(self.mixer.is_loaded())
+        if current is not None and not self.mixer.is_playing():
             path = _item_path(current)
             if path is not None:
                 self.now_playing_label.setText(path.name)
 
-    @Slot(QMediaPlayer.PlaybackState)
-    def _on_playback_state_changed(self, state: QMediaPlayer.PlaybackState) -> None:
-        is_playing = self._any_player_in_state(QMediaPlayer.PlaybackState.PlayingState)
+    @Slot()
+    def _on_playback_state_changed(self) -> None:
+        is_playing = self.mixer.is_playing()
+        if is_playing and not self.playhead_timer.isActive():
+            self.playhead_timer.start()
+        elif not is_playing and self.playhead_timer.isActive():
+            self.playhead_timer.stop()
+            self._refresh_playhead()
+
         self.play_button.setText("Pause" if is_playing else "Play")
-        any_active = is_playing or self._any_player_in_state(QMediaPlayer.PlaybackState.PausedState)
-        self.stop_button.setEnabled(any_active)
-        if state == QMediaPlayer.PlaybackState.StoppedState and not any_active and self.stem_paths:
+        self.stop_button.setEnabled(self.mixer.is_active())
+        if not self.mixer.is_active() and self.stem_paths:
             self.now_playing_label.setText("Stem mix stopped")
 
     def _apply_mixer_volumes(self) -> None:
         soloed_stems = {stem for stem, button in self.solo_buttons.items() if button.isChecked()}
         levels: dict[str, float] = {}
-        for stem, audio_output in self.audio_outputs.items():
+        solo_stem = next(iter(soloed_stems), None)
+        self.mixer.set_solo_stem(solo_stem)
+        for stem in STEMS_4:
             slider = self.volume_sliders.get(stem)
             if slider is None:
                 continue
-            volume = slider.value() / 100.0
+            slider_volume = slider.value() / 100.0
+            volume = slider_volume
             if soloed_stems and stem not in soloed_stems:
                 volume = 0.0
-            audio_output.setVolume(volume)
+            self.mixer.set_gain(stem, slider_volume)
             levels[stem] = volume
         self.oscilloscope.set_levels(levels)
 
@@ -1142,6 +1458,13 @@ class MainWindow(QMainWindow):
                 self._append_log(f"Could not load oscilloscope trace for {stem}: {exc}")
         self.oscilloscope.set_traces(traces)
 
+    def _load_mixer(self) -> None:
+        try:
+            self.mixer.load_stems(self.stem_paths)
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._append_log(f"Could not load stem mixer: {exc}")
+            QMessageBox.warning(self, "Playback Setup Failed", str(exc))
+
     @Slot(float)
     def _seek_stem_mix(self, fraction: float) -> None:
         duration_ms = self._mix_duration_ms()
@@ -1149,9 +1472,7 @@ class MainWindow(QMainWindow):
             return
 
         position_ms = int(duration_ms * min(1.0, max(0.0, fraction)))
-        for stem, player in self.players.items():
-            if stem in self.stem_paths:
-                player.setPosition(position_ms)
+        self.mixer.seek_ms(position_ms)
         self.oscilloscope.set_playhead_fraction(position_ms / duration_ms)
         self.now_playing_label.setText(_format_position(position_ms, duration_ms))
 
@@ -1164,20 +1485,14 @@ class MainWindow(QMainWindow):
 
         position_ms = self._mix_position_ms()
         self.oscilloscope.set_playhead_fraction(position_ms / duration_ms)
+        if self.mixer.is_playing() and position_ms >= duration_ms:
+            self.stop_playback()
 
     def _mix_duration_ms(self) -> int:
-        player_duration = max((player.duration() for player in self.players.values()), default=0)
-        return max(self.track_duration_ms, int(player_duration))
+        return max(self.track_duration_ms, self.mixer.duration_ms())
 
     def _mix_position_ms(self) -> int:
-        positions = [
-            player.position() for stem, player in self.players.items() if stem in self.stem_paths
-        ]
-        return max(positions, default=0)
-
-    def _on_playback_error(self, stem: str, error_text: str) -> None:
-        if error_text:
-            QMessageBox.warning(self, "Playback Failed", f"{stem}: {error_text}")
+        return self.mixer.position_ms()
 
 
 def _validated_file(raw_path: str, label: str) -> Path:
@@ -1201,20 +1516,53 @@ def _validated_output_dir(raw_path: str) -> Path:
     return path
 
 
+def _model_cache_key(
+    checkpoint: Path,
+    device: str,
+    stem_count: int,
+) -> tuple[Path, str, int, int, int]:
+    stat = checkpoint.stat()
+    return (
+        checkpoint.expanduser().resolve(),
+        str(device),
+        int(stem_count),
+        int(stat.st_mtime_ns),
+        int(stat.st_size),
+    )
+
+
 def _load_waveform_trace(path: Path) -> np.ndarray:
-    audio, _sample_rate = sf.read(str(path), dtype="float32", always_2d=True)
-    if audio.size == 0:
+    info = sf.info(str(path))
+    if info.frames <= 0:
         raise ValueError("empty audio file")
 
-    mono = np.mean(audio, axis=1)
-    if len(mono) > OSCILLOSCOPE_POINTS:
-        indices = np.linspace(0, len(mono) - 1, OSCILLOSCOPE_POINTS).astype(np.int64)
-        mono = mono[indices]
+    if info.frames <= OSCILLOSCOPE_POINTS:
+        audio, _sample_rate = sf.read(str(path), dtype="float32", always_2d=True)
+        mono = np.mean(audio, axis=1)
+    else:
+        indices = np.linspace(0, info.frames - 1, OSCILLOSCOPE_POINTS).astype(np.int64)
+        mono = np.empty(len(indices), dtype=np.float32)
+        with sf.SoundFile(str(path)) as audio_file:
+            for idx, frame in enumerate(indices):
+                audio_file.seek(int(frame))
+                sample = audio_file.read(frames=1, dtype="float32", always_2d=True)
+                mono[idx] = float(np.mean(sample)) if sample.size else 0.0
 
     peak = float(np.max(np.abs(mono)))
     if peak > 0:
         mono = mono / peak
     return mono.astype(np.float32, copy=False)
+
+
+def _read_stem_audio(path: Path) -> tuple[np.ndarray, int]:
+    audio, sample_rate = sf.read(str(path), dtype="float32", always_2d=True)
+    if audio.size == 0 or audio.shape[0] <= 0:
+        raise ValueError(f"empty audio file: {path}")
+    if audio.shape[1] == 1:
+        audio = np.repeat(audio, 2, axis=1)
+    elif audio.shape[1] > 2:
+        audio = audio[:, :2]
+    return np.ascontiguousarray(audio, dtype=np.float32), int(sample_rate)
 
 
 def _audio_duration_ms(path: Path) -> int:
@@ -1272,11 +1620,7 @@ def _save_color_settings(settings: QSettings, group: str, colors: dict[str, str]
 
 def _contrast_text(background_hex: str) -> str:
     color = QColor(background_hex)
-    luminance = (
-        0.299 * color.redF()
-        + 0.587 * color.greenF()
-        + 0.114 * color.blueF()
-    )
+    luminance = 0.299 * color.redF() + 0.587 * color.greenF() + 0.114 * color.blueF()
     return "#111827" if luminance > 0.62 else "#f9fafb"
 
 
