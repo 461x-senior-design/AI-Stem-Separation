@@ -306,8 +306,7 @@ def gui() -> None:
         from stemmy.gui.gui import main as gui_main
     except ImportError as exc:
         raise click.ClickException(
-            "Unable to import the GUI. Install the GUI dependency with: "
-            'pip install -e ".[gui]"'
+            'Unable to import the GUI. Install the GUI dependency with: pip install -e ".[gui]"'
         ) from exc
 
     raise SystemExit(gui_main())
