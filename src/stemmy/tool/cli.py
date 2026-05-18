@@ -19,7 +19,12 @@ from typing import Sequence
 import click
 from dotenv import dotenv_values
 
-from stemmy.tool.click_options import add_options, processing_options, training_options
+from stemmy.tool.click_options import (
+    add_options,
+    augmentation_options,
+    processing_options,
+    training_options,
+)
 from stemmy.tool.launcher.commands import (
     compare,
     ls_cmd,
@@ -211,6 +216,7 @@ def dev() -> None:
 )
 @add_options(processing_options)
 @add_options(training_options)
+@add_options(augmentation_options)
 @click.pass_context
 def dev_train(ctx: click.Context, **kwargs: object) -> None:
     """Run the training command."""
