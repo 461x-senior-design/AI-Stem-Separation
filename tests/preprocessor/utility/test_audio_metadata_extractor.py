@@ -1,7 +1,8 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from stemmy.preprocessing.utility.audio_metadata_extractor import AudioMetadataExtractor
+from unittest.mock import MagicMock, patch
+
 from stemmy import constants as c
+from stemmy.preprocessing.utility.audio_metadata_extractor import AudioMetadataExtractor
+
 
 @patch("librosa.get_duration")
 @patch("soundfile.info")

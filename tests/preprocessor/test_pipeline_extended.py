@@ -1,9 +1,11 @@
-import pytest
-import torch
+from unittest.mock import patch
+
 import numpy as np
-from unittest.mock import patch, MagicMock
-from stemmy.preprocessing.pipeline import Preprocessor, PreprocessingMetadata
+import pytest
+
+from stemmy.preprocessing.pipeline import Preprocessor
 from stemmy.preprocessing.utility.audio_file_validator import AudioValidationException
+
 
 def test_preprocessor_init_invalid():
     with pytest.raises(ValueError, match="target_channels must be 2"):

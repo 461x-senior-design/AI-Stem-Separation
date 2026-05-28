@@ -1,8 +1,10 @@
-import pytest
-import numpy as np
 from unittest.mock import patch
+
+import numpy as np
+import pytest
+
 from stemmy.preprocessing.audio import load_audio
-from stemmy.constants import TARGET_SAMPLE_RATE
+
 
 def test_load_audio_file_not_found():
     with pytest.raises(FileNotFoundError, match="Audio file not found"):

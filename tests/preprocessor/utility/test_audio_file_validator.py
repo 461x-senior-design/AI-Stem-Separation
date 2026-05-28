@@ -1,7 +1,10 @@
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from stemmy.preprocessing.utility.audio_file_validator import AudioFileValidator
+
 from stemmy import constants as c
+from stemmy.preprocessing.utility.audio_file_validator import AudioFileValidator
+
 
 @pytest.fixture
 def mock_metadata():

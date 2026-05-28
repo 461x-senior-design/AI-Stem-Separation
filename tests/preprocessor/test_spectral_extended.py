@@ -1,7 +1,9 @@
-import pytest
 import numpy as np
-from stemmy.preprocessing.spectral import compute_stft, split_magnitude_phase, normalize_spectrogram
-from stemmy.constants import WINDOW, N_FFT, HOP_LENGTH, WIN_LENGTH, STFT_CENTER
+import pytest
+
+from stemmy.constants import WINDOW
+from stemmy.preprocessing.spectral import compute_stft, normalize_spectrogram, split_magnitude_phase
+
 
 def test_compute_stft_invalid_input():
     with pytest.raises(TypeError, match="waveform must be a numpy.ndarray"):

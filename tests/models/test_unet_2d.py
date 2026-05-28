@@ -1,7 +1,9 @@
 import pytest
 import torch
 import torch.nn as nn
-from stemmy.models.unet_2d import ConvBlock, pad_to_multiple, unpad, _upsample_to, UNet2D
+
+from stemmy.models.unet_2d import ConvBlock, UNet2D, _upsample_to, pad_to_multiple, unpad
+
 
 def test_conv_block_init():
     # Valid
