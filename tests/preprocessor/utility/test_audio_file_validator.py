@@ -84,18 +84,61 @@ def test_validator_metadata_error(mock_extractor, mock_access, mock_isfile):
     assert success is False
     assert "Read error" in message
 
-@pytest.mark.parametrize("key, value, expected_error", [
-    (c.METADATA_FILE_SIZE, c.MAX_FILE_SIZE_MB + 1, c.ERROR_FILE_TOO_LARGE.format(max_size=c.MAX_FILE_SIZE_MB)),
-    (c.METADATA_FORMAT, "mp3", c.ERROR_UNSUPPORTED_FORMAT.format(format="mp3", supported=", ".join(c.SUPPORTED_FORMATS))),
-    (c.METADATA_DURATION, c.MIN_DURATION_SECONDS - 0.1, c.ERROR_AUDIO_TOO_SHORT.format(duration=c.MIN_DURATION_SECONDS - 0.1, min_duration=c.MIN_DURATION_SECONDS)),
-    (c.METADATA_DURATION, c.MAX_DURATION_SECONDS + 1, c.ERROR_AUDIO_TOO_LONG.format(duration=c.MAX_DURATION_SECONDS + 1, max_duration=c.MAX_DURATION_SECONDS)),
-    (c.METADATA_SAMPLE_RATE, c.MIN_SAMPLE_RATE - 1, c.ERROR_INVALID_SAMPLE_RATE.format(sample_rate=c.MIN_SAMPLE_RATE - 1, min_rate=c.MIN_SAMPLE_RATE, max_rate=c.MAX_SAMPLE_RATE)),
-    (c.METADATA_CHANNELS, c.MAX_CHANNELS + 1, c.ERROR_INVALID_CHANNELS.format(channels=c.MAX_CHANNELS + 1, min_channels=c.MIN_CHANNELS, max_channels=c.MAX_CHANNELS)),
-])
+@pytest.mark.parametrize(
+    "key, value, expected_error",
+    [
+        (
+            c.METADATA_FILE_SIZE,
+            c.MAX_FILE_SIZE_MB + 1,
+            c.ERROR_FILE_TOO_LARGE.format(max_size=c.MAX_FILE_SIZE_MB),
+        ),
+        (
+            c.METADATA_FORMAT,
+            "mp3",
+            c.ERROR_UNSUPPORTED_FORMAT.format(
+                format="mp3", supported=", ".join(c.SUPPORTED_FORMATS)
+            ),
+        ),
+        (
+            c.METADATA_DURATION,
+            c.MIN_DURATION_SECONDS - 0.1,
+            c.ERROR_AUDIO_TOO_SHORT.format(
+                duration=c.MIN_DURATION_SECONDS - 0.1, min_duration=c.MIN_DURATION_SECONDS
+            ),
+        ),
+        (
+            c.METADATA_DURATION,
+            c.MAX_DURATION_SECONDS + 1,
+            c.ERROR_AUDIO_TOO_LONG.format(
+                duration=c.MAX_DURATION_SECONDS + 1, max_duration=c.MAX_DURATION_SECONDS
+            ),
+        ),
+        (
+            c.METADATA_SAMPLE_RATE,
+            c.MIN_SAMPLE_RATE - 1,
+            c.ERROR_INVALID_SAMPLE_RATE.format(
+                sample_rate=c.MIN_SAMPLE_RATE - 1,
+                min_rate=c.MIN_SAMPLE_RATE,
+                max_rate=c.MAX_SAMPLE_RATE,
+            ),
+        ),
+        (
+            c.METADATA_CHANNELS,
+            c.MAX_CHANNELS + 1,
+            c.ERROR_INVALID_CHANNELS.format(
+                channels=c.MAX_CHANNELS + 1,
+                min_channels=c.MIN_CHANNELS,
+                max_channels=c.MAX_CHANNELS,
+            ),
+        ),
+    ],
+)
 @patch("os.path.isfile", return_value=True)
 @patch("os.access", return_value=True)
 @patch("stemmy.preprocessing.utility.audio_file_validator.AudioMetadataExtractor")
-def test_validator_invalid_metadata(mock_extractor, mock_access, mock_isfile, mock_metadata, key, value, expected_error):
+def test_validator_invalid_metadata(
+    mock_extractor, mock_access, mock_isfile, mock_metadata, key, value, expected_error
+):
     mock_extractor_inst = mock_extractor.return_value
     invalid_metadata = mock_metadata.copy()
     invalid_metadata[key] = value
