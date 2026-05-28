@@ -44,3 +44,9 @@ def test_ensure_stereo_invalid_shapes(invalid_input):
     """Optional: Test that the function raises an error for unsupported dimensions."""
     with pytest.raises(ValueError):
         ensure_stereo(invalid_input)
+
+
+def test_ensure_stereo_invalid_type():
+    """Test that the function raises a TypeError for non-numpy array input."""
+    with pytest.raises(TypeError, match="waveform must be a numpy.ndarray"):
+        ensure_stereo([1, 2, 3])

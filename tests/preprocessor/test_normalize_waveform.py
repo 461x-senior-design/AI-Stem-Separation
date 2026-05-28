@@ -94,3 +94,15 @@ def test_normalize_invalid_method():
     # Act & Assert
     with pytest.raises(ValueError):
         normalize_waveform(audio, method="invalid")
+
+
+def test_normalize_invalid_types():
+    audio = np.zeros((2, 100))
+    with pytest.raises(TypeError, match="waveform must be a numpy.ndarray"):
+        normalize_waveform([1, 2, 3])
+    with pytest.raises(ValueError, match="waveform must have shape"):
+        normalize_waveform(np.zeros((3, 10, 10)))
+    with pytest.raises(ValueError, match="method must be a non-empty string"):
+        normalize_waveform(audio, method="")
+    with pytest.raises(ValueError, match="method must be a non-empty string"):
+        normalize_waveform(audio, method=123)

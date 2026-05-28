@@ -28,12 +28,12 @@ import click
 import numpy as np
 import torch
 import torch.nn.functional as F
+import wandb
 from dotenv import dotenv_values
 from rich.console import Console
 from rich.table import Table
 from torch.utils.data import DataLoader
 
-import wandb
 from stemmy.constants import (
     BAR_FINISHED_STYLE,
     BOLD_PURPLE,
