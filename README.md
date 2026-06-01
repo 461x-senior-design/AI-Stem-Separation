@@ -227,3 +227,13 @@ See `.github/workflows/ci.yml` for details.
 
 - [MUSDB18 Dataset](https://sigsep.github.io/datasets/musdb.html) - Official dataset documentation
 
+## License
+
+
+This project is licensed under the GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE).
+
+
+Commercial licenses may be available separately from the project authors.
+
+
+Model weights, checkpoints, datasets, and third-party assets are not covered by this source-code license unless explicitly stated.
