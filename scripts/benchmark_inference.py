@@ -65,8 +65,7 @@ def _parse_case(raw: str) -> BenchCase:
     parts = raw.split(":")
     if len(parts) != 4:
         raise argparse.ArgumentTypeError(
-            "--case must use LABEL:CHUNK_FRAMES:OVERLAP_FRAMES:AMP, "
-            "for example small:128:32:false"
+            "--case must use LABEL:CHUNK_FRAMES:OVERLAP_FRAMES:AMP, for example small:128:32:false"
         )
     label, chunk_raw, overlap_raw, amp_raw = parts
     label = label.strip()
@@ -186,7 +185,9 @@ def _run_once(
     return elapsed, _peak_cuda_memory_mb(device), _rss_mb()
 
 
-def _iter_cases(selected: Iterable[str] | None, custom: Iterable[BenchCase] | None) -> list[BenchCase]:
+def _iter_cases(
+    selected: Iterable[str] | None, custom: Iterable[BenchCase] | None
+) -> list[BenchCase]:
     if custom:
         return list(custom)
 
@@ -300,7 +301,9 @@ def main() -> int:
 
     output_root = args.output_dir.expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
-    csv_path = args.csv.expanduser().resolve() if args.csv else output_root / "inference_benchmark.csv"
+    csv_path = (
+        args.csv.expanduser().resolve() if args.csv else output_root / "inference_benchmark.csv"
+    )
     csv_path.parent.mkdir(parents=True, exist_ok=True)
 
     rows: list[dict[str, object]] = []
