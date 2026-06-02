@@ -67,7 +67,7 @@ from stemmy.inference import (
 )
 from stemmy.logging_config import get_logger, setup_logging
 from stemmy.tool.progress_theme import create_themed_progress, start_eq_animator
-from stemmy.wandb_config import wandb_run
+from stemmy.training.wandb_config import wandb_run
 
 logger = get_logger(__name__)
 

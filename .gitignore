@@ -76,3 +76,6 @@ scripts/stemmy.env
 # Wandb folder (local run cache)
 /wandb/
 .worktrees/
+
+# Logs
+*.log

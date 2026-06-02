@@ -57,7 +57,7 @@ Optional training retry behavior (OFF by default):
   --lr-backoff-factor FLOAT      (multiplier in (0,1); default 0.5)
   --lr-backoff-max-tries N       (default 3)
 
-Eval progress + durability overrides (passed into stemmy.tool.fullsong_eval_masked.py):
+Eval progress + durability overrides (passed into stemmy.tool.dev.fullsong_eval_masked.py):
   --eval-progress 0|1
   --eval-print-metrics 0|1
   --eval-flush-every N
@@ -107,7 +107,7 @@ LR_BACKOFF=""
 LR_BACKOFF_FACTOR=""
 LR_BACKOFF_MAX_TRIES=""
 
-# Eval controls (forwarded as env vars to stemmy.tool.fullsong_eval_masked.py)
+# Eval controls (forwarded as env vars to stemmy.tool.dev.fullsong_eval_masked.py)
 EVAL_PROGRESS=""
 EVAL_PRINT_METRICS=""
 EVAL_FLUSH_EVERY=""
@@ -578,7 +578,7 @@ run_train_once() {
     train_args+=(--amp)
   fi
 
-  python -m stemmy.train "${train_args[@]}"
+  python -m stemmy.training.train "${train_args[@]}"
 }
 
 TRAIN_LR="${LR}"
@@ -636,7 +636,7 @@ EVAL_DIR="${EVAL_DIR}" \
 DEVICE="${DEVICE}" \
 N_EVAL_TRACKS="${N_EVAL_TRACKS}" \
 MAX_SECONDS="${MAX_SECONDS}" \
-PYTHONUNBUFFERED=1 python -u -m stemmy.tool.fullsong_eval_masked
+PYTHONUNBUFFERED=1 python -u -m stemmy.tool.dev.fullsong_eval_masked
 
 echo "=== Phase 3/4: Select best checkpoint ==="
 SUMMARY_CSV="${EVAL_DIR}/fullsong_eval_summary.csv"
@@ -647,7 +647,7 @@ fi
 
 BEST_PTH="${BEST_DIR}/unet_best_${PARTITION}_${STAMP}.pth"
 
-python -m stemmy.tool.select_best_checkpoint \
+python -m stemmy.tool.dev.select_best_checkpoint \
   --summary-csv "${SUMMARY_CSV}" \
   --ckpt-dir "${CKPT_DIR}" \
   --prefer-ckpt-dir \

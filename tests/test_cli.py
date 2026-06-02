@@ -39,9 +39,13 @@ def test_separate_prints_expected_tree() -> None:
 
 def test_dev_fullsong_eval_masked_sets_default_env(monkeypatch) -> None:
     """Verify dev fullsong eval sets DATA/CKPT_DIR/EVAL_DIR defaults."""
+    import dotenv
+
+    from stemmy.tool.dev import fullsong_eval_masked
+
     runner = CliRunner()
 
-    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {"TRAIN_DATA_ROOT": "/tmp/musdb"})
+    monkeypatch.setattr(dotenv, "dotenv_values", lambda _: {"TRAIN_DATA_ROOT": "/tmp/musdb"})
     monkeypatch.delenv("DATA", raising=False)
     monkeypatch.delenv("CKPT_DIR", raising=False)
     monkeypatch.delenv("EVAL_DIR", raising=False)
@@ -53,7 +57,7 @@ def test_dev_fullsong_eval_masked_sets_default_env(monkeypatch) -> None:
         captured["CKPT_DIR"] = cli_mod.os.environ.get("CKPT_DIR", "")
         captured["EVAL_DIR"] = cli_mod.os.environ.get("EVAL_DIR", "")
 
-    monkeypatch.setattr(cli_mod, "fullsong_eval_masked_main", _fake_eval_main)
+    monkeypatch.setattr(fullsong_eval_masked, "main", _fake_eval_main)
 
     result = runner.invoke(cli, ["dev", "eval"])
     assert result.exit_code == 0
@@ -64,9 +68,13 @@ def test_dev_fullsong_eval_masked_sets_default_env(monkeypatch) -> None:
 
 def test_dev_fullsong_eval_masked_potato_sets_info_and_disables_progress(monkeypatch) -> None:
     """Verify --potato forces INFO logs and disables progress output."""
+    import dotenv
+
+    from stemmy.tool.dev import fullsong_eval_masked
+
     runner = CliRunner()
 
-    monkeypatch.setattr(cli_mod, "dotenv_values", lambda _: {})
+    monkeypatch.setattr(dotenv, "dotenv_values", lambda _: {})
     monkeypatch.delenv("LOG_LEVEL", raising=False)
     monkeypatch.delenv("EVAL_PROGRESS", raising=False)
     monkeypatch.delenv("STEMMY_DISABLE_PROGRESS", raising=False)
@@ -78,7 +86,7 @@ def test_dev_fullsong_eval_masked_potato_sets_info_and_disables_progress(monkeyp
         captured["EVAL_PROGRESS"] = cli_mod.os.environ.get("EVAL_PROGRESS", "")
         captured["STEMMY_DISABLE_PROGRESS"] = cli_mod.os.environ.get("STEMMY_DISABLE_PROGRESS", "")
 
-    monkeypatch.setattr(cli_mod, "fullsong_eval_masked_main", _fake_eval_main)
+    monkeypatch.setattr(fullsong_eval_masked, "main", _fake_eval_main)
 
     result = runner.invoke(cli, ["dev", "eval", "--potato"])
     assert result.exit_code == 0
@@ -105,6 +113,79 @@ def test_dev_train_env_var_sets_data_root() -> None:
     result = runner.invoke(cli, ["dev", "train"], env={"TRAIN_DATA_ROOT": "/nonexistent_path_xyz"})
     assert result.exit_code != 0
     assert "nonexistent_path_xyz" in result.output
+
+
+def test_load_model_and_cfg_calls_get_default_model_when_no_args(monkeypatch) -> None:
+    """Verify the HF auto-download path triggers when both --checkpoint and --torchscript are empty.
+
+    We stub `get_default_model` and `load_pth_model` to avoid network and disk I/O;
+    the assertion is that `_load_model_and_cfg` consults the hub helper and then
+    loads the returned path via the .pth code path.
+    """
+    import stemmy.hub as hub_mod
+
+    called: dict[str, object] = {}
+
+    def _fake_get_default_model() -> str:
+        called["hub"] = True
+        return "/fake/default.pth"
+
+    def _fake_load_pth_model(path: str, device: str, stems: int):
+        called["path"] = path
+        called["device"] = device
+        called["stems"] = stems
+        return object(), {"cfg": "fake"}
+
+    def _fake_config_from_checkpoint(_obj):
+        return cli_mod.InferenceConfig()
+
+    monkeypatch.setattr(hub_mod, "get_default_model", _fake_get_default_model)
+    monkeypatch.setattr(cli_mod, "load_pth_model", _fake_load_pth_model)
+    monkeypatch.setattr(cli_mod, "config_from_checkpoint", _fake_config_from_checkpoint)
+
+    # Bypass the existence check in _load_model_and_cfg — /fake/default.pth doesn't exist.
+    monkeypatch.setattr(cli_mod.Path, "exists", lambda self: True)
+    monkeypatch.setattr(cli_mod.Path, "is_file", lambda self: True)
+
+    cli_mod._load_model_and_cfg(
+        checkpoint=None, torchscript=None, device="cpu", stems=["drums", "bass", "vocals", "other"]
+    )
+
+    assert called.get("hub") is True, "get_default_model was not called"
+    assert called.get("path", "").endswith("default.pth")
+    assert called.get("stems") == 4
+
+
+def test_register_dev_commands_no_op_when_training_missing(monkeypatch) -> None:
+    """Verify _register_dev_commands does nothing when training modules are absent.
+
+    Simulates the published-wheel environment where `stemmy.training.*` is excluded.
+    The helper must swallow the ImportError and leave the parent group untouched.
+    """
+    import sys
+
+    import click
+
+    # Force `import stemmy.training.train` to raise ImportError regardless of install state.
+    monkeypatch.setitem(sys.modules, "stemmy.training.train", None)
+
+    parent = click.Group("root")
+    cli_mod._register_dev_commands(parent)
+
+    assert "dev" not in parent.commands
+
+
+def test_register_dev_commands_attaches_dev_group_when_available() -> None:
+    """Verify _register_dev_commands attaches dev group + subcommands when importable."""
+    import click
+
+    parent = click.Group("root")
+    cli_mod._register_dev_commands(parent)
+
+    assert "dev" in parent.commands
+    dev_group = parent.commands["dev"]
+    assert "train" in dev_group.commands
+    assert "eval" in dev_group.commands
 
 
 def test_spinner_updates_constants(monkeypatch) -> None:

@@ -27,7 +27,7 @@ AI-Stem-Separation/
 │       └── ci.yml               # CI/CD pipeline (linting, testing)
 ── README.md                     # Project overview + setup + usage
 ├── pyproject.toml               # Packaging/build config + deps/extras
-├── requirements.txt             # Pinned deps (if you use pip -r)
+├── requirements.txt             # Deprecated — deps live in pyproject.toml
 ├── ruff.toml                    # Ruff lint/format config
 ├── src                          # Source package root
 │   ├── __init__.py              # Marks src as a package (exports, version, etc.)
@@ -122,12 +122,15 @@ AI-Stem-Separation/
    - Windows (CMD): `.venv\Scripts\activate.bat`
    - Linux/Mac: `source .venv/bin/activate`
 
-4. **Install dependencies:**
+4. **Install project in development mode (includes training/inference/test deps):**
    ```bash
    pip install --upgrade pip
-   pip install -r requirements.txt
+   pip install -e ".[dev]"
    ```
-5. **Install project in development mode:**
+   On macOS Python 3.11, if `llvmlite` fails to build, add
+   `--only-binary llvmlite,numba`.
+
+   For inference only (what PyPI wheel users get), drop `[dev]`:
    ```bash
    pip install -e .
    ```

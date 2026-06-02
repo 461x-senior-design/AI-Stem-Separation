@@ -1,25 +1,10 @@
-# Core dependencies
-torch>=2.0.0
-torchaudio>=2.0.0
-librosa>=0.10.0
-soundfile>=0.12.0
-sounddevice>=0.4.6
-numpy>=1.24.0, <2.0
-scipy>=1.10.0
-
-# CLI dependencies
-click>=8.1.0
-rich>=13.0.0
-python-dotenv>=1.0.0
-alive-progress>=3.1.5
-
-# Experiment tracking
-wandb>=0.16.0
-
-# Augmentation
-audiomentations>=0.35,<1.0
-
-# Development dependencies (for CI)
-pytest>=7.4.0
-pytest-cov>=4.1.0
-ruff>=0.1.0
+# Dependencies have moved to pyproject.toml.
+#
+# For a dev environment (training + inference + test/lint tools):
+#   pip install -e ".[dev]"
+#
+# For inference only (what wheel users get):
+#   pip install -e .
+#
+# This file remains as a no-op to keep `pip install -r requirements.txt`
+# from failing in any stale scripts. Delete when those are cleaned up.

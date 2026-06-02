@@ -8,8 +8,6 @@ output the model would produce if memory were unlimited.
 Also covers `_validate_chunk_settings` error branches.
 """
 
-from dataclasses import replace
-
 import pytest
 import torch
 

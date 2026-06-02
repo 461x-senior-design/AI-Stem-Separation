@@ -4,10 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stemmy"
-version = "0.1.0"
+version = "0.1.0a2"
 description = "4-stem audio source separation using U-Net."
 readme = "README.md"
 requires-python = ">=3.9"
+authors = [{name = "Jose Cervantes", email = "cervanj.swe@gmail.com"}]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Multimedia :: Sound/Audio",
+  "Topic :: Multimedia :: Sound/Audio :: Analysis",
+  "Operating System :: OS Independent",
+]
 dependencies = [
   "torch>=2.0.0",
   "torchaudio>=2.0.0",
@@ -17,9 +27,7 @@ dependencies = [
   "scipy>=1.10.0",
   "click>=8.1.0",
   "rich>=13.0.0",
-  "python-dotenv>=1.0.0",
-  "wandb>=0.16.0",
-  "audiomentations>=0.35,<1.0",
+  "huggingface-hub>=0.20.0",
 ]
 
 [project.optional-dependencies]
@@ -27,8 +35,18 @@ gui = [
   "PySide6>=6.6.0",
   "sounddevice>=0.4.6",
 ]
-test = [
+dev = [
+  "wandb>=0.16.0",
+  "python-dotenv>=1.0.0",
+  "audiomentations>=0.35,<1.0",
+  "alive-progress>=3.1.5",
   "pytest>=8.0.0",
+  "pytest-cov>=4.1.0",
+  "ruff>=0.1.0",
+]
+# For CI pipeline
+test = [
+  "stemmy[dev]",
 ]
 
 [project.scripts]
@@ -37,6 +55,12 @@ stemmy-gui = "stemmy.gui.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = [
+  "stemmy.training",
+  "stemmy.training.*",
+  "stemmy.tool.dev",
+  "stemmy.tool.dev.*",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
