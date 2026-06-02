@@ -12,8 +12,8 @@ output for installed versions of stemmy.
 from __future__ import annotations
 
 DEFAULT_REPO_ID: str = "haka9670/stemmy-0.1"
-DEFAULT_FILENAME: str = "unet_phase1_epoch099.pth"
-DEFAULT_REVISION: str = "b09d286d9ca2d484eb552e81e7aed713a1bd0046"
+DEFAULT_FILENAME: str = "default.pth"
+DEFAULT_REVISION: str = "6d8a7b3282bfa7c5f71db9be1f492ddcdeda0149"
 
 
 def get_default_model(
