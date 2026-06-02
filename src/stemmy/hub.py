@@ -11,9 +11,9 @@ output for installed versions of stemmy.
 
 from __future__ import annotations
 
-DEFAULT_REPO_ID: str = "jscervantes/stemmy-0.1"
-DEFAULT_FILENAME: str = "default.pth"
-DEFAULT_REVISION: str = "62a5951e7e9519eefdfd5e7b43ee0e63357be787"
+DEFAULT_REPO_ID: str = "haka9670/stemmy-0.1"
+DEFAULT_FILENAME: str = "unet_phase1_epoch099.pth"
+DEFAULT_REVISION: str = "b09d286d9ca2d484eb552e81e7aed713a1bd0046"
 
 
 def get_default_model(
