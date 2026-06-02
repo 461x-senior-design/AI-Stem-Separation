@@ -209,8 +209,8 @@ def _register_dev_commands(parent: click.Group) -> None:
     time so tests can monkeypatch `stemmy.tool.dev.fullsong_eval_masked.main`.
     """
     try:
-        from stemmy.training.train import main as train_command
         from stemmy.tool.dev import fullsong_eval_masked
+        from stemmy.training.train import main as train_command
     except ImportError:
         return
 
