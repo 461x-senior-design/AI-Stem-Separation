@@ -58,7 +58,8 @@ def test_none_method_is_pure_identity():
 
 
 def test_freq_minmax_handles_constant_frequency_row():
-    """If one frequency bin is constant across time (f_max == f_min), restored value must equal the original constant — no NaN, no Inf."""
+    """If one frequency bin is constant across time (f_max == f_min), restored value
+    must equal the original constant — no NaN, no Inf."""
     mag = np.ones((4, 8), dtype=np.float64) * 3.7  # entirely constant
     normalized, params = normalize_spectrogram(mag, method="freq_minmax")
     restored = denormalize_spectrogram(normalized, params)
