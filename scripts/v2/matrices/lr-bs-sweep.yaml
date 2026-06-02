@@ -1,0 +1,11 @@
+# Systematic sweep of LR and Batch Size to find the optimal training regime.
+#
+# Base: confirm-winner-fullsong (300 epochs, musdb_builtin split)
+# Grid: LR [1.5e-4, 2e-4, 3e-4] x Batch Size [12, 16]
+
+name: lr-bs-sweep
+base: confirm-winner-fullsong
+partition: dgxh
+sweep:
+  LR: [0.00015, 0.0002, 0.0003]
+  BATCH_SIZE: [12, 16]

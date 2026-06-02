@@ -3,33 +3,56 @@
 
 This dataset:
 - loads aligned mixture + stem audio from the MUSDB18-HQ folder layout
-- extracts a fixed-length mono waveform segment
-- computes mono STFT magnitude (using StftConfig, including `center`)
+- extracts a fixed-length stereo waveform segment
+- computes stereo STFT magnitude (using StftConfig, including `center`)
 - computes per-stem ratio masks as:
       target_s = stem_mag_s / (sum_s(stem_mag_s) + eps)
-  which yields a per-(F,T) distribution over stems (sum-to-one across stems)
+  which yields a per-(C,F,T) distribution over stems (sum-to-one across stems)
 - optionally normalizes the mixture magnitude spectrogram for model input
 
 Returned tensors:
-- mix_norm:     [1, F, T] float32 normalized mixture magnitude
-- targets_norm: [S, F, T] float32 per-stem ratio masks (S=4), sum-to-one across stems
+- mix_norm:      [C, F, T] float32 normalized mixture magnitude
+- targets_norm: [S, C, F, T] float32 per-stem ratio masks (S=4), sum-to-one across stems
 """
 
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
+import numpy as np
 import soundfile as sf
 import torch
+
+if TYPE_CHECKING:
+    from audiomentations import Compose
 
 from stemmy.constants import (
     DEFAULT_SPECTROGRAM_NORM,
     DEFAULT_WAVEFORM_NORM,
     STEMS_4,
+    TARGET_CHANNELS,
 )
 from stemmy.preprocessing import normalize_waveform
-from stemmy.training.stft import StftConfig, freq_minmax_normalize, stft_mag_phase_mono
+from stemmy.training.stft import StftConfig, freq_minmax_normalize, stft_mag_phase
+
+# Fixed validation split used by the official sigsep-mus-db MUSDB config.
+MUSDB_BUILTIN_VALID_TRACKS: List[str] = [
+    "Actions - One Minute Smile",
+    "Clara Berry And Wooldog - Waltz For My Victims",
+    "Johnny Lokke - Promises & Lies",
+    "Patrick Talbot - A Reason To Leave",
+    "Triviul - Angelsaint",
+    "Alexander Ross - Goodbye Bolero",
+    "Fergessen - Nos Palpitants",
+    "Leaf - Summerghost",
+    "Skelpolu - Human Mistakes",
+    "Young Griffo - Pennies",
+    "ANiMAL - Rockshow",
+    "James May - On The Line",
+    "Meaxic - Take A Step",
+    "Traffic Experiment - Sirens",
+]
 
 
 @dataclass(frozen=True)
@@ -39,7 +62,7 @@ class CropConfig:
     time_frames determines the number of STFT frames T returned by the dataset.
     """
 
-    time_frames: int = 256  # T
+    time_frames: int = 256
 
 
 class Musdb18HQDataset(torch.utils.data.Dataset):
@@ -54,7 +77,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
     def __init__(
         self,
         root_dir: str,
-        split: str,
+        subset: str,
         stft_cfg: StftConfig,
         crop_cfg: CropConfig,
         stems: Optional[List[str]] = None,
@@ -63,23 +86,48 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         waveform_norm: str = DEFAULT_WAVEFORM_NORM,
         spectrogram_norm: str = DEFAULT_SPECTROGRAM_NORM,
         seed: int = 0,
+        partition: Optional[str] = None,
+        valid_fraction: float = 0.2,
+        split_seed: int = 0,
+        split_source: str = "random",
+        augment: Optional["Compose"] = None,
     ) -> None:
         """Initialize the dataset.
 
         Args:
             root_dir: MUSDB18-HQ root directory containing train/ and test/
-            split: "train" or "test"
+            subset: "train" or "test"
             stft_cfg: STFT configuration (including center)
             crop_cfg: Crop configuration (fixed number of time frames)
             stems: Optional subset of stems, defaults to STEMS_4
-            max_tracks: If set, limit number of tracks in this split
+            max_tracks: If set, limit number of tracks in this dataset view
             deterministic: If True, choose a centered crop for each track
             waveform_norm: Waveform normalization method ("peak", "rms", "none")
-            spectrogram_norm: Spectrogram normalization method (expected "freq_minmax" or "none")
+            spectrogram_norm: Spectrogram normalization method ("freq_minmax" or "none")
             seed: Random seed for selecting crop start positions
+            partition: "train" or "valid" when subset="train"; None when subset="test"
+            valid_fraction: Fraction of MUSDB train tracks reserved for validation
+            split_seed: Seed used to deterministically split MUSDB train into train/valid
+            split_source: "random" (shuffle by seed) or "musdb_builtin" (fixed 14-track set)
+            augment: Optional audiomentations Compose pipeline. When set, each stem
+                waveform is augmented with shared (frozen) parameters and the mix
+                is recomputed as sum(augmented stems). When None, the existing
+                on-disk mixture.wav path is used unchanged.
         """
-        if split not in ["train", "test"]:
-            raise ValueError("split must be 'train' or 'test'.")
+        if subset not in ["train", "test"]:
+            raise ValueError("subset must be 'train' or 'test'.")
+
+        if partition not in [None, "train", "valid"]:
+            raise ValueError("partition must be None, 'train', or 'valid'.")
+
+        if subset == "test" and partition is not None:
+            raise ValueError("partition must be None when subset='test'.")
+
+        if subset == "train" and partition is None:
+            raise ValueError("partition must be 'train' or 'valid' when subset='train'.")
+
+        if split_source not in ["random", "musdb_builtin"]:
+            raise ValueError("split_source must be 'random' or 'musdb_builtin'.")
 
         if not isinstance(root_dir, str) or root_dir.strip() == "":
             raise ValueError("root_dir must be a non-empty string.")
@@ -89,10 +137,18 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         stft_cfg.validate()
 
+        if not isinstance(valid_fraction, (float, int)):
+            raise ValueError("valid_fraction must be a float in (0, 1).")
+        valid_fraction = float(valid_fraction)
+        if not (0.0 < valid_fraction < 1.0):
+            raise ValueError("valid_fraction must be in (0, 1).")
+
         self.root_dir = Path(root_dir).expanduser().resolve()
-        self.split = split
+        self.subset = subset
+        self.partition = partition
         self.stft_cfg = stft_cfg
         self.crop_cfg = crop_cfg
+        self.split_source = split_source
 
         self.stems = list(stems) if stems is not None else list(STEMS_4)
         if len(self.stems) == 0:
@@ -114,12 +170,45 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         self.rng = random.Random(int(seed))
 
-        split_dir = self.root_dir / split
-        if not split_dir.exists():
-            raise FileNotFoundError(f"Split dir not found: {split_dir}")
+        subset_dir = self.root_dir / subset
+        if not subset_dir.exists():
+            raise FileNotFoundError(f"Subset dir not found: {subset_dir}")
 
-        track_dirs = [p for p in split_dir.iterdir() if p.is_dir()]
+        track_dirs = [p for p in subset_dir.iterdir() if p.is_dir()]
         track_dirs.sort(key=lambda p: p.name.lower())
+
+        if subset == "train":
+            if len(track_dirs) < 2:
+                raise RuntimeError(
+                    "Need at least 2 MUSDB train tracks to create train/valid split."
+                )
+
+            if self.split_source == "musdb_builtin":
+                valid_names = set(MUSDB_BUILTIN_VALID_TRACKS)
+                available_names = {p.name for p in track_dirs}
+                missing_names = sorted(valid_names - available_names)
+                if missing_names:
+                    raise RuntimeError(
+                        "MUSDB built-in validation tracks missing from dataset: %s"
+                        % ", ".join(missing_names)
+                    )
+            else:
+                split_rng = random.Random(int(split_seed))
+                shuffled = list(track_dirs)
+                split_rng.shuffle(shuffled)
+
+                valid_count = int(round(len(shuffled) * valid_fraction))
+                if valid_count <= 0:
+                    valid_count = 1
+                if valid_count >= len(shuffled):
+                    valid_count = len(shuffled) - 1
+
+                valid_names = {p.name for p in shuffled[:valid_count]}
+
+            if partition == "train":
+                track_dirs = [p for p in track_dirs if p.name not in valid_names]
+            else:
+                track_dirs = [p for p in track_dirs if p.name in valid_names]
 
         if max_tracks is not None:
             if not isinstance(max_tracks, int) or max_tracks <= 0:
@@ -128,7 +217,12 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         self.track_dirs = track_dirs
         if len(self.track_dirs) == 0:
-            raise RuntimeError(f"No track directories found under: {split_dir}")
+            raise RuntimeError(
+                f"No track directories found for subset={subset!r} partition={partition!r}."
+            )
+
+        self.augment = augment
+        self.aug_sr = int(stft_cfg.sample_rate)
 
         self.segment_samples = self._segment_samples_required()
         self._validate_track_files()
@@ -138,14 +232,11 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
 
         With torch.stft:
         - center=False:
-            T = 1 + floor((N - n_fft) / hop)  => choose N = n_fft + hop*(T-1)
+            T = 1 + floor((N - n_fft) / hop)
+            choose N = n_fft + hop*(T-1)
         - center=True:
-            padding is n_fft//2 on both sides, effective length N + n_fft
-            T = 1 + floor((N + n_fft - n_fft) / hop) = 1 + floor(N / hop)
-            => choose N = hop*(T-1)
-
-        Returns:
-            Required number of samples N for a crop producing crop_cfg.time_frames frames.
+            T = 1 + floor(N / hop)
+            choose N = hop*(T-1)
         """
         t_frames = int(self.crop_cfg.time_frames)
         n_fft = int(self.stft_cfg.n_fft)
@@ -178,20 +269,13 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             raise FileNotFoundError(msg)
 
     def __len__(self) -> int:
-        """Return number of tracks in this dataset split."""
+        """Return number of tracks in this dataset view."""
         return len(self.track_dirs)
 
-    def _read_mono_segment(self, wav_path: Path, start_frame: int, num_frames: int) -> torch.Tensor:
-        """Read a mono segment (downmixed) from a wav file.
-
-        Args:
-            wav_path: Path to the wav file
-            start_frame: Starting frame offset (samples) within the file
-            num_frames: Number of frames (samples) to read
-
-        Returns:
-            Mono waveform tensor [num_frames] float32
-        """
+    def _read_stereo_segment(
+        self, wav_path: Path, start_frame: int, num_frames: int
+    ) -> torch.Tensor:
+        """Read a stereo segment from a wav file."""
         if not isinstance(start_frame, int) or start_frame < 0:
             raise ValueError("start_frame must be a non-negative int.")
         if not isinstance(num_frames, int) or num_frames <= 0:
@@ -201,8 +285,8 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         expected_sr = int(self.stft_cfg.sample_rate)
         if int(info.samplerate) != expected_sr:
             raise ValueError(
-                f"Sample rate mismatch for {wav_path}: got {info.samplerate}, expected "
-                f"{expected_sr}"
+                f"Sample rate mismatch for {wav_path}: got {info.samplerate}, "
+                f"expected {expected_sr}"
             )
 
         audio, sr = sf.read(
@@ -217,15 +301,24 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 f"Sample rate mismatch for {wav_path}: got {sr}, expected {expected_sr}"
             )
 
-        mono = audio.mean(axis=1)
-        mono_t = torch.from_numpy(mono).to(torch.float32)
+        audio_t = torch.from_numpy(audio).to(torch.float32)
+        if audio_t.ndim != 2:
+            raise RuntimeError(f"Unexpected audio shape for {wav_path}: {tuple(audio_t.shape)}")
 
-        if int(mono_t.numel()) != int(num_frames):
+        if int(audio_t.shape[0]) != int(num_frames):
             raise RuntimeError(
-                f"Short read for {wav_path}: expected {num_frames}, got {mono_t.numel()}"
+                f"Short read for {wav_path}: expected {num_frames}, got {audio_t.shape[0]}"
             )
 
-        return mono_t
+        channels = int(audio_t.shape[1])
+        if channels == 1 and int(TARGET_CHANNELS) == 2:
+            audio_t = audio_t.repeat(1, 2)
+        elif channels != int(TARGET_CHANNELS):
+            raise ValueError(
+                f"Channel count mismatch for {wav_path}: got {channels}, expected {TARGET_CHANNELS}"
+            )
+
+        return audio_t.transpose(0, 1).contiguous()
 
     def _dtype_eps(self, t: torch.Tensor) -> float:
         """Get a small epsilon appropriate for the tensor dtype."""
@@ -241,16 +334,33 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
                 % (self.spectrogram_norm,)
             )
 
+    def _apply_augment(self, stem_wavs: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Apply self.augment to every stem with shared random parameters.
+
+        Each stem is passed through the pipeline once. `freeze_parameters()` is
+        called after the first call so subsequent stems reuse the same random
+        draws — this preserves the mix=sum(stems) invariant once the caller
+        recomputes the mix from the augmented stems.
+        """
+        assert self.augment is not None
+        try:
+            out: List[torch.Tensor] = []
+            for i, sw in enumerate(stem_wavs):
+                sw_np = sw.detach().cpu().numpy().astype(np.float32, copy=False)
+                sw_np = self.augment(samples=sw_np, sample_rate=self.aug_sr)
+                if i == 0:
+                    self.augment.freeze_parameters()
+                out.append(torch.from_numpy(np.ascontiguousarray(sw_np)).to(torch.float32))
+            return out
+        finally:
+            self.augment.unfreeze_parameters()
+
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Get a single training example.
 
-        Args:
-            idx: Track index
-
         Returns:
-            Tuple of:
-              mix_norm: [1, F, T] float32
-              targets_norm: [S, F, T] float32
+            mix_norm: [C, F, T] float32
+            targets_norm: [S, C, F, T] float32
         """
         if not isinstance(idx, int):
             raise IndexError("idx must be an int.")
@@ -276,18 +386,30 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         else:
             start = self.rng.randint(0, total_frames - self.segment_samples)
 
-        mix_wav = self._read_mono_segment(mix_path, start, self.segment_samples)
+        if self.augment is None:
+            mix_wav = self._read_stereo_segment(mix_path, start, self.segment_samples)
+            stem_wavs: List[torch.Tensor] = [
+                self._read_stereo_segment(track_dir / f"{stem}.wav", start, self.segment_samples)
+                for stem in self.stems
+            ]
+        else:
+            stem_wavs = [
+                self._read_stereo_segment(track_dir / f"{stem}.wav", start, self.segment_samples)
+                for stem in self.stems
+            ]
+            stem_wavs = self._apply_augment(stem_wavs)
+            mix_wav = torch.stack(stem_wavs, dim=0).sum(dim=0)
 
         mix_wav_np = mix_wav.detach().cpu().numpy()
         mix_wav_np, mix_norm_params = normalize_waveform(mix_wav_np, method=self.waveform_norm)
         mix_scale = float(mix_norm_params.get("scale_factor", 1.0))
         mix_wav = torch.from_numpy(mix_wav_np).to(torch.float32)
 
-        mix_mag, _mix_phase = stft_mag_phase_mono(mix_wav, self.stft_cfg)
-        if int(mix_mag.shape[1]) != int(self.crop_cfg.time_frames):
+        mix_mag, _mix_phase = stft_mag_phase(mix_wav, self.stft_cfg)
+        if int(mix_mag.shape[-1]) != int(self.crop_cfg.time_frames):
             raise RuntimeError(
-                f"Unexpected time frames: got {mix_mag.shape[1]}, expected "
-                f"{self.crop_cfg.time_frames}"
+                f"Unexpected time frames: got {mix_mag.shape[-1]}, "
+                f"expected {self.crop_cfg.time_frames}"
             )
 
         if self.spectrogram_norm == "none":
@@ -296,14 +418,11 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
             mix_norm, _f_min, _f_max = freq_minmax_normalize(mix_mag)
 
         stem_mags: List[torch.Tensor] = []
-        for stem in self.stems:
-            stem_path = track_dir / f"{stem}.wav"
-            stem_wav = self._read_mono_segment(stem_path, start, self.segment_samples)
-
+        for stem_wav in stem_wavs:
             if mix_scale != 0.0:
                 stem_wav = stem_wav / mix_scale
 
-            stem_mag, _ = stft_mag_phase_mono(stem_wav, self.stft_cfg)
+            stem_mag, _ = stft_mag_phase(stem_wav, self.stft_cfg)
             stem_mags.append(stem_mag)
 
         denom = torch.zeros_like(stem_mags[0])
@@ -317,8 +436,7 @@ class Musdb18HQDataset(torch.utils.data.Dataset):
         for sm in stem_mags:
             target_masks.append(sm / denom_safe)
 
-        mix_norm = mix_norm.unsqueeze(0)  # [1, F, T]
-        targets_norm = torch.stack(target_masks, dim=0)  # [S, F, T]
+        targets_norm = torch.stack(target_masks, dim=0)
 
         targets_sum = targets_norm.sum(dim=0, keepdim=False)
         if not torch.isfinite(targets_sum).all():

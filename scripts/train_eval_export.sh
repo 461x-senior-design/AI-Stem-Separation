@@ -57,7 +57,7 @@ Optional training retry behavior (OFF by default):
   --lr-backoff-factor FLOAT      (multiplier in (0,1); default 0.5)
   --lr-backoff-max-tries N       (default 3)
 
-Eval progress + durability overrides (passed into stemmy.tool.fullsong_eval_masked.py):
+Eval progress + durability overrides (passed into stemmy.tool.dev.fullsong_eval_masked.py):
   --eval-progress 0|1
   --eval-print-metrics 0|1
   --eval-flush-every N
@@ -107,7 +107,7 @@ LR_BACKOFF=""
 LR_BACKOFF_FACTOR=""
 LR_BACKOFF_MAX_TRIES=""
 
-# Eval controls (forwarded as env vars to stemmy.tool.fullsong_eval_masked.py)
+# Eval controls (forwarded as env vars to stemmy.tool.dev.fullsong_eval_masked.py)
 EVAL_PROGRESS=""
 EVAL_PRINT_METRICS=""
 EVAL_FLUSH_EVERY=""
@@ -327,8 +327,8 @@ case "${WAVEFORM_NORM}" in
 esac
 
 case "${SPECTROGRAM_NORM}" in
-  freq_minmax|none) ;;
-  *) echo "ERROR: SPECTROGRAM_NORM must be freq_minmax|none (got: ${SPECTROGRAM_NORM})" >&2; exit 2 ;;
+  log1p|freq_minmax|none) ;;
+  *) echo "ERROR: SPECTROGRAM_NORM must be log1p|freq_minmax|none (got: ${SPECTROGRAM_NORM})" >&2; exit 2 ;;
 esac
 
 if ! [[ "${AMP}" =~ ^[01]$ ]]; then
@@ -424,6 +424,7 @@ else
     python - <<PY
 import sys
 import torch
+from stemmy.constants import TARGET_CHANNELS
 from stemmy.models.unet_2d import UNet2D
 
 bs = int("${bs}")
@@ -439,9 +440,13 @@ if device.type == "cuda" and not torch.cuda.is_available():
     print("cuda requested but not available")
     sys.exit(10)
 
-model = UNet2D(stems=4, base_channels=base_channels).to(device)
+model = UNet2D(
+    stems=4,
+    base_channels=base_channels,
+    audio_channels=TARGET_CHANNELS,
+).to(device)
 model.train()
-x = torch.randn((bs, 1, F, T), device=device, dtype=torch.float32)
+x = torch.randn((bs, TARGET_CHANNELS, F, T), device=device, dtype=torch.float32)
 
 try:
     y = model(x)
@@ -573,7 +578,7 @@ run_train_once() {
     train_args+=(--amp)
   fi
 
-  python -m stemmy.train "${train_args[@]}"
+  python -m stemmy.training.train "${train_args[@]}"
 }
 
 TRAIN_LR="${LR}"
@@ -631,7 +636,7 @@ EVAL_DIR="${EVAL_DIR}" \
 DEVICE="${DEVICE}" \
 N_EVAL_TRACKS="${N_EVAL_TRACKS}" \
 MAX_SECONDS="${MAX_SECONDS}" \
-PYTHONUNBUFFERED=1 python -u -m stemmy.tool.fullsong_eval_masked
+PYTHONUNBUFFERED=1 python -u -m stemmy.tool.dev.fullsong_eval_masked
 
 echo "=== Phase 3/4: Select best checkpoint ==="
 SUMMARY_CSV="${EVAL_DIR}/fullsong_eval_summary.csv"
@@ -642,9 +647,10 @@ fi
 
 BEST_PTH="${BEST_DIR}/unet_best_${PARTITION}_${STAMP}.pth"
 
-python -m stemmy.tool.select_best_checkpoint \
+python -m stemmy.tool.dev.select_best_checkpoint \
   --summary-csv "${SUMMARY_CSV}" \
   --ckpt-dir "${CKPT_DIR}" \
+  --prefer-ckpt-dir \
   --metric mean_sisdr \
   --top-k 10 \
   --copy-to "${BEST_PTH}"
@@ -653,13 +659,18 @@ echo "=== Phase 4/4: Export TorchScript (.pt) ==="
 BEST_PT="${BEST_DIR}/unet_best_${PARTITION}_${STAMP}.pt"
 
 python - <<PY
+from stemmy.constants import TARGET_CHANNELS
 from stemmy.models.unet_2d import UNet2D
 from stemmy.training.checkpointing import load_checkpoint, export_torchscript
 
 ckpt_path = r"${BEST_PTH}"
 out_path = r"${BEST_PT}"
 
-model = UNet2D(stems=4, base_channels=int("${BASE_CHANNELS}"))
+model = UNet2D(
+    stems=4,
+    base_channels=int("${BASE_CHANNELS}"),
+    audio_channels=TARGET_CHANNELS,
+)
 load_checkpoint(ckpt_path, model, optimizer=None, map_location="cpu")
 export_torchscript(out_path, model)
 print(out_path)

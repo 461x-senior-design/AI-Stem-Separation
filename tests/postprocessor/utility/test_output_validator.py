@@ -162,6 +162,17 @@ def test_validate_file_nonexistent(tmp_path):
     assert "not created" in message.lower() or "not" in message.lower()
 
 
+def test_validate_file_unreadable_audio_fails(tmp_path):
+    """Test that an existing invalid audio file fails validation."""
+    invalid_audio_path = tmp_path / "corrupt.wav"
+    invalid_audio_path.write_text("This is not a readable audio file.", encoding="utf-8")
+
+    is_valid, message = OutputValidator.validate_file(invalid_audio_path)
+
+    assert not is_valid
+    assert "readable" in message.lower()
+
+
 def test_validate_file_success(tmp_path, valid_waveform):
     """Test that valid exported file passes validation."""
     file_path = tmp_path / "test.wav"

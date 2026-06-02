@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from stemmy.constants import FREQ_MINMAX_EPS, N_FFT, WINDOW
 from stemmy.postprocessing.spectral import (
     apply_mask,
     combine_magnitude_phase,
@@ -142,6 +143,74 @@ def test_denormalize_spectrogram_none():
     np.testing.assert_array_equal(result, original)
 
 
+def test_denormalize_spectrogram_freq_minmax():
+    """Test that freq_minmax denormalization restores per-frequency values."""
+    # Arrange
+    normalized = np.array(
+        [
+            [[0.0, 0.5, 1.0], [0.25, 0.5, 0.75]],
+            [[1.0, 0.5, 0.0], [0.75, 0.5, 0.25]],
+        ],
+        dtype=np.float32,
+    )
+    f_min = np.array(
+        [
+            [[1.0], [10.0]],
+            [[2.0], [20.0]],
+        ],
+        dtype=np.float32,
+    )
+    f_max = np.array(
+        [
+            [[5.0], [18.0]],
+            [[6.0], [28.0]],
+        ],
+        dtype=np.float32,
+    )
+    params = {
+        "method": "freq_minmax",
+        "f_min": f_min,
+        "f_max": f_max,
+    }
+
+    # Act
+    result = denormalize_spectrogram(normalized, params)
+
+    # Assert
+    expected = normalized * (f_max - f_min) + f_min
+    np.testing.assert_allclose(result, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_denormalize_spectrogram_freq_minmax_zero_range_uses_epsilon():
+    """Test that freq_minmax handles a frequency bin with zero range."""
+    # Arrange
+    normalized = np.ones((2, 2, 3), dtype=np.float32)
+    f_min = np.full((2, 2, 1), 4.0, dtype=np.float32)
+    f_max = np.full((2, 2, 1), 4.0, dtype=np.float32)
+    params = {
+        "method": "freq_minmax",
+        "f_min": f_min,
+        "f_max": f_max,
+    }
+
+    # Act
+    result = denormalize_spectrogram(normalized, params)
+
+    # Assert
+    expected = normalized * FREQ_MINMAX_EPS + f_min
+    np.testing.assert_allclose(result, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_denormalize_spectrogram_unknown_method_raises_value_error():
+    """Test that an unsupported normalization method raises ValueError."""
+    # Arrange
+    normalized = np.zeros((2, 2, 2), dtype=np.float32)
+
+    # Act and Assert
+    with pytest.raises(ValueError, match="Unknown normalization method"):
+        denormalize_spectrogram(normalized, {"method": "unsupported"})
+
+
 # --- compute_istft tests ---
 
 
@@ -188,3 +257,53 @@ def test_istft_sine_wave_roundtrip():
     # Assert
     mse = np.mean((stereo - reconstructed) ** 2)
     assert mse < 1e-3, f"MSE too high: {mse}"
+
+
+def test_istft_rejects_non_string_window():
+    """Test that ISTFT rejects a non-string window value."""
+    # Arrange
+    stft = np.ones((2, 1 + (N_FFT // 2), 4), dtype=np.complex64)
+
+    # Act and Assert
+    with pytest.raises(ValueError, match="window must be a non-empty string"):
+        compute_istft(stft, hop_length=1024, win_length=4096, window=123)
+
+
+def test_istft_rejects_empty_window():
+    """Test that ISTFT rejects an empty window name."""
+    # Arrange
+    stft = np.ones((2, 1 + (N_FFT // 2), 4), dtype=np.complex64)
+
+    # Act and Assert
+    with pytest.raises(ValueError, match="window must be a non-empty string"):
+        compute_istft(stft, hop_length=1024, win_length=4096, window="   ")
+
+
+def test_istft_rejects_window_that_does_not_match_project_constant():
+    """Test that ISTFT rejects a window other than the project window."""
+    # Arrange
+    stft = np.ones((2, 1 + (N_FFT // 2), 4), dtype=np.complex64)
+
+    # Act and Assert
+    with pytest.raises(ValueError, match="window must match stemmy.constants.WINDOW"):
+        compute_istft(stft, hop_length=1024, win_length=4096, window="boxcar")
+
+
+def test_istft_rejects_single_channel_stft():
+    """Test that ISTFT rejects a complex STFT without two channels."""
+    # Arrange
+    stft = np.ones((1, 1 + (N_FFT // 2), 4), dtype=np.complex64)
+
+    # Act and Assert
+    with pytest.raises(ValueError, match="stft_complex must have shape"):
+        compute_istft(stft, hop_length=1024, win_length=4096, window=WINDOW)
+
+
+def test_istft_rejects_stft_without_channel_dimension():
+    """Test that ISTFT rejects a two-dimensional STFT array."""
+    # Arrange
+    stft = np.ones((1 + (N_FFT // 2), 4), dtype=np.complex64)
+
+    # Act and Assert
+    with pytest.raises(ValueError, match="stft_complex must have shape"):
+        compute_istft(stft, hop_length=1024, win_length=4096, window=WINDOW)

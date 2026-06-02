@@ -1,4 +1,3 @@
-# src/stemmy/tool/cli.py
 """Command-line interface for running stem separation inference.
 
 This module provides a Click-based CLI that can:
@@ -10,8 +9,10 @@ This module provides a Click-based CLI that can:
 Outputs are written as <base>_<stem>.wav files under the chosen output directory.
 """
 
+import os
 from dataclasses import replace
 from pathlib import Path
+from typing import Sequence
 
 import click
 import torch
@@ -29,9 +30,51 @@ from stemmy.inference import (
     separate_audio_file,
 )
 from stemmy.logging_config import setup_logging
+from stemmy.tool.eq_frames import update_constants_eq_frames
+from stemmy.tool.launcher.commands import (
+    compare,
+    ls_cmd,
+    matrix,
+    run,
+    show,
+)
+from stemmy.tool.launcher.commands import (
+    config as _launcher_config,
+)
 
 DIR: str = Path.cwd().name
 STEMS: list[str] = ["drums-", "vocals-", "bass-", "other-"]
+TRAIN_DATA_ROOT_KEY: str = "TRAIN_DATA_ROOT"
+DATA_KEY: str = "DATA"
+CKPT_DIR_KEY: str = "CKPT_DIR"
+EVAL_DIR_KEY: str = "EVAL_DIR"
+
+
+def _apply_potato_mode(potato: bool) -> None:
+    """Set terminal-friendly logging/progress defaults for dev workflows."""
+    if not potato:
+        return
+    os.environ["LOG_LEVEL"] = "INFO"
+    os.environ["STEMMY_DISABLE_PROGRESS"] = "1"
+    os.environ["EVAL_PROGRESS"] = "0"
+    setup_logging(level="INFO")
+
+
+def _fullsong_eval_default_env() -> dict[str, str]:
+    """Return default environment values for dev full-song evaluation."""
+    from dotenv import dotenv_values
+
+    env_values = dotenv_values(".env")
+
+    data_root = os.getenv(TRAIN_DATA_ROOT_KEY) or env_values.get(TRAIN_DATA_ROOT_KEY) or ""
+    defaults: dict[str, str] = {}
+
+    if isinstance(data_root, str) and data_root.strip():
+        defaults[DATA_KEY] = data_root.strip()
+
+    defaults[CKPT_DIR_KEY] = "checkpoints"
+    defaults[EVAL_DIR_KEY] = "eval"
+    return defaults
 
 
 def _resolve_device(device: str) -> str:
@@ -114,12 +157,13 @@ def _load_model_and_cfg(
     ckpt_in = checkpoint.strip() if isinstance(checkpoint, str) and checkpoint is not None else ""
     ts_in = torchscript.strip() if isinstance(torchscript, str) and torchscript is not None else ""
 
-    if ckpt_in == "" and ts_in == "":
-        raise click.ClickException(
-            "Either --checkpoint (.pth) or --torchscript (.pt) is required unless --preview is set."
-        )
     if ckpt_in != "" and ts_in != "":
         raise click.ClickException("Use only one: --checkpoint or --torchscript (not both).")
+
+    if ckpt_in == "" and ts_in == "":
+        from stemmy.hub import get_default_model
+
+        ckpt_in = get_default_model()
 
     resolved_device = _resolve_device(device)
 
@@ -147,12 +191,108 @@ def _load_model_and_cfg(
     return model, cfg, None
 
 
+# NOTE: Root CLI command group
 @click.group()
 def cli() -> None:
     """Stemmy command-line interface."""
-    setup_logging()
+    setup_logging(level=os.getenv("LOG_LEVEL", "ERROR"))
 
 
+# NOTE: `stemmy dev` command group — registered only when training/eval modules are
+# importable. The PyPI wheel excludes those modules, so `stemmy dev` is absent there.
+def _register_dev_commands(parent: click.Group) -> None:
+    """Attach the `dev` group and its subcommands to `parent` when available.
+
+    Imports `stemmy.training.train` and `stemmy.tool.dev.fullsong_eval_masked`
+    lazily. If either is missing (as in the published wheel), the helper is a
+    no-op and the `dev` group is not exposed. Eval main is looked up at call
+    time so tests can monkeypatch `stemmy.tool.dev.fullsong_eval_masked.main`.
+    """
+    try:
+        from stemmy.tool.dev import fullsong_eval_masked
+        from stemmy.training.train import main as train_command
+    except ImportError:
+        return
+
+    @parent.group(help="Developer commands.")
+    def dev() -> None:
+        """Developer command group."""
+
+    dev.add_command(train_command)
+
+    @dev.command(
+        "eval",
+        context_settings={
+            "ignore_unknown_options": True,
+            "allow_extra_args": True,
+        },
+        help=(
+            "Run full-song masked evaluation. "
+            "Pass environment overrides as KEY=VALUE arguments "
+            "(for example DATA=/path CKPT_DIR=/path EVAL_DIR=/path)."
+        ),
+    )
+    @click.option(
+        "--potato",
+        is_flag=True,
+        default=False,
+        help="Disable progress bars and force INFO logs.",
+    )
+    @click.argument("env_args", nargs=-1, type=click.UNPROCESSED)
+    def dev_fullsong_eval_masked(potato: bool, env_args: Sequence[str]) -> None:
+        """Run full-song evaluation via stemmy.tool.dev.fullsong_eval_masked."""
+        env_overrides = [arg for arg in env_args if arg != "--potato"]
+        potato = bool(potato or ("--potato" in env_args))
+        _apply_potato_mode(potato)
+        os.environ.setdefault("LOG_LEVEL", "ERROR")
+
+        for key, value in _fullsong_eval_default_env().items():
+            os.environ.setdefault(key, value)
+
+        for raw in env_overrides:
+            if "=" not in raw:
+                raise click.ClickException(
+                    "Invalid argument '%s'. Expected KEY=VALUE environment override." % raw
+                )
+            key, value = raw.split("=", 1)
+            key = key.strip()
+            if key == "":
+                raise click.ClickException("Invalid argument '%s'. Empty environment key." % raw)
+            os.environ[key] = value
+
+        fullsong_eval_masked.main()
+
+
+# NOTE: `stemmy spinner` command
+@cli.command("spinner", help="Generate EQ spinner frames and update src/stemmy/constants.py.")
+def spinner() -> None:
+    """Regenerate EQ_FRAMES and write them to constants.py."""
+    try:
+        changed = update_constants_eq_frames()
+    except (FileNotFoundError, PermissionError, ValueError, OSError) as exc:
+        raise click.ClickException("Failed to update EQ_FRAMES: %s" % exc) from exc
+
+    if changed:
+        click.echo("Updated EQ_FRAMES in src/stemmy/constants.py")
+    else:
+        click.echo("EQ_FRAMES already up to date in src/stemmy/constants.py")
+
+
+# NOTE: `stemmy gui` command
+@cli.command("gui", help="Launch the Stemmy graphical front end.")
+def gui() -> None:
+    """Launch the PySide6 GUI."""
+    try:
+        from stemmy.gui.gui import main as gui_main
+    except ImportError as exc:
+        raise click.ClickException(
+            'Unable to import the GUI. Install the GUI dependency with: pip install -e ".[gui]"'
+        ) from exc
+
+    raise SystemExit(gui_main())
+
+
+# NOTE: `stemmy separate` command
 @cli.command(
     help=(
         "Separate an audio file into stems.\n\n"
@@ -165,14 +305,16 @@ def cli() -> None:
     )
 )
 @click.option("--input-file", "-i", required=True, help="Name of input audio file.")
-@click.option("--output-dir", "-o", default=DIR, help="Name of output directory.")
+@click.option("--output-dir", "-o", default=".", help="Name of output directory.")
 @click.option(
     "--checkpoint",
     "-c",
+    default=None,
     required=False,
     help=(
         "Path to model checkpoint (.pth). Preferred when you want config-from-checkpoint "
-        "alignment. Mutually exclusive with --torchscript."
+        "alignment. Mutually exclusive with --torchscript. "
+        "If neither is given, the default model is downloaded from Hugging Face on first use."
     ),
 )
 @click.option(
@@ -200,7 +342,7 @@ def cli() -> None:
 @click.option(
     "--chunk-frames",
     type=int,
-    default=0,
+    default=256,
     show_default=True,
     help=(
         "If > 0, run inference in time chunks of this many STFT frames to "
@@ -210,7 +352,7 @@ def cli() -> None:
 @click.option(
     "--overlap-frames",
     type=int,
-    default=0,
+    default=64,
     show_default=True,
     help="Overlap (in STFT frames) between chunks when --chunk-frames > 0.",
 )
@@ -219,6 +361,12 @@ def cli() -> None:
     default=False,
     show_default=True,
     help="Enable CUDA autocast (AMP) during inference to reduce memory usage.",
+)
+@click.option(
+    "--potato",
+    is_flag=True,
+    default=False,
+    help="Disable progress bars and force INFO logs.",
 )
 def separate(
     input_file: str,
@@ -230,8 +378,11 @@ def separate(
     chunk_frames: int,
     overlap_frames: int,
     amp: bool,
+    potato: bool,
 ) -> None:
     """Separate an input file into stems and export the outputs."""
+    _apply_potato_mode(potato)
+
     console = Console()
     display_input = input_file
     console.print("\nSong Name:", style=BOLD_RED, end=" ")
@@ -292,6 +443,21 @@ def separate(
         stems=stems,
         checkpoint=ckpt_obj,
     )
+
+
+# NOTE: HPC launcher subcommands — run/matrix/ls/show/compare/config
+for _launcher_cmd in (
+    run,
+    matrix,
+    ls_cmd,
+    show,
+    compare,
+    _launcher_config,
+):
+    cli.add_command(_launcher_cmd)
+
+
+_register_dev_commands(cli)
 
 
 if __name__ == "__main__":
